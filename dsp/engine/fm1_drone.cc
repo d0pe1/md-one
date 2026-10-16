@@ -167,6 +167,8 @@ void Drone::Render(int16_t *out, uint32_t n)
     while (n) {
         uint32_t chunk = (n > FM1_BLOCK) ? FM1_BLOCK : n;
 
+        for (uint32_t i = 0; i < chunk * 2u; i++) bus_[i] = 0;
+
         for (uint8_t vi = 0; vi < FM1_VOICES; vi++) {
             DroneVoice &d = v_[vi];
             if (!d.gate) continue;
@@ -222,14 +224,19 @@ void Drone::Render(int16_t *out, uint32_t n)
             int32_t lvl = d.p[P_LEVEL];                 /* 0..127 */
             int32_t pan = d.p[P_PAN];                   /* 0..127, 64 centre */
 
-            /* Constant-ish power without a sqrt: linear is fine for a drone
-             * bed and costs two multiplies. */
-            int32_t gl = (lvl * (127 - pan)) >> 7;
-            int32_t gr = (lvl * pan) >> 7;
-            /* scale so a centred voice is unity-ish, then leave headroom for
-             * four voices summing */
-            gl = (gl << 1) / FM1_VOICES;
-            gr = (gr << 1) / FM1_VOICES;
+            /* Voice gain is level x pan and NOTHING else.
+             *
+             * It used to be divided by FM1_VOICES, which made every voice
+             * quieter as soon as another existed -- turning a voice off
+             * changed the level of the rest. Unity is one voice at full level,
+             * centre-panned; four of those reach 4.0 on the bus, which is
+             * exactly the two bits of headroom int32 is here to carry.
+             *
+             * Linear pan law, not constant-power: a sqrt is not available and
+             * a drone bed does not need the 3 dB centre lift. Q12 keeps the
+             * quantisation well below a step of the 0..127 knob. */
+            int32_t gl_q12 = (lvl * (127 - pan) * Q12_ONE) / (127 * 127);
+            int32_t gr_q12 = (lvl * pan         * Q12_ONE) / (127 * 127);
 
             for (uint32_t i = 0; i < chunk; i++) {
                 int32_t s = d.scratch[i];
@@ -241,18 +248,26 @@ void Drone::Render(int16_t *out, uint32_t n)
                      * read a stale buffer */
                     (void)fm1_comb_tick(&d.comb, (q15_t)s);
                 }
-                int32_t l = (s * gl) >> 7;
-                int32_t r = (s * gr) >> 7;
-                out[2 * i]     = fm1_q31_to_q15_sat(out[2 * i] + l);
-                out[2 * i + 1] = fm1_q31_to_q15_sat(out[2 * i + 1] + r);
+                /* No saturation here. The bus has room; limiting once at the
+                 * end is the whole point. */
+                bus_[2 * i]     += (s * gl_q12) >> Q12_BITS;
+                bus_[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
             }
         }
 
-        /* --- master ------------------------------------------------------ */
+        /* --- master, then the one saturation point ------------------------
+         *
+         * MASTER scales the bus while it still has headroom, so turning it
+         * down genuinely recovers from a hot mix instead of attenuating
+         * something already clipped. The soft clip is the only place the
+         * instrument distorts; the final add is saturating only to honour
+         * Render()'s contract of mixing into whatever the caller left in
+         * `out`. */
         int32_t m = g_[G_MASTER];
-        if (m != 127) {
-            for (uint32_t i = 0; i < chunk * 2u; i++)
-                out[i] = (int16_t)((out[i] * m) >> 7);
+        for (uint32_t i = 0; i < chunk * 2u; i++) {
+            int32_t s = bus_[i];
+            if (m != 127) s = (s * m) >> 7;
+            out[i] = fm1_q31_to_q15_sat((int32_t)out[i] + fm1_soft_clip(s));
         }
 
         out += chunk * 2u;

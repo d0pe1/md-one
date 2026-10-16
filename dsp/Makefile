@@ -63,10 +63,18 @@ $(BUILD)/test_osc: tests/test_osc.c $(SHARED) host/ref_osc.c shared/fm1_sine_tab
 $(BUILD)/test_comb: tests/test_comb.c $(ENG_HDR) | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ tests/test_comb.c $(LDLIBS)
 
-test: $(BUILD)/test_osc $(BUILD)/test_comb
+# Unlike the two C tests, this one links the whole engine: the bus and the
+# limiter exist only inside Drone::Render, and having no test that went
+# through it is what let the per-voice saturation defect survive this long.
+$(BUILD)/test_mix: tests/test_mix.cc $(ENG_SRC) $(ENG_HDR) $(MI_SRC) $(MI_HDR) | $(BUILD)
+	$(CXX) $(MI_FLAGS) $(MI_INC) -o $@ tests/test_mix.cc $(ENG_SRC) $(MI_SRC)
+
+test: $(BUILD)/test_osc $(BUILD)/test_comb $(BUILD)/test_mix
 	./$(BUILD)/test_osc
 	@echo
 	./$(BUILD)/test_comb
+	@echo
+	./$(BUILD)/test_mix
 
 bench: $(BUILD)/bench
 	./$(BUILD)/bench

@@ -79,6 +79,12 @@ class Drone {
     DroneVoice v_[FM1_VOICES];
     uint8_t    g_[NGPARAM];
     uint32_t   blocks_;        /* blocks rendered, for drift scheduling */
+
+    /* The mix bus. int32 so voices accumulate with headroom and saturation
+     * happens ONCE, after master -- not on every voice add, which distorted
+     * the mix rather than limiting it. 2 KiB; a member rather than a local
+     * because the user stack is only ~24 KiB. */
+    int32_t    bus_[FM1_BLOCK * 2];
 };
 
 }  // namespace fm1

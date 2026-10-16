@@ -130,9 +130,20 @@ wholesale.
 2. **Unity is one voice at full level, centre-panned.** Not four.
 3. **The bus carries 2 bits of headroom** (±4× full scale). Four correlated
    voices at full level reach the top of it without clipping the bus itself.
-4. **Voice gain is `level × pan`, not scaled by voice count.** Turning a voice
-   off must not change the level of the others — the current `1/FM1_VOICES`
-   makes level depend on polyphony, which is wrong.
+4. **Voice gain is `level × pan` and nothing else.**
+
+   An earlier draft of this rule claimed `(gl << 1) / FM1_VOICES` made level
+   depend on polyphony. It did not: `FM1_VOICES` is a compile-time constant,
+   so that expression was a flat ½ attenuation applied to every voice
+   identically, and turning a voice off never changed the others. The claim
+   was wrong and is corrected here rather than quietly dropped.
+
+   The real cost was narrower but still worth removing. A single voice at full
+   level, centre-panned, could only ever reach **0.24** of full scale, so the
+   instrument threw away roughly 12 dB of output range and then asked the DAW
+   to make it up with gain — which also lifts the noise floor. And the
+   attenuation bought nothing, because saturation happened per voice add
+   anyway (rule 1), so it protected nothing it was supposed to protect.
 5. **Master is the only thing between the bus and the output**, and the soft
    clip after it is the one place the instrument is allowed to distort.
 6. **USB audio taps after master and after the clip** — the DAW records
@@ -317,10 +328,20 @@ Everything here is measured on the emulator at one instruction per cycle, by
 
 | Voices | Cycles/block | % budget | Marginal per voice |
 | --- | --- | --- | --- |
-| 1 | 61,337 | 4.4% | — |
-| 2 | 115,909 | 8.3% | 54,572 |
-| 3 | 170,490 | 12.2% | 54,581 |
-| 4 | **225,083** | **16.2%** | 54,593 |
+| 1 | 67,489 | 4.8% | — |
+| 2 | 121,465 | 8.7% | 53,976 |
+| 3 | 175,297 | 12.6% | 53,832 |
+| 4 | **229,357** | **16.5%** | 54,060 |
+
+Measured after the int32 bus landed. It cost **4,274 cycles** against the
+previous 225,083 — 0.3 points of budget for the single saturation point, the
+master applied with headroom intact, and the soft clip.
+
+Note the shape of it: the *marginal per-voice* cost went **down** (54,593 →
+54,060) because the inner loop no longer saturates on every sample, while the
+fixed per-block overhead went up for the bus clear and the limiter pass. The
+change is close to free per voice and slightly more expensive per block, which
+is the right direction — voices are the thing that scales.
 
 ### Per block type
 

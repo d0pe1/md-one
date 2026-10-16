@@ -63,6 +63,52 @@ static inline q15_t fm1_q31_to_q15_sat(q31_t s)
     return (q15_t)s;
 }
 
+/* --- soft clip -------------------------------------------------------------
+ *
+ * The mix bus carries two bits of headroom (docs/SIGNAL_PATH.md section 4), so
+ * four correlated voices at full level reach about 4.0 before anything limits
+ * them. This is where that comes back to 1.0, and it is the ONLY place the
+ * instrument is allowed to distort.
+ *
+ * Hard clipping four detuned drone voices -- which sit near full scale by
+ * nature -- produces broadband splatter. A knee is a gentler failure.
+ *
+ * The curve is one quadratic segment, in normalised terms:
+ *
+ *     |x| <= 0.5          y = x                      (untouched)
+ *     0.5 < |x| < 1.5     y = x - (|x| - 0.5)^2 / 2  (knee)
+ *     |x| >= 1.5          y = 1                      (hard)
+ *
+ * Continuous in value and in slope at both joins: the slope is 1.0 at 0.5 and
+ * 0.0 at 1.5, so nothing kinks on the way in or out. One compare, one multiply
+ * and a shift -- cheap enough for every output sample.
+ *
+ * In Q15 the divide by 2 and the 1/32768 normalisation fold into a single
+ * >>16, which is why the knee sits at 0.5 rather than somewhere prettier.
+ */
+#define FM1_CLIP_KNEE  16384    /* 0.5 in Q15 */
+#define FM1_CLIP_HARD  49152    /* 1.5 in Q15 -- the knee reaches 1.0 here */
+
+static inline q15_t fm1_soft_clip(q31_t x)
+{
+    int32_t a = x < 0 ? -x : x;
+
+    if (a <= FM1_CLIP_KNEE) return (q15_t)x;
+
+    /* -Q15_ONE, not Q15_MIN. Two's complement gives one extra code below zero,
+     * and spending it here would make the limiter asymmetric by 1 LSB at the
+     * rail -- which is a DC offset and an even-harmonic generator on exactly
+     * the fully-driven material this is meant to protect. One code of range is
+     * the cheaper thing to give up. */
+    if (a >= FM1_CLIP_HARD) return (q15_t)(x < 0 ? -Q15_ONE : Q15_ONE);
+
+    int32_t d = a - FM1_CLIP_KNEE;      /* 0..32767, so d*d stays inside int32 */
+    int32_t y = a - ((d * d) >> 16);
+    if (y > Q15_ONE) y = Q15_ONE;       /* only reachable at the very top */
+
+    return (q15_t)(x < 0 ? -y : y);
+}
+
 /* --- phase increment -------------------------------------------------------
  *
  * inc = freq / samplerate * 2^32, with no 64-bit division.
