@@ -50,10 +50,10 @@ SDK_SHA256 = {
 # Our own identity, not Dinghy's: two firmwares sharing one look like one to
 # the installers and the hub (docs/MAKE-IT-YOURS.md). Keeping the FM-1_9NN
 # form means the web installers can also resume a half-finished install.
-PRODUCT = "FM-1_971"                # DRONELAB build 1
+PRODUCT = "FM-1_971"                # MD-One build 1
 VERSION = None                      # APP_VER for release builds
 APP_C = "drone.c"                   # the application; Dinghy's was dinghy.c
-APP_NAME = "DRONELAB"               # the rescue and crash screens say this
+APP_NAME = "MD-One"                 # the rescue and crash screens say this
 
 
 def toolchain():

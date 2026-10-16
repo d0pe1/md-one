@@ -1,4 +1,4 @@
-# DRONELAB — signal path
+# MD-One — signal path
 
 What the sound passes through, in what order, at what level, and which parts
 are per-voice versus shared. Written before building, because the current

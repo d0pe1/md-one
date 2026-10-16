@@ -1,4 +1,4 @@
-# DRONELAB — interaction design
+# MD-One — interaction design
 
 The instrument's control surface, defined before it is built. Everything here
 is a rule the firmware must obey, not a suggestion.

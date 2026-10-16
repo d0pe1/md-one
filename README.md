@@ -1,12 +1,21 @@
-# fm1-laboratory
+# MD-One
 
-A development environment for writing our own firmware for the **M-VAVE FM-1**,
-a pocket six-operator FM synthesizer built on a JieLi AC791N with the
-proprietary pi32v2 CPU.
+A **Mutable-derived drone machine** for the **M-VAVE FM-1** — a pocket
+six-operator FM synthesizer built on a JieLi AC791N with the proprietary pi32v2
+CPU. MD-One replaces its firmware with four Braids oscillators, tuned combs and
+a modulation system, delivering into a DAW over USB audio.
 
-Bootstrapped 2026-10-16. **No FM-1 has been connected and no firmware has been
-flashed** — two units are on order. Everything below runs on the host and in an
-emulator.
+*MD = Mutable Droner. The working directory is still `fm1-laboratory/`; the
+instrument is MD-One.*
+
+**No FM-1 has been connected and no firmware has been flashed** — two units are
+on order, one to stay boxed as a known-good reference. Everything here runs on
+the host and in the [fm1-emu](https://github.com/joakimeriksson/fm1-emu)
+emulator, and every number in `docs/` was measured there rather than estimated.
+
+Licensing is **GPL-3.0-only**, inherited from Dinghy, with `dsp/` deliberately
+MIT and free of GPL code so the engine stays reusable — see
+[LICENSING.md](LICENSING.md).
 
 ## Status
 

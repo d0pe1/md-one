@@ -1,4 +1,4 @@
-# DRONELAB — concept and roadmap
+# MD-One — concept and roadmap
 
 ## The instrument
 

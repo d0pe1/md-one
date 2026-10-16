@@ -1,29 +1,26 @@
-# firmware/
+# MD-One — the firmware
 
-**Empty by design.** Our FM-1 firmware will live here; the bootstrap
-deliberately stopped before creating it.
-
-## How it starts, when we start it
-
-Dinghy is a GitHub *template* repository. The intended route is to use the
-template (or fork it), clone our copy here, and confirm the unmodified build
-works before changing a line — which this bootstrap already proved:
+Our fork of Dinghy, carrying the MD-One application. Before a line was changed,
+the unmodified build was reproduced byte for byte:
 
 ```
-build/dinghy-0.3.fwsc  sha256 4e907044…  == the published release, byte for byte
+build/dinghy-0.3.fwsc  sha256 4e907044…  == the published release
 ```
 
-So the plan is:
+That reproduction is what makes every later difference attributable to us
+rather than to the toolchain.
 
 ```
-firmware/              <- our fork of Dinghy
-  src/<name>.c         <- our app: the part we write
+firmware/
+  src/drone.c          <- MD-One: the part we write
   src/platform.c       <- Dinghy's plumbing: read it, don't fight it
   hal/                 <- Felucca's HAL: do not duplicate
+  tools/build.py       <- our identity lives here (PRODUCT, APP_NAME)
 ```
 
-`references/dinghy/docs/MAKE-IT-YOURS.md` covers renaming, the package identity
-(so installers distinguish our firmware from Dinghy) and releases.
+**Package identity `FM-1_971`, app name `MD-One`.** Not Dinghy's — two
+firmwares sharing an identity look like one firmware to the installers and the
+hub. `docs/MAKE-IT-YOURS.md` covers the rest of the rename and releases.
 
 ## Before writing any of it, two things are already decided
 
@@ -57,14 +54,20 @@ enforces the first two against our DSP earlier, where the error names the file.
 
 ## Current budget
 
-Measured from the unmodified Dinghy build:
+Measured from the MD-One build, not from Dinghy's:
 
-| | Used | Available | Free for us |
+| | Used | Available | Still free |
 | --- | --- | --- | --- |
-| Flash image | 55 076 B | 581 564 B | **~526 KB** |
-| RAM `.data+.bss` | 12 368 B | 98 304 B | **~84 KiB** |
-| RAM `.pool` | 30 720 B | 344 064 B | **~306 KiB** |
-| | | | **~390 KiB of RAM total** |
+| Flash image | 138 296 B | 581 564 B | **~433 KB** |
+| RAM `.data+.bss` | 13 264 B | 98 304 B | **~83 KiB** |
+| RAM `.pool` | 118 572 B | 344 064 B | **~220 KiB** |
+
+The pool is where the four `BraidsVoice` objects live, at 17 152 B each, plus
+a 4 KiB comb delay line per voice.
+
+**CPU is the budget that actually binds, not memory.** Four voices cost 225 083
+cycles per 256-frame block — 16.2% of the 1 393 152 available. `docs/SIGNAL_PATH.md`
+§8 has the per-block measurements.
 
 The device has **512 KiB** of data RAM; those two regions are the parts an
 application may use. `.pool` is the one for big buffers — delay lines,
