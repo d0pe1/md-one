@@ -1,0 +1,33 @@
+# Upstream clones: reproduced by scripts/clone-references.ps1 at the SHAs in
+# docs/REPOSITORY_MAP.md. Never vendored into this repository.
+/references/
+
+# Build output
+/dsp/build/
+**/target/
+*.o
+*.elf
+*.dis
+
+# Artifacts: firmware packages, flash dumps, rendered audio, screenshots.
+#
+# Kept out of git deliberately. artifacts/firmwares/ holds OTHER PEOPLE'S
+# released binaries, fetched from their own sites as emulator test input -- they
+# are not ours to redistribute. Any future flash dump also lands here and may
+# contain device-unique material (chip keys, calibration, identifiers) that must
+# never be published. See docs/FIRMWARE_SAFETY.md.
+/artifacts/*
+!/artifacts/README.md
+
+# Local toolchains live outside the tree (~/.jieli, ~/fw-AC79_AIoT_SDK); this is
+# a backstop in case someone points the setup script at the workspace.
+/tools/toolchain/
+/tools/*/bin/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store

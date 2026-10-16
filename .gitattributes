@@ -1,0 +1,20 @@
+# Line endings are not cosmetic here.
+#
+# This tree is edited on Windows and built inside WSL. Git for Windows ships
+# core.autocrlf=true at SYSTEM level, so without this file a fresh clone checks
+# out scripts/*.sh and firmware/build.sh with CRLF and every one of them dies
+# with "/bin/sh^M: bad interpreter". That cost a morning once already.
+#
+# Normalise everything to LF in the repository AND in the working tree, which
+# overrides core.autocrlf for anyone who clones this.
+* text=auto eol=lf
+
+# Things that must never be touched by EOL conversion.
+*.png  binary
+*.bmp  binary
+*.jpg  binary
+*.ico  binary
+*.wav  binary
+*.bin  binary
+*.elf  binary
+*.fwsc binary
