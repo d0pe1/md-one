@@ -307,35 +307,70 @@ backed by measurements. That ordering is the point: measure, then choose.
 
 ---
 
-## 8. Cost estimate
+## 8. Measured cost
 
-Measured today: 54,598 cycles per voice per 256-frame block, four voices at
-16.2% of budget. The additions:
+Everything here is measured on the emulator at one instruction per cycle, by
+`scripts/measure-fx-cycles.sh` (blocks) and `scripts/measure-drone-cycles.sh`
+(engine). Budget is 1,393,152 cycles per 256-frame block.
 
-| Block | Cost | Basis |
-| --- | --- | --- |
-| **SVF filter** | **9,730 cycles/voice/block** | **measured**, `scripts/measure-svf-cycles.sh` |
-| Envelope | ~300 cycles/voice/block | estimate; block rate, not per sample |
-| 4 LFOs | ~200 cycles/block total | estimate; block rate, shared |
-| int32 bus | roughly neutral | removes per-add saturation |
+### The engine as it stands
 
-The filter was measured with `dsp/target/probe_svf.cc` at 0–3 SVFs in series,
-four voices, 256-frame block. Cost is linear in filter count:
-
-| Filters | Cycles/block | Per voice | % budget |
+| Voices | Cycles/block | % budget | Marginal per voice |
 | --- | --- | --- | --- |
-| 0 (loop baseline) | 4,159 | 1,040 | 0.30% |
-| 1 | 40,015 | 10,004 | 2.87% |
-| 2 | 81,996 | 20,499 | 5.89% |
-| 3 | 120,911 | 30,228 | 8.68% |
+| 1 | 61,337 | 4.4% | — |
+| 2 | 115,909 | 8.3% | 54,572 |
+| 3 | 170,490 | 12.2% | 54,581 |
+| 4 | **225,083** | **16.2%** | 54,593 |
 
-**Two filters per voice costs 5.6% of the budget.** Against the measured
-engine at 16.2%, the whole instrument lands near **21.7%**.
+### Per block type
 
-One nuance on the usual "the emulator is optimistic" caveat: it applies far
-less to the filter than to the oscillator. `Svf::Process` reads
-`lut_svf_cutoff` and `lut_svf_damp` **only when a parameter changed** (the
-`dirty_` flag) — the per-sample path is pure register arithmetic with no
-flash access. The oscillator, by contrast, reads wavetables every sample. So
-the filter figure should track real silicon closely, while the oscillator
-figure is the one that may inflate.
+Measured with `dsp/target/probe_fx.cc`, N instances in series, four voices,
+256-frame block.
+
+| Block | Per voice per instance | Four voices | Notes |
+| --- | --- | --- | --- |
+| **SVF filter** | **10,004** | 2.87% | linear in count: 1/2/3 filters = 2.87% / 5.89% / 8.68% |
+| **Comb** | **8,468** | 2.43% | *cheaper than the filter*; 8,482 at two voices, so the figure is stable |
+| Envelope | ~300 | — | estimate; block rate, not per sample |
+| 4 LFOs | ~200 total | — | estimate; block rate, shared |
+| int32 bus | roughly neutral | — | removes per-add saturation |
+
+**The comb costs less than the SVF.** That is the result that matters for
+§5b: folding comb and resonator into the filter's mode list is not a
+compromise made to save cycles — the mode that tracks pitch is the cheaper
+one. Two multimode filters per voice costs **5.9%** at worst, and less
+whenever either is set to a comb mode.
+
+Against the engine's 16.2%, the whole instrument lands near **22%**, leaving
+the global FX rack roughly three quarters of the budget to spend — and rack
+blocks are paid once, not per voice.
+
+### How much to trust these numbers
+
+The usual "the emulator is optimistic" caveat applies unevenly.
+
+* **SVF — trust it.** `Svf::Process` reads `lut_svf_cutoff` and `lut_svf_damp`
+  only when `dirty_` is set. The per-sample path is pure register arithmetic
+  with no flash access, so real silicon should track closely.
+* **Comb — treat it as a floor.** A 4 KiB delay line read at two taps per
+  sample is exactly the access pattern an emulator flatters. This is the block
+  most likely to cost more in reality.
+* **Oscillator — the one that may inflate.** It reads wavetables every sample.
+
+### A probe defect found while measuring this
+
+`probes/harness/probe.h` hardcodes `RESULTS` at `0x01C10000`, 32 KiB into the
+probe's RAM region. `probe_drone.cc` holds four `BraidsVoice` objects at 17,152
+B each and ran its `.bss` ~56 KB past that address, writing its own pass/fail
+verdict over its own DSP state while reporting "0 failures".
+
+Separately, `probe_drone.cc` referenced `P_DRIFT_DEPTH`, which had been split
+into `P_FM` and `P_MOD` — so it had not compiled since that change, and its
+figures came from binaries predating it.
+
+Both are fixed: `dsp/target/probe.ld` now places probe RAM *above* the results
+block, with an `ASSERT` tying the two together, and the probe sets both
+attenuverters. **Re-measured after the fix, the engine came back at 225,083
+cycles against the 225,103 recorded before — a 20-cycle difference.** The
+headline figure was right; the probe that produced it was not trustworthy, and
+now is.
