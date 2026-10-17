@@ -83,6 +83,15 @@ class Drone {
     uint8_t Meter(uint8_t voice) const
     { return voice < FM1_VOICES ? meter_[voice] : 0; }
 
+    /* Did this channel reach full scale recently? The meter turns entirely
+     * red when it did.
+     *
+     * Held for ~0.5 s rather than reported instantaneously: a clip lasting
+     * one block is 5.8 ms, which no eye catches, and an overload you cannot
+     * see is the same as one that did not happen. */
+    bool Clipping(uint8_t voice) const
+    { return voice < FM1_VOICES && clip_[voice] != 0; }
+
     /* --- audio, from the ISR -------------------------------------------- */
 
     /* n stereo frames, interleaved L R L R. ADDS to out, as app_audio() does,
@@ -95,6 +104,7 @@ class Drone {
     DroneVoice v_[FM1_VOICES];
     uint8_t    g_[NGPARAM];
     uint8_t    meter_[FM1_VOICES];      /* see Meter() */
+    uint8_t    clip_[FM1_VOICES];       /* blocks of red remaining */
     uint32_t   blocks_;        /* blocks rendered, for drift scheduling */
 
     /* The mix bus. int32 so voices accumulate with headroom and saturation

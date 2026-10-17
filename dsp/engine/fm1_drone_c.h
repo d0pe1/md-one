@@ -112,6 +112,10 @@ void    fm1_drone_set_global(uint8_t param, uint8_t value);
  * meters. */
 uint8_t fm1_drone_meter(uint8_t voice);
 
+/* Non-zero while voice v has recently reached full scale -- the meter is
+ * drawn entirely red. Held about half a second. */
+uint8_t fm1_drone_clipping(uint8_t voice);
+
 /* The label for a parameter, for the screen. Never NULL. */
 const char *fm1_drone_param_name(uint8_t param);
 

@@ -250,20 +250,31 @@ and you cannot balance what you cannot see together.
 │ MIX                  1/1   │
 │ CH 2                       │
 ├────────────────────────────┤
-│       ┏━━━━━━┓             │
-│   ◞   ┃  ◝   ┃  ◜     ◉    │  PAN, one per channel
-│  ▁▃▅  ┃ ▁▃▅▇ ┃ ▁▃    ▁     │  level meter, post-fader
-│  ▓▓▓  ┃ ▓▓▓  ┃ ▓▓▓   ▓▓▓   │
-│  ─█─  ┃ ─█─  ┃ ──█   █──   │  fader
-│  ▓▓▓  ┃ ▓▓▓  ┃ ▓▓▓   ▓▓▓   │
-│       ┗━━━━━━┛             │
-│   1      2      3      4   │
-│  FX1    FX1    ---    OUT  │  where this channel's signal goes
+│   ◞      ┏━━━━┓            │
+│          ┃ ◝  ┃   ◜     ◉  │  PAN
+│  ·│      ┃·│  ┃  ·│    ·│  │  9  ─ 0 dB   blue
+│  ·│      ┃▪█  ┃  ·│    ·│  │  8  ─3
+│  ·│      ┃▪█  ┃  ·│    ·│  │  7  ─6
+│  ·█      ┃▪│  ┃  ·│    ·│  │  6  ─9
+│  ▪█      ┃▪│  ┃  ·│    ·│  │  5 ─12   green
+│  ▪│      ┃▪│  ┃  ·█    ·│  │  4
+│  ▪│      ┃▪│  ┃  ▪█    ·│  │  3
+│  ▪│      ┃▪│  ┃  ▪│    ▪█  │  2
+│  ▪│      ┃▪│  ┃  ▪│    ▪█  │  1 ─36
+│          ┗━━━━┛            │
+│   1        2       3    4  │
+│  FX1      FX1     ---  OUT │  where the channel's signal goes
 ├────────────────────────────┤
 │  VOL   PAN   MONO   ----   │  the four knobs, mapped to CH 2
 │  104    C     OFF          │
 └────────────────────────────┘
+
+        ▪ meter segment    █ fader cap    │ fader track
 ```
+
+Both run **vertically**, like the hardware they are imitating. A horizontal
+bar reads as a spectrum analyser, which is a different instrument telling you
+a different thing.
 
 **SELECT chooses the channel and the four knobs follow it.** The selected
 strip is boxed in red, and the box *is* the mapping — it says "these knobs
@@ -295,13 +306,40 @@ set where the routed thing lives.
 
 #### Metering
 
-The meter is **post-fader**, so it shows what the channel actually contributes
-to the mix. A channel pulled down must read quiet, or the meter is lying about
-the balance — which is the one job it has.
+Nine segments per channel, lit from the bottom, in the DJ-mixer idiom:
+
+| Segments | Colour | Range |
+| --- | --- | --- |
+| 1–5 | **green** | −36 dB … −12 dB |
+| 6–9 | **blue** | −9 dB … 0 dB |
+| all nine | **red** | the channel reached full scale |
+
+**Red is the whole ladder, not the top segment.** An overload should be
+readable from across a room, not found by inspecting one pixel. It holds for
+about half a second, because a clip lasting one block is 5.8 ms and an
+overload nobody can see is the same as one that did not happen.
+
+The ladder is roughly logarithmic — 6 dB per step up to −12, then 3 dB — so
+the resolution sits where the decisions are. A linear ladder puts seven of the
+nine segments below −18 dB, where nothing worth seeing happens. Thresholds are
+`FM1_METER_STEPS` in `dsp/engine/fm1_params.h`, defined once so the UI and the
+engine cannot disagree.
+
+The meter is **post-fader**: it shows what the channel actually contributes.
+Pull a fader down and it must read quiet, or it is lying about the balance,
+which is its one job. It is taken after F2 and before pan, so panning moves a
+voice without changing what its meter says.
 
 Peak with a slow fall. A drone that sits steadily hot and one that peaks once
-look identical on a fast meter, and on this instrument almost everything is
-the first kind.
+look identical on a fast meter, and here almost everything is the first kind.
+
+> **What red actually means.** The clip flag fires when a channel's own path
+> reaches full scale — not when the mix bus does. The bus carries two bits of
+> headroom and limits once at the end (§4 of `SIGNAL_PATH.md`), so a red
+> channel is a warning that *this* channel has nothing left, which is
+> actionable, rather than a report that the output is distorting, which is
+> not. Reaching it takes real effort: the comb normalises its own resonant
+> gain, so it takes two resonant filters in series to get there.
 
 ### Routing lives on the last page of its own menu
 

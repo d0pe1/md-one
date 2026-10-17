@@ -80,6 +80,30 @@ enum {
 #define G_FX_MIX     3
 #define G_FX_DEST    4
 
+/* --- mixer meter ladder ---------------------------------------------------
+ *
+ * Nine segments, lit from the bottom when Meter() reaches each threshold.
+ * The engine ignores this; the firmware's UI draws it.
+ *
+ * Spacing is roughly logarithmic -- 6 dB per step up to -12, then 3 dB -- so
+ * the useful top of the range gets the resolution. A linear ladder puts seven
+ * of the nine segments below -18 dB, where nothing worth seeing happens.
+ *
+ *   segment   1   2   3   4   5    6    7    8    9
+ *   dBFS    -36 -30 -24 -18 -12   -9   -6   -3    0
+ *   colour  <------- green ------> <----- blue ----->
+ *
+ * All nine turn RED while Clipping() holds, rather than only the top one: an
+ * overload should be readable from across a room, not found by inspecting the
+ * last segment.
+ */
+#define FM1_METER_SEGS   9
+#define FM1_METER_GREEN  5      /* segments 1..5 green, 6..9 blue */
+
+static const uint8_t FM1_METER_STEPS[FM1_METER_SEGS] = {
+    2, 4, 8, 16, 32, 45, 64, 90, 127
+};
+
 /* How a value is shown. The engine ignores this; the firmware's UI uses it. */
 enum {
     K_NUM,      /* 0..max as a number */

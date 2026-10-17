@@ -415,11 +415,49 @@ static void test_meters(void)
     uint8_t after = d.Meter(0);
     ok(after < m0, "the meter falls once the voice stops", "the meter latched");
 
+    /* The ladder must be ordered and reach the top, or segments are dead. */
+    int ladder = (FM1_METER_STEPS[FM1_METER_SEGS - 1] == 127);
+    for (int i = 1; i < FM1_METER_SEGS; i++)
+        if (FM1_METER_STEPS[i] <= FM1_METER_STEPS[i - 1]) ladder = 0;
+    ok(ladder, "the meter ladder ascends and reaches full scale",
+       "a segment is unreachable or out of order");
+
     for (int b = 0; b < 200; b++) {
         for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
         d.Render(buf, FM1_BLOCK);
     }
     ok(d.Meter(0) == 0, "and reaches zero", "the meter never settles");
+    ok(!d.Clipping(0), "the clip flag releases", "the channel is red forever");
+
+    /* Drive a voice into full scale through a resonant comb and check the red
+     * actually arrives -- a clip indicator that never fires is decoration. */
+    d.Init();
+    d.SetGlobal(G_SPREAD, 0);
+    d.SetParam(0, P_LEVEL, 127);
+    /* A resonant bandpass tuned to the note, not a comb: the comb normalises
+     * its own resonant gain (fm1_comb_set_feedback), so it cannot drive a
+     * channel past full scale by design. The SVF can. */
+    d.SetParam(0, P_F1_TYPE, F_BP);
+    d.SetParam(0, P_F1_CUT, 45);        /* the note being played */
+    d.SetParam(0, P_F1_RES, 127);
+    d.SetParam(0, P_F1_MIX, 127);
+    d.SetParam(0, P_F2_TYPE, F_BP);     /* a second one, in series */
+    d.SetParam(0, P_F2_CUT, 45);
+    d.SetParam(0, P_F2_RES, 127);
+    d.SetParam(0, P_F2_MIX, 127);
+    d.SetParam(0, P_FM, 64);
+    d.SetParam(0, P_MOD, 64);
+    d.NoteOn(0, 45);
+    int sawRed = 0; uint8_t hottest = 0;
+    for (int b = 0; b < 400 && !sawRed; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+        if (d.Meter(0) > hottest) hottest = d.Meter(0);
+        if (d.Clipping(0)) sawRed = 1;
+    }
+    printf("    hottest with resonant BP: %d / 127\n", hottest);
+    ok(sawRed, "a channel driven to full scale reports clipping",
+       "the clip indicator never fires");
 }
 
 int main(void)

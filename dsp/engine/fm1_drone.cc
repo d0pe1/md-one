@@ -29,6 +29,9 @@ static_assert(G_FX(3, G_FX_DEST) == NGPARAM - 1,
  * DETUNE is 0..127 around a centre of 64, spanning +-50 cents. */
 static const int32_t kDetuneSpan = 64;      /* 50 cents = 64 units of 1/128 */
 
+/* ~0.5 s of red at 256 frames per block, 44.1 kHz. */
+static const uint8_t kClipHoldBlocks = 86;
+
 /* Comb tune: parameter 0..127 maps to a delay ratio in Q12, 4096 being the
  * note itself. 64 -> unison, 0 -> two octaves up, 127 -> two octaves down. */
 static inline int32_t comb_ratio_q12(uint8_t v)
@@ -230,8 +233,10 @@ void Drone::Render(int16_t *out, uint32_t n)
          * unplugged decays to zero instead of freezing at its last reading --
          * a stuck meter is worse than no meter. The voice loop below raises
          * them again. */
-        for (uint8_t v = 0; v < FM1_VOICES; v++)
+        for (uint8_t v = 0; v < FM1_VOICES; v++) {
             if (meter_[v]) meter_[v]--;
+            if (clip_[v])  clip_[v]--;
+        }
 
         uint8_t  fx_act[FM1_FX_CHANS];
         uint32_t fx_n = fx_rack_active(&rack_, fx_act);
@@ -358,8 +363,16 @@ void Drone::Render(int16_t *out, uint32_t n)
 
             /* Raise the meter; the fall already happened above. */
             {
-                uint8_t m = (uint8_t)((pk * 127) >> 15);
+                /* Divide by Q15_ONE, not >>15. A shift needs pk = 32768 to
+                 * reach 127, and the voice path saturates at 32767, so the
+                 * top segment of the ladder was unreachable: a channel could
+                 * be pinned at full scale and still show one segment short. */
+                uint8_t m = (uint8_t)(((int32_t)pk * 127) / Q15_ONE);
                 if (m > meter_[vi]) meter_[vi] = m;
+                /* At or past full scale: this channel has no headroom of its
+                 * own left, whether or not the mix bus still does. Held so a
+                 * 5.8 ms overload is still visible half a second later. */
+                if (pk >= Q15_ONE) clip_[vi] = kClipHoldBlocks;
             }
         }
 
