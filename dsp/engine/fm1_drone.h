@@ -89,9 +89,14 @@ class Drone {
      * because the user stack is only ~24 KiB. */
     int32_t    bus_[FM1_BLOCK * 2];
 
-    /* The global FX rack runs on that bus, after the voices sum and before
-     * master. Shared, so its cost is paid once rather than per voice. */
+    /* The FX patchbay. Shared, so its cost is paid once rather than per
+     * voice, and routed per node rather than ordered. */
     fx_rack_t  rack_;
+
+    /* What the voices routed to each effect channel this block. Separate from
+     * bus_ because bus_ is the master output -- a voice set to DEST_OUT goes
+     * straight there and never touches these. 8 KiB. */
+    int32_t    fxin_[FM1_FX_CHANS][FM1_BLOCK * 2];
 };
 
 }  // namespace fm1

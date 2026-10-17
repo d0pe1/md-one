@@ -16,9 +16,14 @@ static_assert(F_NMODES - 1 == 5,
 static_assert(F_OFF == 0,
               "F_OFF moved -- update P_F1_TYPE/P_F2_TYPE def in fm1_params.h");
 static_assert(FX_NTYPES - 1 == 5,
-              "rack block count changed -- update G_FX*_TYPE max in fm1_params.h");
-static_assert(G_FX(3, G_FX_PAR) == NGPARAM - 1,
-              "rack parameter block is not the tail of the global table");
+              "effect count changed -- update G_FX*_TYPE max in fm1_params.h");
+static_assert(DEST_NDEST - 1 == 5,
+              "destination count changed -- update P_DEST and G_FX*_DEST max");
+static_assert(DEST_FX1 + FM1_FX_CHANS == DEST_OUT,
+              "DEST_* is no longer DEST_FX1..FX4 then DEST_OUT -- the engine "
+              "indexes channels by (dest - DEST_FX1)");
+static_assert(G_FX(3, G_FX_DEST) == NGPARAM - 1,
+              "the patchbay parameters are not the tail of the global table");
 
 /* Detune and drift are applied in 1/128-semitone units, Braids' pitch unit.
  * DETUNE is 0..127 around a centre of 64, spanning +-50 cents. */
@@ -189,16 +194,13 @@ void Drone::SetGlobal(uint8_t param, uint8_t value)
     if (param >= G_FX_BASE) {
         uint8_t slot = (uint8_t)((param - G_FX_BASE) / G_FX_STRIDE);
         uint8_t what = (uint8_t)((param - G_FX_BASE) % G_FX_STRIDE);
-        fx_slot_t *s = &rack_.slot[slot];
+        fx_chan_t *c = &rack_.ch[slot];
         switch (what) {
-        case G_FX_TYPE: fx_slot_set_type(s, value); break;
-        case G_FX_P1:   fx_slot_set_p1(s, value);   break;
-        case G_FX_P2:   fx_slot_set_p2(s, value);   break;
-        case G_FX_MIX:  s->mix = value;             break;
-        case G_FX_PAR:
-            s->flags = (uint8_t)(value ? (s->flags | FM1_FX_PAR)
-                                       : (s->flags & ~FM1_FX_PAR));
-            break;
+        case G_FX_TYPE: fx_chan_set_type(c, value); break;
+        case G_FX_P1:   fx_chan_set_p1(c, value);   break;
+        case G_FX_P2:   fx_chan_set_p2(c, value);   break;
+        case G_FX_MIX:  c->mix = value;             break;
+        case G_FX_DEST: fx_chan_set_dest(c, value); break;
         default: break;
         }
     }
@@ -216,6 +218,21 @@ void Drone::Render(int16_t *out, uint32_t n)
         uint32_t chunk = (n > FM1_BLOCK) ? FM1_BLOCK : n;
 
         for (uint32_t i = 0; i < chunk * 2u; i++) bus_[i] = 0;
+
+        /* Is anything actually patched in? Asked once per block, because the
+         * answer only changes at knob rate.
+         *
+         * Without this an idle patchbay cost 58,439 cycles a block -- 4.2% of
+         * the audio budget to clear 8 KiB of input buffers and walk four
+         * unplugged channels 256 times. An instrument that is not using its
+         * FX must not pay for them. */
+        uint8_t  fx_act[FM1_FX_CHANS];
+        uint32_t fx_n = fx_rack_active(&rack_, fx_act);
+
+        /* Only the plugged channels' input buffers need clearing; the rest
+         * are never read. */
+        for (uint32_t k = 0; k < fx_n; k++)
+            for (uint32_t i = 0; i < chunk * 2u; i++) fxin_[fx_act[k]][i] = 0;
 
         for (uint8_t vi = 0; vi < FM1_VOICES; vi++) {
             DroneVoice &d = v_[vi];
@@ -287,8 +304,29 @@ void Drone::Render(int16_t *out, uint32_t n)
              * sample loop, between the two filters, so that F2 hears a voice
              * that has already been faded. Applying it in both places would
              * square it. */
-            int32_t gl_q12 = ((127 - pan) * Q12_ONE) / 127;
-            int32_t gr_q12 = ( pan        * Q12_ONE) / 127;
+            /* MONO overrides PAN rather than resetting it, so switching it
+             * off returns the voice to exactly where it was in the image.
+             * Centre is 63.5/127, taken as 64 and 63 -- one LSB of asymmetry
+             * is inaudible and keeps the two gains summing to the same total
+             * a panned voice has. */
+            int32_t gl_q12, gr_q12;
+            if (d.p[P_MONO]) {
+                gl_q12 = (64 * Q12_ONE) / 127;
+                gr_q12 = (63 * Q12_ONE) / 127;
+            } else {
+                gl_q12 = ((127 - pan) * Q12_ONE) / 127;
+                gr_q12 = ( pan        * Q12_ONE) / 127;
+            }
+
+            /* Where this voice's cable goes. DEST_OFF means the voice is
+             * rendered and discarded -- it still costs its cycles, which is
+             * correct: unplugging a cable does not unplug the oscillator, and
+             * re-plugging it must not restart the sound. */
+            uint8_t  dest = d.p[P_DEST];
+            if (dest == DEST_OFF) continue;
+            int32_t *sink = (dest == DEST_OUT)
+                          ? bus_
+                          : fxin_[dest - DEST_FX1];
 
             for (uint32_t i = 0; i < chunk; i++) {
                 /* OSC -> F1 -> VCA -> F2. The VCA sits BETWEEN the filters by
@@ -303,18 +341,37 @@ void Drone::Render(int16_t *out, uint32_t n)
 
                 /* No saturation here. The bus has room; limiting once at the
                  * end is the whole point. */
-                bus_[2 * i]     += (s * gl_q12) >> Q12_BITS;
-                bus_[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
+                sink[2 * i]     += (s * gl_q12) >> Q12_BITS;
+                sink[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
             }
         }
 
-        /* --- the global FX rack ------------------------------------------
+        /* --- the FX patchbay ----------------------------------------------
          *
-         * On the summed bus, before master, while the two bits of headroom
-         * are still there. A wavefolder or a resonant filter needs room above
-         * the signal to work in; running the rack after the limiter would
-         * give it already-flattened material. */
-        fx_rack_process(&rack_, bus_, chunk);
+         * Per SAMPLE, not per block. Channels are visited in index order, so
+         * a cable pointing forward arrives with no delay and one pointing
+         * backward arrives on the next sample -- 22 microseconds. At block
+         * granularity that same cable would cost 5.8 ms, which is not
+         * feedback but a slapback echo at 172 Hz. That is the whole reason
+         * this loop is shaped this way (fm1_rack.h).
+         *
+         * It runs before master, while the headroom is still there: a folder
+         * or a resonant filter needs room above the signal to work in. */
+        if (fx_n) {
+            int32_t in_l[FM1_FX_CHANS], in_r[FM1_FX_CHANS];
+            for (uint32_t n = 0; n < FM1_FX_CHANS; n++) in_l[n] = in_r[n] = 0;
+
+            for (uint32_t i = 0; i < chunk; i++) {
+                for (uint32_t k = 0; k < fx_n; k++) {
+                    uint32_t n = fx_act[k];
+                    in_l[n] += fxin_[n][2 * i];
+                    in_r[n] += fxin_[n][2 * i + 1];
+                }
+                fx_rack_sample(&rack_, rack_.cursor, fx_act, fx_n,
+                               in_l, in_r, &bus_[2 * i], &bus_[2 * i + 1]);
+                rack_.cursor = (rack_.cursor + 1u) & FM1_FX_DMASK;
+            }
+        }
 
         /* --- master, then the one saturation point ------------------------
          *

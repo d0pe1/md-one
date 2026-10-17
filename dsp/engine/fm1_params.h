@@ -42,26 +42,35 @@ enum {
     P_F1_TYPE, P_F1_CUT, P_F1_RES, P_F1_MIX,
     P_F2_TYPE, P_F2_CUT, P_F2_RES, P_F2_MIX,
     P_LEVEL, P_PAN,
+    /* Collapse this voice to centre regardless of PAN. A mono-compatibility
+     * check you can hit while the DAW is recording -- and what the unison and
+     * Haas work will need once a voice can be genuinely stereo. */
+    P_MONO,
+    /* Where this voice's output goes: DEST_OFF, DEST_FX1..FX4, DEST_OUT.
+     * A voice routes exactly the way an effect channel does -- one value, one
+     * cable -- which is what keeps the routing model a single idea instead of
+     * two (fm1_rack.h). */
+    P_DEST,
     NPARAM
 };
 
 /* --- global parameters (MIDI channel 16) -------------------------------- */
 enum {
     G_MASTER, G_SPREAD, G_BINAURAL, G_HAAS, G_DRIFT_SYNC,
-    /* The global FX rack: four ordered slots on the mix bus (fm1_rack.h).
-     * Five controls each -- TYPE, two block parameters, MIX, and PAR, the
-     * toggle that makes a slot read the same input as the one above it and
-     * sum into it. Five is one Page of four plus the routing toggle, which
-     * belongs on the rack overview rather than under a knob. */
-    G_FX1_TYPE, G_FX1_P1, G_FX1_P2, G_FX1_MIX, G_FX1_PAR,
-    G_FX2_TYPE, G_FX2_P1, G_FX2_P2, G_FX2_MIX, G_FX2_PAR,
-    G_FX3_TYPE, G_FX3_P1, G_FX3_P2, G_FX3_MIX, G_FX3_PAR,
-    G_FX4_TYPE, G_FX4_P1, G_FX4_P2, G_FX4_MIX, G_FX4_PAR,
+    /* The FX patchbay: four effect channels (fm1_rack.h). Five controls
+     * each -- TYPE, two effect parameters, MIX, and DEST, the one cable out.
+     * DEST is what makes this a patchbay rather than an insert rack: set it
+     * to OFF and everything feeding that channel goes silent, because the
+     * cable is unplugged. */
+    G_FX1_TYPE, G_FX1_P1, G_FX1_P2, G_FX1_MIX, G_FX1_DEST,
+    G_FX2_TYPE, G_FX2_P1, G_FX2_P2, G_FX2_MIX, G_FX2_DEST,
+    G_FX3_TYPE, G_FX3_P1, G_FX3_P2, G_FX3_MIX, G_FX3_DEST,
+    G_FX4_TYPE, G_FX4_P1, G_FX4_P2, G_FX4_MIX, G_FX4_DEST,
     NGPARAM
 };
 
-/* Slot n (0-based) parameter j. The five-per-slot stride is relied on by the
- * engine's SetGlobal and by any UI that walks the rack. */
+/* Channel n (0-based) parameter j. The five-per-channel stride is relied on
+ * by the engine's SetGlobal and by any UI that walks the patchbay. */
 #define G_FX_BASE    G_FX1_TYPE
 #define G_FX_STRIDE  5
 #define G_FX(n, j)   (G_FX_BASE + (n) * G_FX_STRIDE + (j))
@@ -69,7 +78,7 @@ enum {
 #define G_FX_P1      1
 #define G_FX_P2      2
 #define G_FX_MIX     3
-#define G_FX_PAR     4
+#define G_FX_DEST    4
 
 /* How a value is shown. The engine ignores this; the firmware's UI uses it. */
 enum {
@@ -81,7 +90,8 @@ enum {
     K_CENTS,
     K_RATIO,
     K_FTYPE,    /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
-    K_FXTYPE    /* a rack block name,  FM1_FXNAME    in fm1_rack.h */
+    K_FXTYPE,   /* an effect name,     FM1_FXNAME   in fm1_rack.h */
+    K_DEST      /* a routing target,  FM1_DESTNAME in fm1_rack.h */
 };
 
 typedef struct {
@@ -131,6 +141,12 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_F2_MIX]     = {"F2 MIX", 127, 127, K_PCT,     0},
     [P_LEVEL]      = {"LEVEL",  127, 100, K_NUM,     7},   /* GM volume */
     [P_PAN]        = {"PAN",    127,  64, K_BIP,    10},   /* GM pan */
+    [P_MONO]       = {"MONO",     1,   0, K_ONOFF,   0},
+    /* Defaults straight to OUT: a new voice is audible. Having to patch a
+     * cable before anything is heard is correct for a modular and wrong for
+     * an instrument you just switched on. max is DEST_NDEST-1 as a literal,
+     * checked against the enum in fm1_drone.cc. */
+    [P_DEST]       = {"DEST",     5,   5, K_DEST,    0},
 };
 
 static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
@@ -140,30 +156,31 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_HAAS]       = {"HAAS",   127,   0, K_NUM,     0},
     [G_DRIFT_SYNC] = {"DRFTSYN",  1,   0, K_ONOFF,   0},
 
-    /* Rack slots. max for TYPE is FX_NTYPES-1, written as a literal so this
-     * header stays free of fm1_rack.h; fm1_drone.cc static_asserts it. All
-     * four default to OFF, so a patch opts into the rack rather than having
-     * to switch it off. */
+    /* Effect channels. max for TYPE is FX_NTYPES-1 and for OUT is
+     * DEST_NDEST-1, written as literals so this header stays free of
+     * fm1_rack.h; fm1_drone.cc static_asserts both. Every channel starts
+     * unplugged (DEST OFF), so a patch opts into the FX rather than having
+     * to switch them off. */
     [G_FX1_TYPE]   = {"FX1 TYP",  5,   0, K_FXTYPE,  0},
     [G_FX1_P1]     = {"FX1 P1", 127,  64, K_NUM,     0},
     [G_FX1_P2]     = {"FX1 P2", 127,  64, K_NUM,     0},
     [G_FX1_MIX]    = {"FX1 MIX",127, 127, K_PCT,     0},
-    [G_FX1_PAR]    = {"FX1 PAR",  1,   0, K_ONOFF,   0},
+    [G_FX1_DEST]   = {"FX1 OUT",  5,   0, K_DEST,    0},
     [G_FX2_TYPE]   = {"FX2 TYP",  5,   0, K_FXTYPE,  0},
     [G_FX2_P1]     = {"FX2 P1", 127,  64, K_NUM,     0},
     [G_FX2_P2]     = {"FX2 P2", 127,  64, K_NUM,     0},
     [G_FX2_MIX]    = {"FX2 MIX",127, 127, K_PCT,     0},
-    [G_FX2_PAR]    = {"FX2 PAR",  1,   0, K_ONOFF,   0},
+    [G_FX2_DEST]   = {"FX2 OUT",  5,   0, K_DEST,    0},
     [G_FX3_TYPE]   = {"FX3 TYP",  5,   0, K_FXTYPE,  0},
     [G_FX3_P1]     = {"FX3 P1", 127,  64, K_NUM,     0},
     [G_FX3_P2]     = {"FX3 P2", 127,  64, K_NUM,     0},
     [G_FX3_MIX]    = {"FX3 MIX",127, 127, K_PCT,     0},
-    [G_FX3_PAR]    = {"FX3 PAR",  1,   0, K_ONOFF,   0},
+    [G_FX3_DEST]   = {"FX3 OUT",  5,   0, K_DEST,    0},
     [G_FX4_TYPE]   = {"FX4 TYP",  5,   0, K_FXTYPE,  0},
     [G_FX4_P1]     = {"FX4 P1", 127,  64, K_NUM,     0},
     [G_FX4_P2]     = {"FX4 P2", 127,  64, K_NUM,     0},
     [G_FX4_MIX]    = {"FX4 MIX",127, 127, K_PCT,     0},
-    [G_FX4_PAR]    = {"FX4 PAR",  1,   0, K_ONOFF,   0},
+    [G_FX4_DEST]   = {"FX4 OUT",  5,   0, K_DEST,    0},
 };
 
 /* CC -> parameter index + 1, 0 meaning unassigned. Built once at startup so

@@ -43,7 +43,9 @@ extern "C" {
 #define FD_P_F2_MIX      16
 #define FD_P_LEVEL       17
 #define FD_P_PAN         18
-#define FD_NPARAM        19
+#define FD_P_MONO        19     /* collapse to centre, ignoring PAN */
+#define FD_P_DEST        20     /* FD_DEST_* -- this voice's one cable out */
+#define FD_NPARAM        21
 
 /* Filter modes, mirroring the F_* enum in fm1_filter.h. */
 #define FD_F_OFF          0
@@ -60,8 +62,8 @@ extern "C" {
 #define FD_G_HAAS         3
 #define FD_G_DRIFT_SYNC   4
 
-/* The global FX rack: four ordered slots on the mix bus, five controls each
- * (TYPE, P1, P2, MIX, PAR). FD_G_FX(n, j) addresses slot n, control j. */
+/* The FX patchbay: four effect channels, five controls each (TYPE, P1, P2,
+ * MIX, DEST). FD_G_FX(n, j) addresses channel n, control j. */
 #define FD_G_FX_BASE      5
 #define FD_G_FX_STRIDE    5
 #define FD_G_FX(n, j)     (FD_G_FX_BASE + (n) * FD_G_FX_STRIDE + (j))
@@ -69,10 +71,20 @@ extern "C" {
 #define FD_G_FX_P1        1
 #define FD_G_FX_P2        2
 #define FD_G_FX_MIX       3
-#define FD_G_FX_PAR       4
+#define FD_G_FX_DEST      4
 #define FD_NGPARAM       25
 
-/* Rack block types, mirroring the FX_* enum in fm1_rack.h. */
+/* Routing targets, mirroring the DEST_* enum in fm1_rack.h. One value, one
+ * cable. Used by both FD_P_DEST and FD_G_FX(n, FD_G_FX_DEST). */
+#define FD_DEST_OFF       0
+#define FD_DEST_FX1       1
+#define FD_DEST_FX2       2
+#define FD_DEST_FX3       3
+#define FD_DEST_FX4       4
+#define FD_DEST_OUT       5
+#define FD_DEST_NDEST     6
+
+/* Effect types, mirroring the FX_* enum in fm1_rack.h. */
 #define FD_FX_NONE        0
 #define FD_FX_CHORUS      1
 #define FD_FX_FOLD        2

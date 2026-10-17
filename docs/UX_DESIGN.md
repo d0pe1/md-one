@@ -93,7 +93,7 @@ repeated presses. SHIFT + the button returns to page 1.
 
 | Button | Press | SHIFT + press |
 | --- | --- | --- |
-| **FX** | Filter/Comb menu → next page | page 1 |
+| **FX** | Effect-channel menu → next page | page 1 |
 | **SEL** | **SHIFT** (dedicated modifier) | — |
 | **ENV** | Modulation menu → next page | page 1 |
 | **LFO** | LFO menu → next page | page 1 |
@@ -101,7 +101,7 @@ repeated presses. SHIFT + the button returns to page 1.
 | **GLO** | Global menu → next page | page 1 |
 | **HOME** | Overview page | — |
 | **SAVE** | Patch menu | save to current slot |
-| **ARP** | *(reserved)* | — |
+| **ARP** | **MIX** — the mixer → next page | page 1 |
 | **SEQ** | *(reserved)* | — |
 | **PLAY** | mute / unmute Subject voice | **solo** Subject voice |
 | **REC** | strike all voices | strike Subject voice only |
@@ -127,6 +127,19 @@ Subject is shown where it applies. Knobs are listed KNOB1 → KNOB4.
 | --- | --- | --- | --- | --- | --- |
 | 1 **BRAIDS** | TIMBRE | COLOR | FM | MOD | shape (0–47) |
 | 2 **PITCH** | OCTAVE | DETUNE | GLIDE | — | — |
+| 3 **F1** | CUTOFF | RES | MIX | — | filter type |
+| 4 **F2** | CUTOFF | RES | MIX | — | filter type |
+| 5 **ROUTE** | **OUT** | LEVEL | PAN | MONO | — |
+
+Pages 3 and 4 are the two per-voice filters, `OSC → F1 → VCA → F2 → pan`. They
+share one mode list — `OFF LOWPASS BANDPASS HIGHPASS COMB RESO` — so the comb
+is a filter setting rather than a separate block, and "filter before or after
+the comb" is something you choose per patch instead of a fixed order.
+
+CUTOFF means what the mode needs it to mean: an absolute cutoff for the
+state-variable modes, a semitone offset from the note for RESO, a delay ratio
+for COMB. The screen labels it accordingly, because a knob called CUTOFF that
+sets a delay ratio is a knob nobody trusts.
 
 OCTAVE appears both on KNOB1 here and on the OCT−/OCT+ buttons. That is not a
 duplicate rule but a shortcut: the Parameter lives in the table once, so it
@@ -191,27 +204,154 @@ the keys and the PITCH page, so tuning knobs would be redundant. FM and MOD
 are the module's attenuverters: with no CV jacks, they scale the internal
 drift into pitch and timbre. Both bipolar, centre = none.
 
-### FX — Filter / Comb *(Subject: voice 1–4)*
+### FX — Effect channels *(Subject: FX 1–4)*
+
+Four effect channels. SELECT chooses which one you are looking at, exactly as
+it chooses a voice elsewhere — one Subject concept, not two.
+
+| Page | KNOB1 | KNOB2 | KNOB3 | KNOB4 | ALGORITHM |
+| --- | --- | --- | --- | --- | --- |
+| 1 **EFFECT** | P1 | P2 | MIX | — | effect type |
+| 2 **ROUTE** | **OUT** | — | — | — | — |
+
+```
+┌────────────────────────────┐
+│ FX · EFFECT          1/2   │
+│ FX 1                       │
+├────────────────────────────┤
+│    P1    P2   MIX   ----   │
+│   048   100   127          │
+│                            │
+│   EFFECT   COMB            │
+│   IN  ◄ V1 V2              │
+└────────────────────────────┘
+```
+
+**There is no input control, and that is the point.** `IN ◄ V1 V2` is read
+only — derived by asking every other node where it is pointing. You never set
+an input anywhere; routing *to* a channel is what fills it.
+
+P1 and P2 are relabelled per effect (RATE/DEPTH for chorus, DRIVE/BIAS for
+fold, WIDTH/— for width, CUTOFF/RES for the filters), from the same table that
+supplies the CC number.
+
+Deliberately no reverb and no delay. The output goes to a DAW over USB audio
+where both are free and better; the RAM buys tuned resonance and a patchbay
+instead.
+
+### MIX — Mixer *(no Subject)*
+
+A real mixer: one knob per voice, one page per control. That is the hardware
+mixer layout — your hand goes to "the third knob" for voice 3 on every page —
+rather than one page per channel, which would make comparing two voices a
+navigation task.
 
 | Page | KNOB1 | KNOB2 | KNOB3 | KNOB4 |
 | --- | --- | --- | --- | --- |
-| 1 **COMB** | TUNE | FEEDBACK | MIX | — |
+| 1 **LEVEL** | V1 | V2 | V3 | V4 |
+| 2 **PAN** | V1 | V2 | V3 | V4 |
+| 3 **MONO** | V1 | V2 | V3 | V4 |
+| 4 **ROUTE** | V1 → | V2 → | V3 → | V4 → |
 
-Deliberately no reverb. The output goes to a DAW over USB audio where space
-is free and better; the pool buys tuned resonance instead
-(`docs/BRAIDS_PORT.md`).
+```
+┌────────────────────────────┐
+│ MIX · LEVEL          1/4   │
+├────────────────────────────┤
+│    V1    V2    V3    V4    │
+│   104   092   100   064    │
+│                            │
+│   ▇▇▇▇  ▇▇▇   ▇▇▇▇  ▇▇     │
+│   ─────────────────────    │
+│   FX1   FX1   OUT   ---    │
+└────────────────────────────┘
+```
+
+LEVEL and PAN also appear on the voice's own pages. That duplication is
+deliberate: balancing four voices against each other is a different job from
+dialling one voice in, and it should not require four menu changes. The
+Parameter still lives in the table once, so it has one CC and one patch byte
+no matter which knob reaches it.
+
+**MONO** collapses a voice to centre regardless of its PAN. It is a
+mono-compatibility check you can hit while the DAW is recording, and it is
+what the unison and Haas work on the roadmap will need once a voice can be
+genuinely stereo.
+
+The footer shows each voice's destination on every page, so the routing is
+visible while you balance, without being editable until page 4.
+
+### Routing lives on the last page of its own menu
+
+There is no separate patchbay menu. Each Subject routes from the menu that
+owns it:
+
+| Menu | Routing page | Sets |
+| --- | --- | --- |
+| **MIX** | page 4 | all four voice destinations at once |
+| **EDIT** | last page | the selected voice's destination |
+| **FX** | page 2 | the selected effect channel's destination |
+
+One page showing every cable in the instrument reads as a wiring diagram, not
+a control. Routing is a property of a thing, so it sits with that thing — and
+the mixer, which is where you already think about where voices go, gets the
+across-the-board view.
+
+Each destination knob cycles `--- · FX1 · FX2 · FX3 · FX4 · OUT`.
+
+**Four rules, and they are the whole model:**
+
+1. **One cable out per node.** Voices and effect channels route identically.
+2. **No input control anywhere.** Whatever points at a channel sums at it.
+3. **`---` means unplugged.** Set a channel's OUT to `---` and everything
+   feeding it goes silent. There is no separate mute.
+4. **Any cable is legal**, including FX2 → FX1 and FX1 → FX1.
+
+#### Feedback, and the one thing the screen must say
+
+A cable pointing **left** — back to a lower-numbered channel, or to itself —
+is a feedback loop, and costs **one sample**. That is 22 µs and inaudible as
+colouration; it is how VCV Rack behaves for the same reason.
+
+The screen marks those cables, because an invisible one-sample delay is
+exactly the kind of thing that produces a complaint about "weird phasing" six
+months later:
+
+```
+│   FX2 ◄─╮  feedback              │
+│   FX1 ──╯  +1 sample             │
+```
+
+A loop with gain ≥ 1 will run away. It saturates into the soft clip and
+screams rather than wrapping to noise — which is what feedback is *supposed*
+to do on a drone box, and is why the accumulators are clamped rather than the
+routing restricted.
+
+> **Why not restrict it?** An earlier design only allowed cables pointing
+> right, to avoid feedback entirely. That is a fine rule for a mixing desk and
+> the wrong one for an instrument: refusing to let someone patch a comb into
+> an overdrive and back is not safety, it is a missing feature. The real
+> hazard was never the loop, it was the *block-sized* delay an earlier
+> implementation would have given it — 5.8 ms, a slapback echo at 172 Hz.
+> Evaluating per sample removed the hazard, so the restriction had nothing
+> left to justify it.
 
 ### ENV — Modulation *(Subject: voice 1–4)*
 
 | Page | KNOB1 | KNOB2 | KNOB3 | KNOB4 |
 | --- | --- | --- | --- | --- |
-| 1 **MOD A** | → PITCH | → TIMBRE | → COLOR | → COMB TUNE |
-| 2 **MOD B** | → COMB FB | → COMB MIX | → LEVEL | → PAN |
+| 1 **MOD A** | → PITCH | → TIMBRE | → COLOR | → LEVEL |
+| 2 **MOD B** | → F1 CUT | → F1 RES | → F2 CUT | → F2 RES |
+| 3 **MOD C** | → PAN | — | — | — |
 
 A knob sets the **depth** into that destination, bipolar. **SHIFT + knob**
 selects the **source** for that destination: LFO1–4, or none. So each page
-shows four of the eight modulatable inputs, with its source and depth visible
+shows four of the nine modulatable inputs, with its source and depth visible
 together — the routing *is* the page, rather than a matrix to navigate.
+
+Folding the comb into the filter is what keeps this list short. COMB TUNE / FB
+/ MIX were three destinations of their own; they are now the filter's CUTOFF,
+RES and MIX, which already needed to be modulatable. Nine destinations rather
+than twelve.
 
 ### LFO — Modulators *(Subject: LFO 1–4)*
 
@@ -231,8 +371,12 @@ opposite and more useful thing — coherent movement across all four voices.
 
 | Page | KNOB1 | KNOB2 | KNOB3 | KNOB4 |
 | --- | --- | --- | --- | --- |
-| 1 **MIX** | MASTER | SPREAD | WIDTH | — |
+| 1 **OUTPUT** | MASTER | SPREAD | — | — |
 | 2 **TUNE** | TRANSPOSE | FINE | — | — |
+
+Stereo width is **not** here. It is an effect type on an FX channel, so it can
+be placed anywhere in the patch — on one voice's send, or across the whole
+mix — rather than being a single global setting at the end of the chain.
 
 ### SAVE — Patch *(no Subject)*
 
@@ -318,10 +462,14 @@ Voice Subjects map to MIDI channels 1–4, LFO Subjects and Global to channel 16
 
 1. **SHIFT placement** — SEL proposed; HOME and FX are the alternatives.
    Decide after playing, not before.
-2. **ARP and SEQ** are unassigned. A drone machine arguably wants neither;
-   they are good candidates for a future "evolve" or "freeze" function.
-3. **WIDTH on GLO/MIX** — Haas widening is specified but not built, and
-   mono-compatibility needs checking before it ships.
+2. **ARP now opens ROUTE**, because the patchbay needed a button and a drone
+   machine does not need an arpeggiator. The label lies, which breaks the rule
+   that a printed button does the printed thing — accepted knowingly, since
+   the alternative is burying the routing inside GLO where it would be a
+   sub-menu rather than a place. **SEQ** stays unassigned.
+3. **Haas widening** is specified but not built. When it lands a voice becomes
+   genuinely stereo, which is what the MONO switch on MIX page 3 is for —
+   mono-compatibility has to be checkable from the panel before it ships.
 4. **Patch slots** — how many fit in the 256-byte settings sector. One full
    patch is ~149 bytes, so the sector holds exactly one. Multiple slots need
    a second flash sector or a smaller patch format.

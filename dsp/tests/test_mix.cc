@@ -175,114 +175,190 @@ static void test_bus(void)
     ok(render_peak(1, 0, 64) == 0, "level 0 is silent", "a muted voice still sounds");
 }
 
-/* --- the global FX rack ---------------------------------------------------
+/* --- the FX patchbay ------------------------------------------------------
  *
- * Exercised directly rather than through Drone, because the thing worth
- * pinning is the ROUTING -- that a chain is a chain, and that PAR means
- * "same input as the slot above, outputs sum". That is the one piece of the
- * rack that is not a plain for-loop, so it is the piece that can be wrong.
+ * The routing is what is worth pinning. Every effect is a pure function of
+ * its input; the part that can be subtly wrong is where signal GOES -- and
+ * especially that a backward cable costs exactly one sample rather than a
+ * block, which is the whole reason the patchbay is evaluated per sample.
  */
-static void fill_ramp(int32_t *bus, uint32_t frames)
+static void rack_run(fm1::fx_rack_t *r, const int32_t *src,
+                     int32_t *out, uint32_t frames, uint8_t voice_dest)
 {
+    int32_t in_l[FM1_FX_CHANS], in_r[FM1_FX_CHANS];
+    for (uint32_t n = 0; n < FM1_FX_CHANS; n++) in_l[n] = in_r[n] = 0;
+
     for (uint32_t i = 0; i < frames; i++) {
-        bus[2 * i]     =  (int32_t)(i % 400) * 40 - 8000;
-        bus[2 * i + 1] = -(int32_t)(i % 400) * 40 + 8000;
+        out[2 * i] = out[2 * i + 1] = 0;
+
+        /* One "voice" feeding the patchbay at voice_dest. */
+        if (voice_dest == DEST_OUT) {
+            out[2 * i]     += src[2 * i];
+            out[2 * i + 1] += src[2 * i + 1];
+        } else if (voice_dest != DEST_OFF) {
+            in_l[voice_dest - DEST_FX1] += src[2 * i];
+            in_r[voice_dest - DEST_FX1] += src[2 * i + 1];
+        }
+
+        uint8_t act[FM1_FX_CHANS];
+        uint32_t nact = fx_rack_active(r, act);
+        fx_rack_sample(r, r->cursor, act, nact, in_l, in_r,
+                       &out[2 * i], &out[2 * i + 1]);
+        r->cursor = (r->cursor + 1u) & FM1_FX_DMASK;
     }
 }
 
 static void test_rack(void)
 {
-    printf("\nfx rack\n");
+    printf("\nfx patchbay\n");
 
     static fm1::fx_rack_t r;
-    static int32_t bus[FM1_BLOCK * 2], ref[FM1_BLOCK * 2];
+    static int32_t src[FM1_BLOCK * 2], out[FM1_BLOCK * 2];
 
-    /* All slots off is a bit-exact no-op. A rack that colours the signal when
-     * every block is bypassed is a rack nobody can trust to be out of the
-     * way. */
+    for (uint32_t i = 0; i < FM1_BLOCK; i++) {
+        src[2 * i]     =  (int32_t)(i % 64) * 200 - 6000;
+        src[2 * i + 1] = -(int32_t)(i % 64) * 200 + 6000;
+    }
+
+    /* A voice straight to OUT passes through untouched. */
     fx_rack_init(&r);
-    fill_ramp(bus, FM1_BLOCK);
-    fill_ramp(ref, FM1_BLOCK);
-    fx_rack_process(&r, bus, FM1_BLOCK);
-    int clean = 1;
+    rack_run(&r, src, out, FM1_BLOCK, DEST_OUT);
+    int direct = 1;
     for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
-        if (bus[i] != ref[i]) { clean = 0; break; }
-    ok(clean, "all slots OFF is bit-exact bypass", "an idle rack altered the signal");
+        if (out[i] != src[i]) { direct = 0; break; }
+    ok(direct, "voice -> OUT is bit-exact", "the dry path is not clean");
 
-    /* WIDTH at 64 is unity: mid/side round-trips. Catches a shift that lost
-     * a bit somewhere in the M/S maths. */
+    /* The headline rule: a channel whose cable is unplugged produces nothing,
+     * and nothing routed into it is heard. */
     fx_rack_init(&r);
-    fx_slot_set_type(&r.slot[0], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[0], 64);
-    fill_ramp(bus, FM1_BLOCK);
-    fx_rack_process(&r, bus, FM1_BLOCK);
+    fx_chan_set_type(&r.ch[0], FX_WIDTH);
+    fx_chan_set_dest(&r.ch[0], DEST_OFF);
+    rack_run(&r, src, out, FM1_BLOCK, DEST_FX1);
+    int silent = 1;
+    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
+        if (out[i]) { silent = 0; break; }
+    ok(silent, "FX dest OFF silences everything feeding it",
+       "audio escaped an unplugged channel");
+
+    /* ...and plugging the same channel in makes it audible again, so the test
+     * above is not passing because the signal was broken to begin with. */
+    fx_rack_init(&r);
+    fx_chan_set_type(&r.ch[0], FX_WIDTH);
+    fx_chan_set_dest(&r.ch[0], DEST_OUT);
+    rack_run(&r, src, out, FM1_BLOCK, DEST_FX1);
+    int audible = 0;
+    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
+        if (out[i]) { audible = 1; break; }
+    ok(audible, "plugging it back in restores the signal", "still silent");
+
+    /* Two sources into one channel sum at its input -- the "no input control"
+     * claim. */
+    fx_rack_init(&r);
+    fx_chan_set_type(&r.ch[0], FX_NONE);        /* a wire */
+    fx_chan_set_dest(&r.ch[0], DEST_OUT);
+    {
+        int32_t in_l[FM1_FX_CHANS], in_r[FM1_FX_CHANS];
+        for (uint32_t n = 0; n < FM1_FX_CHANS; n++) in_l[n] = in_r[n] = 0;
+        int summed = 1;
+        for (uint32_t i = 0; i < 64; i++) {
+            int32_t ol = 0, orr = 0;
+            in_l[0] += src[2 * i];  in_r[0] += src[2 * i + 1];
+            in_l[0] += src[2 * i];  in_r[0] += src[2 * i + 1];
+            uint8_t act[FM1_FX_CHANS];
+            uint32_t nact = fx_rack_active(&r, act);
+            fx_rack_sample(&r, r.cursor, act, nact, in_l, in_r, &ol, &orr);
+            r.cursor = (r.cursor + 1u) & FM1_FX_DMASK;
+            if (ol != 2 * src[2 * i]) { summed = 0; break; }
+        }
+        ok(summed, "two sources into one channel sum at its input",
+           "inputs are not mixing");
+    }
+
+    /* FORWARD cable: FX1 -> FX2 -> OUT arrives with NO delay. Both channels
+     * are wires, so the output must equal the input sample for sample. */
+    fx_rack_init(&r);
+    fx_chan_set_type(&r.ch[0], FX_NONE);
+    fx_chan_set_dest(&r.ch[0], DEST_FX2);
+    fx_chan_set_type(&r.ch[1], FX_NONE);
+    fx_chan_set_dest(&r.ch[1], DEST_OUT);
+    rack_run(&r, src, out, FM1_BLOCK, DEST_FX1);
+    int fwd = 1;
+    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
+        if (out[i] != src[i]) { fwd = 0; break; }
+    ok(fwd, "forward cable FX1->FX2->OUT costs no delay",
+       "a forward cable is delaying");
+
+    /* BACKWARD cable: FX2 -> FX1 must cost EXACTLY one sample. FX1 is a wire
+     * to OUT, FX2 is a wire back to FX1, and the voice feeds FX2. So the
+     * signal goes FX2 (this sample) -> FX1 (next sample) -> OUT. */
+    fx_rack_init(&r);
+    fx_chan_set_type(&r.ch[0], FX_NONE);
+    fx_chan_set_dest(&r.ch[0], DEST_OUT);
+    fx_chan_set_type(&r.ch[1], FX_NONE);
+    fx_chan_set_dest(&r.ch[1], DEST_FX1);
+    rack_run(&r, src, out, FM1_BLOCK, DEST_FX2);
+
+    int delayed = 1;
+    for (uint32_t i = 1; i < FM1_BLOCK; i++)
+        if (out[2 * i] != src[2 * (i - 1)]) { delayed = 0; break; }
+    ok(delayed && out[0] == 0,
+       "backward cable FX2->FX1 costs exactly one sample",
+       "a backward cable is not one sample -- check evaluation order");
+
+    /* A self cable is the same mechanism: FX1 -> FX1 is one sample of
+     * feedback, which is a one-pole, not a 5.8 ms echo. It must stay finite. */
+    fx_rack_init(&r);
+    fx_chan_set_type(&r.ch[0], FX_NONE);
+    fx_chan_set_dest(&r.ch[0], DEST_FX1);
+    rack_run(&r, src, out, FM1_BLOCK, DEST_FX1);
+    ok(1, "self cable FX1->FX1 does not hang", "");
+
+    /* Runaway feedback must saturate, never wrap. A wire looped to itself has
+     * loop gain 1, so it integrates; the clamp is what keeps that an
+     * ever-louder scream instead of white noise from int32 wrapping. */
+    fx_rack_init(&r);
+    fx_chan_set_type(&r.ch[0], FX_NONE);
+    fx_chan_set_dest(&r.ch[0], DEST_FX1);       /* into itself */
+    {
+        int32_t in_l[FM1_FX_CHANS], in_r[FM1_FX_CHANS];
+        for (uint32_t n = 0; n < FM1_FX_CHANS; n++) in_l[n] = in_r[n] = 0;
+        int bounded = 1;
+        for (uint32_t i = 0; i < 20000; i++) {
+            int32_t ol = 0, orr = 0;
+            in_l[0] += 20000; in_r[0] += 20000;     /* drive it hard, forever */
+            uint8_t act[FM1_FX_CHANS];
+            uint32_t nact = fx_rack_active(&r, act);
+            fx_rack_sample(&r, r.cursor, act, nact, in_l, in_r, &ol, &orr);
+            r.cursor = (r.cursor + 1u) & FM1_FX_DMASK;
+            if (r.ch[0].acc[0] > FM1_FX_CEIL || r.ch[0].acc[0] < -FM1_FX_CEIL) {
+                bounded = 0; break;
+            }
+        }
+        ok(bounded, "runaway feedback clamps instead of wrapping",
+           "the accumulator escaped its ceiling -- int32 would wrap to noise");
+    }
+
+    /* WIDTH at centre is unity, and at 0 is mono. Cheap, and catches a lost
+     * bit in the mid/side maths -- an earlier `* 2` made centre 2x wide. */
+    fx_rack_init(&r);
+    fx_chan_set_type(&r.ch[0], FX_WIDTH);
+    fx_chan_set_p1(&r.ch[0], 64);
+    fx_chan_set_dest(&r.ch[0], DEST_OUT);
+    rack_run(&r, src, out, FM1_BLOCK, DEST_FX1);
     int unity = 1;
     for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
-        if (bus[i] - ref[i] > 1 || ref[i] - bus[i] > 1) { unity = 0; break; }
+        if (out[i] - src[i] > 1 || src[i] - out[i] > 1) { unity = 0; break; }
     ok(unity, "WIDTH at centre is unity (within 1 LSB)", "mid/side is not transparent");
 
-    /* WIDTH at 0 is mono: both channels equal. */
     fx_rack_init(&r);
-    fx_slot_set_type(&r.slot[0], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[0], 0);
-    fill_ramp(bus, FM1_BLOCK);
-    fx_rack_process(&r, bus, FM1_BLOCK);
+    fx_chan_set_type(&r.ch[0], FX_WIDTH);
+    fx_chan_set_p1(&r.ch[0], 0);
+    fx_chan_set_dest(&r.ch[0], DEST_OUT);
+    rack_run(&r, src, out, FM1_BLOCK, DEST_FX1);
     int mono = 1;
     for (uint32_t i = 0; i < FM1_BLOCK; i++)
-        if (bus[2 * i] != bus[2 * i + 1]) { mono = 0; break; }
+        if (out[2 * i] != out[2 * i + 1]) { mono = 0; break; }
     ok(mono, "WIDTH at 0 collapses to mono", "channels still differ");
-
-    /* PAR is the routing claim. Two WIDTH slots, the second PAR, both fed the
-     * same input: the output must be the SUM of what each produces, not the
-     * second applied to the first's output.
-     *
-     * Computed from single-slot runs rather than from a constant, so the
-     * expectation cannot drift away from the blocks. */
-    static int32_t a_only[FM1_BLOCK * 2], b_only[FM1_BLOCK * 2];
-
-    fx_rack_init(&r);
-    fx_slot_set_type(&r.slot[0], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[0], 0);              /* mono-ing block */
-    fill_ramp(a_only, FM1_BLOCK);
-    fx_rack_process(&r, a_only, FM1_BLOCK);
-
-    fx_rack_init(&r);
-    fx_slot_set_type(&r.slot[0], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[0], 127);            /* widening block */
-    fill_ramp(b_only, FM1_BLOCK);
-    fx_rack_process(&r, b_only, FM1_BLOCK);
-
-    fx_rack_init(&r);
-    fx_slot_set_type(&r.slot[0], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[0], 0);
-    fx_slot_set_type(&r.slot[1], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[1], 127);
-    r.slot[1].flags |= FM1_FX_PAR;
-    fill_ramp(bus, FM1_BLOCK);
-    fx_rack_process(&r, bus, FM1_BLOCK);
-
-    int par_ok = 1;
-    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) {
-        int32_t want = a_only[i] + b_only[i];
-        if (bus[i] - want > 1 || want - bus[i] > 1) { par_ok = 0; break; }
-    }
-    ok(par_ok, "PAR sums two slots fed the same input",
-       "PAR is chaining instead of branching");
-
-    /* ...and without PAR the same two slots must NOT sum -- otherwise the
-     * test above passes for a rack that sums everything. */
-    fx_rack_init(&r);
-    fx_slot_set_type(&r.slot[0], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[0], 0);
-    fx_slot_set_type(&r.slot[1], FX_WIDTH);
-    fx_slot_set_p1(&r.slot[1], 127);
-    fill_ramp(bus, FM1_BLOCK);
-    fx_rack_process(&r, bus, FM1_BLOCK);
-    int differs = 0;
-    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
-        if (bus[i] != a_only[i] + b_only[i]) { differs = 1; break; }
-    ok(differs, "without PAR the same slots chain, not sum",
-       "serial and parallel are indistinguishable");
 
     /* The folder must stay in range for any input the bus can carry, and must
      * never return the clipped value -- folding that saturates is clipping

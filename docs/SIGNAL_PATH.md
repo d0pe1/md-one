@@ -4,31 +4,31 @@ What the sound passes through, in what order, at what level, and which parts
 are per-voice versus shared. Written before building, because the current
 implementation has a signal path by accident rather than by design.
 
-**Status: proposal.** Decisions marked **[OPEN]** are taste, not engineering,
-and are flagged rather than silently resolved. Three have since closed — see
-§7 for which, and why.
+**Status: built**, apart from the envelope and the LFOs. Every `[OPEN]`
+decision has closed — see §7. Figures in §8 are measured, not estimated.
 
 ---
 
-## 1. What exists today
+## 1. What this replaced
 
 ```
 Braids osc ──► comb (insert, wet/dry) ──► ×level ──► pan ──► saturating add ──► ×master
 ```
 
-Four things in a row. No filter, no envelope, no bus structure, and gain
-staging that was guessed at (`(gl << 1) / FM1_VOICES`). Two known faults fall
-straight out of it:
+Four things in a row. No filter, no bus structure, no routing, and gain
+staging that was guessed at (`(gl << 1) / FM1_VOICES`). Two faults fell
+straight out of it, and both are fixed:
 
-* **Nothing tames the comb.** A resonant comb on noise screeches with nothing
-  after it — heard directly in the `breath` preset.
-* **It saturates on every voice add.** `fm1_q31_to_q15_sat(out[i] + l)` clips
-  per voice, so the fourth voice distorts against the first three instead of
-  the mix simply being loud.
+* **Nothing tamed the comb.** A resonant comb on noise screeches with nothing
+  after it — heard directly in the `breath` preset. There are now two filters
+  per voice and the comb is one of their modes.
+* **It saturated on every voice add.** `fm1_q31_to_q15_sat(out[i] + l)` clipped
+  per voice, so the fourth voice distorted against the first three instead of
+  the mix simply being loud. There is now one saturation point, after master.
 
 ---
 
-## 2. Proposed path
+## 2. The path
 
 ```
                     ┌──────────────── per voice, ×4 ───────────────┐
@@ -43,11 +43,17 @@ straight out of it:
          LFO 1-4 (shared) ────────────┴────────┴────────┘
                             │
                             ▼
+                 each voice's own cable: FX1-4, OUT, or nowhere
+                            ▼
+            ┌──────────────────────────────────────────┐
+            │  FX PATCHBAY   4 channels, int32 stereo  │   §5b
+            │  one effect and one cable out each,      │
+            │  any cable legal, backward costs 1 smp   │
+            └──────────────┬───────────────────────────┘
+                            ▼
                     ┌──────────────────────────────┐
                     │  MIX BUS   int32, stereo     │   accumulate with headroom
                     └──────────────┬───────────────┘
-                                   ▼
-                       [ FX RACK ]  ordered, reorderable  (§5b)
                                    ▼
                             ×master ──► soft clip ──► Q15 out
                                    │
@@ -60,18 +66,19 @@ straight out of it:
 | Block | Parameters | State |
 | --- | --- | --- |
 | **Oscillator** | shape, timbre, color, FM, MOD | built |
-| **F1 / F2** | type, cutoff, resonance | **not built**; SVF measured, comb exists as a separate block to be folded in as a mode |
-| **VCA** | attack, release, level | **envelope not built** |
-| **Pan** | pan | built |
+| **F1 / F2** | type, cutoff, res, mix | **built** — one mode list including COMB and RESO |
+| **VCA** | level | built; **envelope not built** |
+| **Pan / Mono** | pan, mono | built |
+| **Route** | dest | **built** — one cable out, §5b |
 
 ### Shared
 
 | Block | Parameters | State |
 | --- | --- | --- |
-| **LFO 1–4** | rate, amount, phase, mode | **not built** |
-| **Mix bus** | — | needs rework (see §4) |
-| **FX rack** | per slot: type, mix, PAR, bypass | **not built**, see §5b |
+| **FX channels 1–4** | type, p1, p2, mix, dest | **built**, §5b |
+| **Mix bus** | — | **built** — int32, one saturation point |
 | **Master** | master level | built |
+| **LFO 1–4** | rate, amount, phase, mode | **not built** |
 
 ---
 
@@ -187,108 +194,83 @@ fighting it.
 
 ---
 
-## 5b. Routing — the Serum model
+## 5b. Routing — the patchbay
 
-An earlier draft of this section proposed a per-voice matrix of slots wired by
-a source bitmask: a small DAG, acyclic by a lower-index-only rule. It is
-replaced, because Serum answers the same question with far less machinery and
-a much better fit for four knobs and a two-line screen.
-
-**Serum's routing is not a graph. It is a line with escape hatches.** Sources
-sum, pass an optional per-voice filter, then run a strictly serial FX rack
-whose *order* you change by dragging. The only parallelism in the main path is
-a per-source bypass toggle. Four ideas transfer directly:
-
-1. **The second filter is not special — it is a rack entry.** Serum's main
-   filter lives in the voice; a *Filter* also appears in the FX rack. This
-   deletes [OPEN-1]: "filter before or after the comb" stops being an
-   architecture decision and becomes a per-patch reorder.
-2. **Reorder, never rewire.** `uint8_t order[N]`, a permutation, evaluated as
-   a plain `for` loop. No bitmask, no cycle detection, no summing node. The
-   whole editor is one Page: *slot · type · mix · move* — exactly four knobs,
-   which is the taxonomy in `UX_DESIGN.md` without bending it.
-3. **Toggles, not patch cables.** Serum's per-oscillator `FIL` button is a
-   routing decision expressed as one bit.
-4. **The comb belongs in the filter, not the rack.** Serum lists comb and
-   flanger as *filter types*, because they are the pitch-tracking part and the
-   filter is the per-voice block. The rack gets what wants to run once on a
-   summed signal.
-
-### Shape
+**Every node owns exactly one destination.** Not a source list, not an order —
+a destination, like a cable leaving a jack. Voices and effect channels route
+identically, which is what keeps this a single idea rather than two:
 
 ```
-PER VOICE (×4)
-  OSC ──► F1 ──► VCA ──► F2 ──► pan ──┐
-          │               │           │
-     multimode:      the same         │
-     LP BP HP        block type       ▼
-     COMB RESO       list          MIX BUS (int32)
-                                      │
-GLOBAL                          [ FX RACK ] ──► master ──► soft clip
-                                 ordered, reorderable
-                                 chorus · fold · width · filter · …
+VOICE 1  ──► FX1          FX1 [COMB]   ──► FX2
+VOICE 2  ──► FX1          FX2 [CHORUS] ──► OUT
+VOICE 3  ──► OUT          FX3 [OFF]    ──► ---
+VOICE 4  ──► ---          FX4 [OFF]    ──► ---
 ```
 
-Two filters per voice, both multimode, either able to be a comb. The chain
-asked for — `OSC → F1 → VCA → FX MATRIX → F2 → out` — becomes
-`OSC → F1 → VCA → F2 → [rack]`: the same blocks, one fewer concept, and the
-stereo effects run once instead of four times.
+An effect channel has **no input control**. Whatever is routed to it sums at
+its input; routing *to* it is what fills it. What a channel owns is one
+effect, a dry/wet mix, and one cable out.
 
-### The one thing a pure chain cannot express
+Things that fall out of the model rather than being features:
 
-`comb ∥ reso → chorus` — two blocks fed the same input, summed. Recovered with
-one Serum-ish toggle rather than a graph: a per-slot **PAR** flag meaning
-*take the same input as the slot above me; our outputs sum*.
+* **Unplug a channel and everything feeding it goes silent.** `DEST_OFF` is
+  not a mute, it is an absent cable.
+* **Parallel is not a special case.** Two voices pointing at the same channel
+  is just two cables.
+* **A voice can bypass everything** — straight to OUT while its neighbours go
+  through the comb.
 
-```
-  1  COMB              in = chain
-  2  RESO     [PAR]    in = same as slot 1  ─┐
-                                             ├─► sum
-  3  CHORUS            in = that sum        ─┘
-```
+### What this replaced, and why
 
-One bit, one scratch buffer. Chains of PAR give N-way parallel, the
-lower-index-only rule still holds trivially, and it presents as a toggle on a
-Page rather than a patch matrix.
+The first version was Serum's FX rack: four slots in a fixed order, reordered
+by moving them, with a `PAR` flag to fake branching. That is an insert rack —
+a mixing-desk idea — and it answers "what order are the blocks in". The
+question an instrument like this actually asks is "where does this go", which
+is the modular one. `PAR` only existed because a chain cannot branch; a
+patchbay branches natively, so it is gone.
 
-```c
-typedef struct {
-    uint8_t type;   /* NONE, CHORUS, FOLD, WIDTH, FILTER, ... */
-    uint8_t mix;    /* dry/wet for this slot */
-    uint8_t flags;  /* bit0 PAR, bit1 bypass */
-    uint8_t p[5];   /* the block's own parameters */
-} fx_slot_t;        /* 8 bytes */
-```
+### Feedback
+
+**Any cable is legal**, including `FX2 → FX1` and `FX1 → FX1`.
+
+Channels are visited in index order within each sample. A cable pointing
+*forward* lands in its target before that target runs, so it arrives with no
+delay. A cable pointing *backward* lands after the target has already run, so
+it is picked up on the next sample — **one sample, 22 µs**. That falls out of
+evaluation order; there is no cycle detection and no graph sort.
+
+This is the whole reason the patchbay is evaluated **per sample, not per
+block**. At block granularity the same cable would cost 256 samples — 5.8 ms,
+a slapback echo at 172 Hz welded into the signal path. VCV Rack behaves the
+same way for the same reason.
+
+> An earlier draft forbade backward cables outright. That was the wrong fix
+> for the right fear: the hazard was never the loop, it was the block-sized
+> delay a block-rate implementation would have given it. Moving the loop
+> removed the hazard, and the restriction had nothing left to justify it.
+> Refusing to let someone patch a comb into an overdrive and back is not
+> safety, it is a missing feature.
+
+What feedback *does* still need is a **level** guard. A loop with gain ≥ 1
+grows without bound, and int32 wraps long before anything musical happens —
+wrapping turns a scream into white noise, which is the one failure mode that
+is not fun. Accumulators are clamped at 8.0, so a runaway saturates into the
+soft clip and screams instead. `dsp/tests/test_mix.cc` holds that invariant,
+together with the one-sample claim.
 
 ### Costs
 
 | | |
 | --- | --- |
-| **RAM** | the rack is global now: one `int16` stereo block buffer per slot, 8 slots × 256 × 2 ch × 2 B = 8 KiB **total**, not per voice. Nothing against the 306 KiB pool. |
-| **Patch** | 8 B × 8 slots = 64 B for the rack, plus the per-voice filter params. Was 128 B under the matrix design. Either fits once the 256-byte settings cap is raised — `static uint8_t buf[256]` and `n > 256u` sit inside a **4 KiB** sector, so it is a two-line change in our fork. |
-| **CPU** | still the only real constraint, but the shape improved: rack blocks now cost **once**, not ×4. Only F1 and F2 are per-voice. |
+| **RAM** | 8 KiB per channel for an int32 stereo delay line, 32 KiB for four, plus 8 KiB of per-channel input buffers. Nothing against the pool. |
+| **Patch** | 5 bytes per channel, 1 per voice. |
+| **CPU** | §8. Shared, so it is paid once rather than per voice — measured, not assumed. |
 
-### Feedback
-
-A slot reading a *later* slot is a cycle, and in a block engine it needs a
-one-block delay — 5.8 ms, audible as a short pre-delay and able to ring.
-**Forbidden in v1.** Worth adding later as an explicit source with its latency
-documented, rather than arriving as an accident.
-
-### What remains open — [OPEN-5]
-
-The Serum mapping resolves the *structure*; what is left is the block list.
-
-> **[OPEN-5] — settled for v1.** Both lists are built and measured.
->
-> Voice filter: `OFF LOWPASS BANDPASS HIGHPASS COMB RESO`.
-> Global rack: `OFF CHORUS FOLD WIDTH LOWPASS HIGHPASS`, four ordered slots
-> with a PAR toggle.
->
-> The split follows the rule it was supposed to: pitch-tracking blocks are per
-> voice, blocks that want a summed stereo signal are on the bus. Costs are in
-> §8. What remains open is only *additions* — a phaser, a bit crusher, a
-> ring modulator — which is a shopping list, not an architecture question.
+The delay lines are **int32, not int16**. The comb taught that one: it stored
+Q15 and saturated *inside* the loop, before any output gain, so it never
+showed as clipping in a rendered file and merely sounded harsh. These sit on a
+bus carrying up to 4.0, so int16 would clip on every loud patch for exactly
+the same invisible reason.
 
 ## 6. Deliberately not here
 
@@ -359,39 +341,44 @@ lowpass adds 11,463 per voice against the 10,004 measured for a bare SVF; the
 difference is the wet/dry blend. The whole instrument at 21.2% lands within a
 point of the projection made before any of it was built.
 
-### The global FX rack
+### The FX patchbay
 
-Four voices, F1 = COMB, measured per configuration:
+Four voices, F1 = COMB, voices patched into FX1 and the last channel out:
 
-| Rack | Cycles/block | % budget | Block alone |
+| Patch | Cycles/block | % budget | Channel alone |
 | --- | --- | --- | --- |
-| empty | 251,883 | 18.1% | — |
-| WIDTH | 272,121 | 19.5% | 20,238 |
-| FOLD | 276,590 | 19.9% | 24,707 |
-| LOWPASS | — | — | ~31,300 |
-| CHORUS | 290,122 | 20.8% | 38,239 |
-| CHORUS + WIDTH | 304,463 | 21.9% | 52,580 |
-| **CHORUS + LOWPASS** | **321,418** | **23.1%** | 69,535 |
+| nothing plugged | 250,909 | 18.0% | — |
+| WIDTH | 281,428 | 20.2% | 30,519 |
+| FOLD | 286,921 | 20.6% | 36,012 |
+| CHORUS | 300,709 | 21.6% | 49,800 |
+| CHORUS → WIDTH | 326,320 | 23.4% | 75,411 |
+| **CHORUS → LOWPASS** | **343,787** | **24.7%** | 92,878 |
 
-**An empty rack costs 1,567 cycles — 0.1%.** The first version tested every
-slot's type inside the sample loop and cost **12,816**, almost a full point of
-budget to decide four times per frame that there was nothing to do. Gathering
-the active slots once per block instead made it eight times cheaper, and
-configuration only changes at knob rate so the hoist is exact, not an
-approximation.
+**An unplugged patchbay costs 75 cycles** — against 250,316 for the engine
+with no FX code at all. An instrument not using its effects does not pay for
+them.
 
-**The rack costs nothing per voice, which is the whole reason it is shared.**
-With a chorus running, the marginal cost of each additional voice is 59,240 /
-59,162 / 59,414 cycles — against 59,432 with no rack at all. Every cycle the
-rack spends is fixed per block. That is the measured version of the claim in
-§5b, not a restatement of it:
+That took two passes. The first implementation ran the per-sample loop and
+cleared 8 KiB of input buffers unconditionally, costing **58,439 cycles — 4.2%
+of budget — with nothing patched**. The second still walked all four channels
+per sample when one was plugged, costing about 50,000 cycles to discover three
+times over that there was nothing to do. Both are fixed by gathering the
+plugged channels once per block, which is exact because routing only changes
+at knob rate.
 
-> Four independent chorus instances summed afterwards is four times the cost
-> for a worse result than one chorus on the mix.
+**The patchbay costs nothing per voice.** With a chorus patched, each
+additional voice costs the same as with no FX at all: the effects run once on
+what reaches them, not once per source. That is the measured form of §5b's
+claim, not a restatement of it.
 
-A fully loaded instrument — four voices, two per-voice filters, a chorus and a
-filter on the bus — sits near **23%**, leaving three quarters of the budget
-unspent.
+**What arbitrary routing costs over a fixed chain.** The same chorus in the
+old reorderable-rack design cost 38,239 cycles; here it is 49,800. The 11,561
+difference buys the per-sample accumulator, the clamp, and the destination
+dispatch — which is to say it buys feedback, branching, and "unplug this and
+everything feeding it goes quiet". Worth it, and worth knowing it is not free.
+
+A loaded instrument — four voices, a per-voice comb, a chorus and a filter on
+the bus — sits near **25%**, leaving three quarters of the budget unspent.
 
 ### Per block type
 

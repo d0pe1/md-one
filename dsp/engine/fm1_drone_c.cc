@@ -27,13 +27,20 @@ static_assert(FD_F_RESO       == F_RESO,        "filter mode mirror drifted");
 static_assert(FD_F_NMODES     == F_NMODES,      "filter mode mirror drifted");
 static_assert(FD_P_LEVEL      == P_LEVEL,       "param mirror drifted");
 static_assert(FD_P_PAN        == P_PAN,         "param mirror drifted");
+static_assert(FD_P_MONO       == P_MONO,        "param mirror drifted");
+static_assert(FD_P_DEST       == P_DEST,        "param mirror drifted");
 static_assert(FD_NPARAM       == NPARAM,        "param mirror drifted");
 static_assert(FD_NGPARAM      == NGPARAM,       "global mirror drifted");
-static_assert(FD_G_FX_BASE    == G_FX_BASE,     "rack base mirror drifted");
-static_assert(FD_G_FX_STRIDE  == G_FX_STRIDE,   "rack stride mirror drifted");
-static_assert(FD_G_FX(2, FD_G_FX_MIX) == G_FX(2, G_FX_MIX), "rack index mirror drifted");
-static_assert(FD_FX_CHORUS    == FX_CHORUS,     "rack type mirror drifted");
-static_assert(FD_FX_NTYPES    == FX_NTYPES,     "rack type mirror drifted");
+static_assert(FD_G_FX_BASE    == G_FX_BASE,     "patchbay base mirror drifted");
+static_assert(FD_G_FX_STRIDE  == G_FX_STRIDE,   "patchbay stride mirror drifted");
+static_assert(FD_G_FX(2, FD_G_FX_MIX) == G_FX(2, G_FX_MIX), "patchbay index mirror drifted");
+static_assert(FD_G_FX_DEST    == G_FX_DEST,     "patchbay dest mirror drifted");
+static_assert(FD_DEST_OFF     == DEST_OFF,      "dest mirror drifted");
+static_assert(FD_DEST_FX1     == DEST_FX1,      "dest mirror drifted");
+static_assert(FD_DEST_OUT     == DEST_OUT,      "dest mirror drifted");
+static_assert(FD_DEST_NDEST   == DEST_NDEST,    "dest mirror drifted");
+static_assert(FD_FX_CHORUS    == FX_CHORUS,     "effect type mirror drifted");
+static_assert(FD_FX_NTYPES    == FX_NTYPES,     "effect type mirror drifted");
 static_assert(FD_VOICES       == FM1_VOICES,    "voice count mirror drifted");
 
 /* The engine's state is about 87 KB -- four MacroOscillators at 17 KB each
