@@ -106,6 +106,86 @@ Plaits was never vendored into `dsp/`, and the probe was never added to
 `dsp/target/`, because measuring before porting was the entire point. The
 table above is the only thing worth keeping.
 
+## FM, measured — what the chip was built for
+
+Plaits' `fm` engine costs 169% of budget for one voice. The thing it is
+*imitating* costs 3%.
+
+Measured with `dsp/target/probe_fm.cc` via `scripts/measure-fm-cycles.sh`:
+`OPS` operators in a serial stack, the deepest one fed back into itself. A
+stack is the worst case — every operator runs every sample and none can be
+skipped.
+
+| Configuration | cyc/block | per voice | **per operator** | % budget |
+| --- | ---: | ---: | ---: | ---: |
+| 2-op, no feedback | 59,412 | 14,853 | 7,427 | 4.26% |
+| 2-op, feedback | 62,489 | 15,622 | 7,811 | 4.49% |
+| 4-op, feedback | 123,929 | 30,982 | 7,746 | 8.90% |
+| 6-op, feedback | 181,274 | 45,318 | **7,553** | 13.01% |
+| 6-op, 1 voice | 45,316 | 45,316 | 7,553 | 3.25% |
+| 6-op, 12 voices | 525,378 | 43,782 | 7,297 | 37.71% |
+
+**An operator costs 7,553 cycles per voice per block, and that figure barely
+moves** — 7,427 to 7,811 across every configuration, including the step from
+one voice to twelve. FM scales linearly in operators and in voices, with no
+shared state to contend for. Feedback costs 5%: one multiply and one `q15_t`.
+
+The number that reframes the engine question:
+
+```
+one Braids oscillator (HARMONICS)   45,139 cycles / voice / block
+a six-operator FM voice             45,318 cycles / voice / block
+```
+
+**A full DX7-class voice costs the same as one Braids shape.** And the stock
+FM-1 firmware's own configuration — 12 voices of 6 operators, 72 simultaneous
+operators — fits in **37.7%** of our budget, with the filters, EQ and patchbay
+still affordable on top.
+
+### Why it is so cheap, when Braids is not
+
+Two reasons, and neither is implementation quality.
+
+1. **A Braids "shape" is usually several oscillators.** `TRIPLE_SAW` is three
+   detuned saws; `HARMONICS` is an additive bank. Priced in operators, every
+   Braids shape is already a small FM patch: `FILTERED_NOISE` at 15,129 is two
+   operators, `HARMONICS` at 45,139 is six.
+2. **Sines do not alias.** Band-limiting is the expensive part of a saw or a
+   pulse — Braids pays for wavetable lookups, interpolation, and in places a
+   correction term. A sine has one partial, so an FM operator is a table read,
+   a linear interpolation and an add. The modulation *is* the add.
+
+Phase modulation is the cheapest way to get a moving spectrum out of a chip
+with no floating point, which is presumably why this chip is in this box.
+
+### The primitive already existed
+
+`fm1_osc_sine_pm()` has been in `dsp/shared/fm1_osc.c` since bootstrap,
+validated against a double-precision sine by `dsp/tests/test_osc.c`. The
+header's opening comment anticipated exactly this:
+
+> *The six-operator engine, harmonic-spectrum editor and wavetables come later
+> and plug in at the same seam.*
+
+Making it usable took one change: `extern "C"` guards. The implementation is
+C, the engine and probes are C++, and nothing had ever included the header
+from C++ before — so the first attempt failed to link against a function
+plainly present in the object file.
+
+### What the table deliberately excludes
+
+**Envelopes.** A DX7 voice carries one per operator, and ours is priced at
+~4,575 cycles/voice/block (`SIGNAL_PATH.md` §8). Six of those is 27,450 —
+*more than half again what the six operators cost*. Leaving them out is the
+point: the envelopes, not the oscillators, are where a six-operator voice
+gets expensive.
+
+**Algorithm routing.** A serial stack is one hardwired topology. The DX7's 32
+algorithms need a per-operator sum of selected modulator outputs — a few adds
+per operator, small but not zero, and not measured here.
+
+This is a cost measurement, not a design. Nothing is built.
+
 ## Provenance — take it from upstream, not from VCV
 
 AudibleInstruments is two projects in one tree, and the distinction decides

@@ -72,10 +72,15 @@ stage "target probes"
 PF="-target pi32v2 -Os -ffreestanding -nostdlib -fno-builtin -fno-exceptions
     -fno-rtti -fno-threadsafe-statics -std=c++11
     -I$MI/shim -I$MI -I$MI/stmlib/.. -I$H -I$R/dsp/engine"
-for p in probe_drone probe_fx probe_braids; do
-    [ -f "$R/dsp/target/$p.cc" ] || continue
+# Globbed, not listed. A named list is a list someone forgets to extend, and
+# the probe left off it is the one that rots -- which is the failure this
+# script exists to catch. probe_svf and probe_fm were both missing from the
+# list this replaced.
+for f in "$R"/dsp/target/probe_*.cc; do
+    [ -f "$f" ] || continue
+    p=$(basename "$f" .cc)
     run "$p.cc compiles" \
-        "$TC/pi32v2/bin/clang++" $PF -c "$R/dsp/target/$p.cc" -o "$W/$p.o"
+        "$TC/pi32v2/bin/clang++" $PF -c "$f" -o "$W/$p.o"
 done
 
 # --- 5. the firmware -------------------------------------------------------

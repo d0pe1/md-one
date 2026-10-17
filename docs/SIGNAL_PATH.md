@@ -475,6 +475,7 @@ Measured with `dsp/target/probe_fx.cc`, N instances in series, four voices,
 | Envelope | ~300 | — | estimate; block rate, not per sample |
 | 4 LFOs | ~200 total | — | estimate; block rate, shared |
 | int32 bus | roughly neutral | — | removes per-add saturation |
+| **FM operator** | **7,553** | 2.17% | `probe_fm.cc`; flat out to 72 operators. See `BRAIDS_PORT.md` |
 
 **The comb costs less than the SVF.** That is the result that matters for
 §5b: folding comb and resonator into the filter's mode list is not a

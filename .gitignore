@@ -3,8 +3,12 @@
 /references/
 
 # Build output
+#
+# NOT `**/target/`: that Rust convention also matched dsp/target/, which holds
+# the on-chip probes -- the source of every measured number in docs/. Seven
+# probe sources sat untracked and unpublished because of it. The only Rust in
+# this tree is under /references/, ignored wholesale above.
 /dsp/build/
-**/target/
 *.o
 *.elf
 *.dis
