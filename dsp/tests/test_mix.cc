@@ -586,6 +586,101 @@ static void test_saturator(void)
        "gain below full scale (the curve bends)", "the saturator is linear");
 }
 
+/* --- the VCA envelope ----------------------------------------------------- */
+
+static int32_t max_step(const int16_t *buf, uint32_t frames)
+{
+    int32_t worst = 0;
+    for (uint32_t i = 1; i < frames; i++) {
+        int32_t d = buf[2 * i] - buf[2 * (i - 1)];
+        if (d < 0) d = -d;
+        if (d > worst) worst = d;
+    }
+    return worst;
+}
+
+static void test_env(void)
+{
+    printf("\nVCA envelope\n");
+
+    /* The block on its own: does it reach its targets, and does it stop? */
+    {
+        fm1_env_t e;
+        fm1_env_init(&e);
+        fm1_env_set_attack(&e, 0);
+        fm1_env_set_release(&e, 0);
+
+        fm1_env_gate(&e, 1);
+        for (int i = 0; i < 44100; i++) fm1_env_tick(&e);
+        ok(e.level == FM1_ENV_ONE, "a fast attack reaches exactly unity",
+           "the envelope stalls short of full gain");
+
+        fm1_env_gate(&e, 0);
+        for (int i = 0; i < 44100; i++) fm1_env_tick(&e);
+        ok(e.level == 0, "a fast release reaches exactly zero",
+           "the envelope never fully closes");
+        ok(fm1_env_idle(&e), "and then reports idle so the voice can be skipped",
+           "a finished voice still costs cycles");
+    }
+
+    /* A slow setting must actually be slower. Catches a rate table that is
+     * backwards or flat -- which listening would not reveal for twenty
+     * seconds, by which time you are debugging the wrong thing. */
+    {
+        fm1_env_t fast, slow;
+        fm1_env_init(&fast); fm1_env_init(&slow);
+        fm1_env_set_attack(&fast, 20);
+        fm1_env_set_attack(&slow, 100);
+        fm1_env_gate(&fast, 1); fm1_env_gate(&slow, 1);
+        for (int i = 0; i < 44100; i++) { fm1_env_tick(&fast); fm1_env_tick(&slow); }
+        printf("    after 1 s: attack 20 -> %d%%, attack 100 -> %d%%\n",
+               100 * fast.level / FM1_ENV_ONE, 100 * slow.level / FM1_ENV_ONE);
+        ok(fast.level > slow.level, "a higher ATTACK is a slower attack",
+           "the rate table is backwards or flat");
+    }
+
+    /* The reason this block exists. Closing the gate must not produce a step
+     * bigger than the waveform's own slew -- the old `if (!gate) continue`
+     * cut mid-waveform, which is a click on every single mute. */
+    {
+        static fm1::Drone d;
+        static int16_t buf[FM1_BLOCK * 2];
+
+        d.Init();
+        d.SetGlobal(G_SPREAD, 0);
+        for (uint8_t v = 1; v < FM1_VOICES; v++) d.SetGate(v, 0);
+        d.SetParam(0, P_FM, 64);
+        d.SetParam(0, P_MOD, 64);
+        d.SetParam(0, P_LEVEL, 127);
+        d.SetParam(0, P_RELEASE, 30);
+        d.NoteOn(0, 45);
+
+        int32_t natural = 0;
+        for (int b = 0; b < 12; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+            if (b >= 8) {
+                int32_t m = max_step(buf, FM1_BLOCK);
+                if (m > natural) natural = m;
+            }
+        }
+
+        d.SetGate(0, 0);
+        int32_t release = 0;
+        for (int b = 0; b < 8; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+            int32_t m = max_step(buf, FM1_BLOCK);
+            if (m > release) release = m;
+        }
+        printf("    largest sample step: sounding %d, releasing %d\n",
+               natural, release);
+
+        ok(release <= natural, "closing the gate adds no step of its own",
+           "the release is clicking -- it is cutting, not fading");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -594,6 +689,7 @@ int main(void)
     test_meters();
     test_eq();
     test_saturator();
+    test_env();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

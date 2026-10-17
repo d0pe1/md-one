@@ -32,6 +32,8 @@ static_assert(FD_EQ_BANDS     == EQ_BANDS,      "EQ band count mirror drifted");
 static_assert(FD_EQB_PASS     == EQB_PASS,      "EQ mode mirror drifted");
 static_assert(FD_EQB_NOTCH    == EQB_NOTCH,     "EQ mode mirror drifted");
 static_assert(FD_P_DRIVE      == P_DRIVE,       "param mirror drifted");
+static_assert(FD_P_ATTACK     == P_ATTACK,      "param mirror drifted");
+static_assert(FD_P_RELEASE    == P_RELEASE,     "param mirror drifted");
 static_assert(FD_P_LEVEL      == P_LEVEL,       "param mirror drifted");
 static_assert(FD_P_PAN        == P_PAN,         "param mirror drifted");
 static_assert(FD_P_MONO       == P_MONO,        "param mirror drifted");

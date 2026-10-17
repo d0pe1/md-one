@@ -61,11 +61,13 @@ extern "C" {
 #define FD_EQB_NOTCH      1
 
 #define FD_P_DRIVE       32
-#define FD_P_LEVEL       33
-#define FD_P_PAN         34
-#define FD_P_MONO        35     /* collapse to centre, ignoring PAN */
-#define FD_P_DEST        36     /* FD_DEST_* -- this voice's one cable out */
-#define FD_NPARAM        37
+#define FD_P_ATTACK      33     /* VCA envelope, ~2 ms .. ~32 s */
+#define FD_P_RELEASE     34
+#define FD_P_LEVEL       35
+#define FD_P_PAN         36
+#define FD_P_MONO        37     /* collapse to centre, ignoring PAN */
+#define FD_P_DEST        38     /* FD_DEST_* -- this voice's one cable out */
+#define FD_NPARAM        39
 
 /* Filter modes, mirroring the F_* enum in fm1_filter.h. */
 #define FD_F_OFF          0

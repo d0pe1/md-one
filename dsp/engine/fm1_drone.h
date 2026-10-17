@@ -21,6 +21,7 @@
 #include "../mi/fm1_braids.h"
 #include "../shared/fm1_fixed.h"
 #include "fm1_drift.h"
+#include "fm1_env.h"
 #include "fm1_eq.h"
 #include "fm1_filter.h"
 #include "fm1_params.h"
@@ -39,6 +40,7 @@ struct DroneVoice {
     fm1_eq_t     eq;            /* three multimode bands, after F2 */
     int32_t      drive_q12;     /* Q12_ONE = clean, bypasses the saturator */
     fm1_drift_t  drift;
+    fm1_env_t    env;           /* the VCA; `gate` below is its input */
 
     uint8_t      p[NPARAM];     /* current parameter values, 0..max */
     int16_t      note;          /* MIDI note, 0..127 */

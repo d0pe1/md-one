@@ -4,7 +4,7 @@ What the sound passes through, in what order, at what level, and which parts
 are per-voice versus shared. Written before building, because the current
 implementation has a signal path by accident rather than by design.
 
-**Status: built**, apart from the envelope and the LFOs. Every `[OPEN]`
+**Status: built**, apart from the LFOs. Every `[OPEN]`
 decision has closed — see §7. Figures in §8 are measured, not estimated.
 
 ---
@@ -67,7 +67,7 @@ straight out of it, and both are fixed:
 | --- | --- | --- |
 | **Oscillator** | shape, timbre, color, FM, MOD | built |
 | **F1 / F2** | type, cutoff, res, mix | **built** — one mode list including COMB and RESO |
-| **VCA** | level | built; **envelope not built** |
+| **VCA** | attack, release, level | **built** -- exponential, ~2 ms to 32 s |
 | **Pan / Mono** | pan, mono | built |
 | **Route** | dest | **built** — one cable out, §5b |
 
@@ -108,19 +108,40 @@ leaves a tail.** MUTE closes the VCA and lets the tail decay; **SHIFT+MUTE**
 is a hard kill that also clears filter and rack state, for the times when
 silence has to be immediate.
 
-### Envelope shape
+### Envelope shape -- built
 
-Voices are latched and mostly static, so the envelope is not an ADSR. Two
-parameters:
+Voices are latched and mostly static, so the envelope is not an ADSR: sustain
+is the normal state and decay has nothing to decay to. Two parameters, both
+measured from the generated rate table:
 
 | | |
 | --- | --- |
-| **ATTACK** | 0 → instant, max → ~30 s fade-in |
-| **RELEASE** | 0 → instant, max → ~30 s fade-out |
+| **ATTACK** | knob 0 → 1.9 ms, knob 127 → 32.4 s |
+| **RELEASE** | the same range |
 
-Long ranges deliberately: a drone fading in over twenty seconds is a normal
-thing to want, and nothing else in the instrument provides it. The current
-hard gate produces a click, which is the entire reason this block exists.
+Long ranges deliberately: a drone arriving over twenty seconds is an ordinary
+thing to want here, and nothing else in the instrument provides it.
+
+**It is exponential, not linear.** A linear amplitude fade is only −6 dB at
+its halfway point and −20 dB at nine tenths, so nearly all of the audible
+change happens in the last fraction and it sounds like the note hangs and then
+drops. A one-pole approach is roughly linear in dB, which is what fading
+sounds like.
+
+The rate table is Q24, not Q15. At the slow end the true coefficient is
+3.2×10⁻⁶, which rounds to 1 in Q15 — a 0.74 s time constant, so a knob
+documented as 32 s would have delivered 3.4 s. `scripts/gen_env_table.py`
+computes the settle times in the generated header back *from* the quantised
+integers, so the header cannot claim a range the table does not deliver.
+
+**The gate used to click, and that is why this block exists.** It was
+`if (!gate) continue;`, which stops a voice mid-waveform: a step from whatever
+the oscillator happened to be outputting straight to zero, on every mute, on
+every voice. A closed voice now keeps rendering until its release has run out,
+and only then costs nothing. `dsp/tests/test_mix.cc` measures the largest
+sample-to-sample step while sounding and while releasing, and fails if closing
+the gate adds one of its own — currently 6,469 against a natural slew of
+12,669.
 
 ---
 
@@ -379,6 +400,24 @@ everything feeding it goes quiet". Worth it, and worth knowing it is not free.
 
 A loaded instrument — four voices, a per-voice comb, a chorus and a filter on
 the bus — sits near **25%**, leaving three quarters of the budget unspent.
+
+### The VCA envelope
+
+| | Cycles/block | % budget |
+| --- | --- | --- |
+| no envelope (hard gate) | 266,002 | 19.1% |
+| **per-sample envelope** | **284,884** | **20.4%** |
+
+**4,700 cycles per voice**, for a 64-bit multiply and a compare per sample.
+
+Per sample rather than per block, deliberately. A gain stepped once per block
+is a staircase at 172 Hz -- which is the zipper noise the envelope exists to
+avoid, moved to a different frequency rather than removed. This is the one
+place in the engine where a block-rate shortcut is wrong, and it is worth
+naming as the exception to the rule in the EQ section below.
+
+A released voice stops being rendered once its envelope reaches zero, so the
+cost is only paid while a voice is actually sounding.
 
 ### The channel EQ and drive
 

@@ -60,6 +60,7 @@ void Drone::Init(uint32_t seed)
         d.osc.Init();
         for (uint8_t fi = 0; fi < FM1_FILTERS; fi++) fm1_filter_init(&d.f[fi]);
         fm1_eq_init(&d.eq);
+        fm1_env_init(&d.env);
         d.drive_q12 = Q12_ONE;
         /* a different seed per voice, or all four drift in lockstep */
         fm1_drift_init(&d.drift, seed + v * 0x9E3779B9u);
@@ -130,6 +131,7 @@ void Drone::NoteOn(uint8_t voice, uint8_t note)
     if (voice >= FM1_VOICES) return;
     v_[voice].note = (int16_t)note;
     v_[voice].gate = 1;
+    fm1_env_gate(&v_[voice].env, 1);
     ApplyPitch(voice);
     v_[voice].osc.Strike();
 }
@@ -138,12 +140,14 @@ void Drone::NoteOff(uint8_t voice)
 {
     if (voice >= FM1_VOICES) return;
     v_[voice].gate = 0;
+    fm1_env_gate(&v_[voice].env, 0);
 }
 
 void Drone::SetGate(uint8_t voice, uint8_t on)
 {
     if (voice >= FM1_VOICES) return;
     v_[voice].gate = on ? 1 : 0;
+    fm1_env_gate(&v_[voice].env, v_[voice].gate);
 }
 
 void Drone::Strike(uint8_t voice)
@@ -184,6 +188,8 @@ void Drone::SetParam(uint8_t voice, uint8_t param, uint8_t value)
     case P_F2_MIX:  fm1_filter_set_mix(&d.f[1], value); break;
 
     case P_DRIVE:   d.drive_q12 = value ? fm1_drive_gain(value) : Q12_ONE; break;
+    case P_ATTACK:  fm1_env_set_attack(&d.env, value);  break;
+    case P_RELEASE: fm1_env_set_release(&d.env, value); break;
 
     default:
         /* The EQ is a regular block of five-per-band, like the patchbay's
@@ -266,7 +272,11 @@ void Drone::Render(int16_t *out, uint32_t n)
 
         for (uint8_t vi = 0; vi < FM1_VOICES; vi++) {
             DroneVoice &d = v_[vi];
-            if (!d.gate) continue;
+            /* NOT `if (!gate) continue`. That stopped a voice mid-waveform
+             * -- a step straight to zero, which is a click on every mute.
+             * A closed voice keeps rendering until its RELEASE has run out,
+             * and only then costs nothing. */
+            if (fm1_env_idle(&d.env)) continue;
 
             /* --- block-rate control -------------------------------------
              * Drift, timbre and pitch move once per block. At 5.8 ms that is
@@ -373,7 +383,12 @@ void Drone::Render(int16_t *out, uint32_t n)
                  * a hard kill is the job of a separate control, not of this
                  * ordering. */
                 int32_t s = fm1_filter_tick(&d.f[0], d.scratch[i]);
-                s = (s * lvl) >> 7;                     /* VCA */
+                /* VCA: the envelope, then LEVEL. Per sample, because an
+                 * envelope stepped once per block is a staircase at 172 Hz
+                 * -- which is the zipper noise this is meant to avoid, just
+                 * at a different frequency. */
+                s = (int32_t)(((int64_t)s * fm1_env_tick(&d.env)) >> FM1_ENV_BITS);
+                s = (s * lvl) >> 7;
                 s = fm1_filter_tick(&d.f[1], (q15_t)s);
 
                 /* Tone, then colour. EQ before DRIVE so you choose what gets
