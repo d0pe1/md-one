@@ -32,15 +32,25 @@ Feasibility is settled. Everything below was measured, not assumed.
 | C++ on the target | **proven** | Braids compiles, 99 KB of 526 KB |
 | Braids port correctness | **proven** | matches a 96 kHz reference, 0.0 cents / 0.0 dB |
 | Tables at 44.1 kHz | **proven** | regenerated; reproduces upstream at 96 kHz, all 45 tables identical |
-| Engine on the chip | **proven** | 4 voices = 16.2% of the audio budget |
+| Engine on the chip | **proven** | 4 voices = 20.4% of the audio budget |
+| Signal path complete | **built** | two filters, EQ, drive, AHDSR, patchbay, mixer — `SIGNAL_PATH.md` §8 |
 | Firmware boots and sounds | **proven** | runs in `fm1-live`, all brick checks pass |
+| FM feasibility | **measured** | 7,553 cycles/operator; 12 voices × 6 ops = 37.7% — `BRAIDS_PORT.md` |
 | Playable UX | **not started** | this is the next phase |
 | Hardware | **none** | two units ordered, not arrived |
 
+The 20.4% is the engine as it stands: four voices, two filters, metering and
+an AHDSR. A loaded patch — three EQ bands and drive on every channel — is
+**32%**.
+
 The headroom is real but optimistic: the emulator models 1 instruction per
-cycle and every Braids table lives in XIP flash. At a pessimistic 3× for
-stalls, four voices is ~48% — still inside the "stay under half" rule, but
-that number needs hardware to settle.
+cycle and every Braids table lives in XIP flash. **At a pessimistic 3× for
+stalls, 20.4% becomes 61% and the 32% patch becomes 96%.** That no longer
+clears the "stay under half" rule, and it is the first number in this project
+that hardware could plausibly refute. It does not change what to build next —
+the UX costs nothing at audio rate — but it does mean the block list is now
+bounded by measurement rather than by taste, and the 3× figure itself is a
+guess that only a real device can settle.
 
 ---
 
@@ -58,18 +68,30 @@ their order, gain staging and modulation attachment points. The menus are
 derived from it — specifying the control surface first was backwards, and
 produced a UX spec for blocks that do not exist.
 
-Four decisions in it are open (filter placement, VCA placement, comb as insert
-or send, filter type). OPEN-3 reaches furthest: a shared send bus changes the
-mixer page, the modulation destinations and the patch format.
+**The signal path is now built.** OPEN-1, OPEN-2 and OPEN-3 are closed
+(`SIGNAL_PATH.md` §7) — the first two dissolved rather than being decided, once
+two multimode filters per voice made the ordering a per-patch choice. OPEN-4
+and OPEN-5 remain, and both are block-list questions answerable by measurement,
+not architecture questions.
 
-1. Settle OPEN-1 … OPEN-4.
-2. Build the missing blocks: **filter**, **VCA with attack/release**, and the
-   **int32 mix bus with a single saturation point** — replacing the per-add
-   saturation, which distorts the mix rather than limiting it.
+Built and measured, in order along the chain:
 
+1. ✅ Two **multimode filters** per voice — LP/BP/HP/COMB/RESO, with the comb
+   as a *mode* rather than a separate block. The comb turned out cheaper than
+   the SVF, so folding it in cost nothing.
+2. ✅ **VCA** driven by a full **AHDSR**, per sample rather than per block —
+   block-rate gain is a 172 Hz staircase.
+3. ✅ **Three-band multimode EQ and drive** on every mixer channel.
+4. ✅ **int32 mix bus with a single saturation point**, replacing the per-add
+   saturation that distorted the mix rather than limiting it.
+5. ✅ **FX patchbay** — four channels, one cable out of each, any routing
+   including feedback. Modular, not a reorderable rack.
+6. ✅ **Mixer** — four strips, levels, pan, nine-segment meters, on one page.
 
-
-**The point: make it operable by someone who did not build it.**
+**What remains is the control surface, and that is the whole of Phase 1.**
+Forty-two per-voice and twenty-five global parameters exist; none of them is
+reachable by a human. The point: make it operable by someone who did not build
+it.
 
 Build the Menu/Page framework from `docs/UX_DESIGN.md` before adding features,
 so every later feature has an obvious home.
