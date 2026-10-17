@@ -371,11 +371,63 @@ static void test_rack(void)
     ok(folded_ok, "FOLD stays in range across +-4.0 at 3x drive", "folder escaped Q15");
 }
 
+/* --- the mixer meters ----------------------------------------------------- */
+
+static void test_meters(void)
+{
+    printf("\nmixer meters\n");
+
+    static fm1::Drone d;
+    static int16_t buf[FM1_BLOCK * 2];
+
+    d.Init();
+    d.SetGlobal(G_SPREAD, 0);
+    for (uint8_t v = 0; v < FM1_VOICES; v++) {
+        d.SetGate(v, v < 2);                    /* voices 1 and 2 only */
+        d.SetParam(v, P_FM, 64);
+        d.SetParam(v, P_MOD, 64);
+        d.SetParam(v, P_LEVEL, v == 0 ? 127 : 40);
+        if (v < 2) d.NoteOn(v, 45);
+    }
+    for (int b = 0; b < 16; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+    }
+
+    uint8_t m0 = d.Meter(0), m1 = d.Meter(1), m2 = d.Meter(2);
+    printf("    meters: %3d %3d %3d %3d\n", m0, m1, m2, d.Meter(3));
+
+    ok(m0 > 0, "a sounding voice reads on its meter", "meter stayed at zero");
+    ok(m2 == 0, "a silent voice reads zero", "a gated-off voice is metering");
+
+    /* The meter must follow the fader, or it is describing something other
+     * than what the channel contributes. */
+    ok(m0 > m1, "a louder voice reads higher than a quieter one",
+       "the meter does not track LEVEL");
+
+    /* And it must FALL. A peak meter that latches looks plausible for a few
+     * seconds and then lies forever. */
+    for (uint8_t v = 0; v < FM1_VOICES; v++) d.SetGate(v, 0);
+    for (int b = 0; b < 4; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+    }
+    uint8_t after = d.Meter(0);
+    ok(after < m0, "the meter falls once the voice stops", "the meter latched");
+
+    for (int b = 0; b < 200; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+    }
+    ok(d.Meter(0) == 0, "and reaches zero", "the meter never settles");
+}
+
 int main(void)
 {
     test_soft_clip();
     test_bus();
     test_rack();
+    test_meters();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

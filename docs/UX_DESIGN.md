@@ -19,7 +19,7 @@ Four concepts. Nothing else is invented.
 | **Menu** | A collection of Pages on one topic: Oscillator, Filter, Modulation, LFO, Mixer, Global, Patch. Reached by one dedicated button. |
 | **Page** | One screenful inside a Menu. Exposes **exactly four Parameters**, one per knob. |
 | **Parameter** | A single named value, 0–127 (or an enum), owned by a Subject. Every Parameter is automatically MIDI-CC addressable. |
-| **Subject** | What the current Menu acts on — voice 1–4, or LFO 1–4. Chosen by the SELECT encoder. Global menus have no Subject. |
+| **Subject** | What the current Menu acts on — voice 1–4, FX channel 1–4, mixer channel 1–4, or LFO 1–4. Chosen by the SELECT encoder. Global menus have no Subject. |
 
 A **Modifier** (SHIFT) is not a concept in the hierarchy; it is a hardware
 state that reveals a second function on controls that have one.
@@ -101,7 +101,7 @@ repeated presses. SHIFT + the button returns to page 1.
 | **GLO** | Global menu → next page | page 1 |
 | **HOME** | Overview page | — |
 | **SAVE** | Patch menu | save to current slot |
-| **ARP** | **MIX** — the mixer → next page | page 1 |
+| **ARP** | **MIX** — the mixer (one page) | — |
 | **SEQ** | *(reserved)* | — |
 | **PLAY** | mute / unmute Subject voice | **solo** Subject voice |
 | **REC** | strike all voices | strike Subject voice only |
@@ -239,64 +239,86 @@ Deliberately no reverb and no delay. The output goes to a DAW over USB audio
 where both are free and better; the RAM buys tuned resonance and a patchbay
 instead.
 
-### MIX — Mixer *(no Subject)*
+### MIX — Mixer *(Subject: channel 1–4)*
 
-A real mixer: one knob per voice, one page per control. That is the hardware
-mixer layout — your hand goes to "the third knob" for voice 3 on every page —
-rather than one page per channel, which would make comparing two voices a
-navigation task.
-
-| Page | KNOB1 | KNOB2 | KNOB3 | KNOB4 |
-| --- | --- | --- | --- | --- |
-| 1 **LEVEL** | V1 | V2 | V3 | V4 |
-| 2 **PAN** | V1 | V2 | V3 | V4 |
-| 3 **MONO** | V1 | V2 | V3 | V4 |
-| 4 **ROUTE** | V1 → | V2 → | V3 → | V4 → |
+**One page. All four channels visible at once.** A mixer spread across four
+pages is not a mixer — the entire value of the layout is seeing the balance,
+and you cannot balance what you cannot see together.
 
 ```
 ┌────────────────────────────┐
-│ MIX · LEVEL          1/4   │
+│ MIX                  1/1   │
+│ CH 2                       │
 ├────────────────────────────┤
-│    V1    V2    V3    V4    │
-│   104   092   100   064    │
-│                            │
-│   ▇▇▇▇  ▇▇▇   ▇▇▇▇  ▇▇     │
-│   ─────────────────────    │
-│   FX1   FX1   OUT   ---    │
+│       ┏━━━━━━┓             │
+│   ◞   ┃  ◝   ┃  ◜     ◉    │  PAN, one per channel
+│  ▁▃▅  ┃ ▁▃▅▇ ┃ ▁▃    ▁     │  level meter, post-fader
+│  ▓▓▓  ┃ ▓▓▓  ┃ ▓▓▓   ▓▓▓   │
+│  ─█─  ┃ ─█─  ┃ ──█   █──   │  fader
+│  ▓▓▓  ┃ ▓▓▓  ┃ ▓▓▓   ▓▓▓   │
+│       ┗━━━━━━┛             │
+│   1      2      3      4   │
+│  FX1    FX1    ---    OUT  │  where this channel's signal goes
+├────────────────────────────┤
+│  VOL   PAN   MONO   ----   │  the four knobs, mapped to CH 2
+│  104    C     OFF          │
 └────────────────────────────┘
 ```
 
-LEVEL and PAN also appear on the voice's own pages. That duplication is
-deliberate: balancing four voices against each other is a different job from
-dialling one voice in, and it should not require four menu changes. The
-Parameter still lives in the table once, so it has one CC and one patch byte
-no matter which knob reaches it.
+**SELECT chooses the channel and the four knobs follow it.** The selected
+strip is boxed in red, and the box *is* the mapping — it says "these knobs
+belong to this strip" without a word of explanation. That is the same SELECT
+rule as everywhere else in the device: it picks the Subject, never a value.
 
-**MONO** collapses a voice to centre regardless of its PAN. It is a
-mono-compatibility check you can hit while the DAW is recording, and it is
-what the unison and Haas work on the roadmap will need once a voice can be
-genuinely stereo.
+| KNOB1 | KNOB2 | KNOB3 | KNOB4 |
+| --- | --- | --- | --- |
+| VOLUME | PAN | MONO | *(reserved)* |
 
-The footer shows each voice's destination on every page, so the routing is
-visible while you balance, without being editable until page 4.
+Knob 4 is deliberately `----` rather than filled with something invented.
+Candidates, when a use earns one: a per-channel high-pass to clear mud under a
+stack of drones, or a drive into the bus. Neither is built, and a knob that
+does a weak thing is worse than a knob that does nothing.
+
+**MONO** collapses the channel to centre regardless of PAN — a
+mono-compatibility check you can hit while the DAW is recording, and what the
+Haas work will need once a voice can be genuinely stereo.
+
+#### The strips are terminal
+
+**Mixer channels always go to main.** They are the end of the signal path, so
+there is no destination control here and no routing page in this menu. The
+fader is the last gain stage before the master.
+
+A strip still *shows* where its signal goes, under the channel number, because
+you want that visible while balancing — but it is read-only here. Routing is
+set where the routed thing lives.
+
+#### Metering
+
+The meter is **post-fader**, so it shows what the channel actually contributes
+to the mix. A channel pulled down must read quiet, or the meter is lying about
+the balance — which is the one job it has.
+
+Peak with a slow fall. A drone that sits steadily hot and one that peaks once
+look identical on a fast meter, and on this instrument almost everything is
+the first kind.
 
 ### Routing lives on the last page of its own menu
 
-There is no separate patchbay menu. Each Subject routes from the menu that
-owns it:
+There is no patchbay menu, and no routing page on the mixer. Each thing routes
+from the menu that owns it:
 
 | Menu | Routing page | Sets |
 | --- | --- | --- |
-| **MIX** | page 4 | all four voice destinations at once |
 | **EDIT** | last page | the selected voice's destination |
 | **FX** | page 2 | the selected effect channel's destination |
 
 One page showing every cable in the instrument reads as a wiring diagram, not
-a control. Routing is a property of a thing, so it sits with that thing — and
-the mixer, which is where you already think about where voices go, gets the
-across-the-board view.
+a control surface. Routing is a property of a thing, so it sits with that
+thing.
 
 Each destination knob cycles `--- · FX1 · FX2 · FX3 · FX4 · OUT`.
+
 
 **Four rules, and they are the whole model:**
 

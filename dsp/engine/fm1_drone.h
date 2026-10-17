@@ -70,6 +70,19 @@ class Drone {
 
     uint8_t GetParam(uint8_t voice, uint8_t param) const;
 
+    /* Post-fader peak for the mixer meter, 0..127, with a slow fall.
+     *
+     * Post-fader because the meter has one job -- showing what the channel
+     * actually contributes -- and a channel pulled down must read quiet or it
+     * is lying about the balance. Taken after F2 and before pan, so panning a
+     * voice moves it without changing what its meter says.
+     *
+     * Peak rather than RMS, falling about 130 dB/s: a drone that sits
+     * steadily hot and one that peaks once look identical on a fast meter,
+     * and on this instrument nearly everything is the first kind. */
+    uint8_t Meter(uint8_t voice) const
+    { return voice < FM1_VOICES ? meter_[voice] : 0; }
+
     /* --- audio, from the ISR -------------------------------------------- */
 
     /* n stereo frames, interleaved L R L R. ADDS to out, as app_audio() does,
@@ -81,6 +94,7 @@ class Drone {
 
     DroneVoice v_[FM1_VOICES];
     uint8_t    g_[NGPARAM];
+    uint8_t    meter_[FM1_VOICES];      /* see Meter() */
     uint32_t   blocks_;        /* blocks rendered, for drift scheduling */
 
     /* The mix bus. int32 so voices accumulate with headroom and saturation

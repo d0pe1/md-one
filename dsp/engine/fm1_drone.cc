@@ -226,6 +226,13 @@ void Drone::Render(int16_t *out, uint32_t n)
          * the audio budget to clear 8 KiB of input buffers and walk four
          * unplugged channels 256 times. An instrument that is not using its
          * FX must not pay for them. */
+        /* Meters fall here, once per block, so a voice that is gated off or
+         * unplugged decays to zero instead of freezing at its last reading --
+         * a stuck meter is worse than no meter. The voice loop below raises
+         * them again. */
+        for (uint8_t v = 0; v < FM1_VOICES; v++)
+            if (meter_[v]) meter_[v]--;
+
         uint8_t  fx_act[FM1_FX_CHANS];
         uint32_t fx_n = fx_rack_active(&rack_, fx_act);
 
@@ -328,6 +335,7 @@ void Drone::Render(int16_t *out, uint32_t n)
                           ? bus_
                           : fxin_[dest - DEST_FX1];
 
+            int32_t pk = 0;                             /* post-fader peak */
             for (uint32_t i = 0; i < chunk; i++) {
                 /* OSC -> F1 -> VCA -> F2. The VCA sits BETWEEN the filters by
                  * design (SIGNAL_PATH.md OPEN-2): F2 in a resonant mode rings
@@ -339,10 +347,19 @@ void Drone::Render(int16_t *out, uint32_t n)
                 s = (s * lvl) >> 7;                     /* VCA */
                 s = fm1_filter_tick(&d.f[1], (q15_t)s);
 
+                int32_t a = s < 0 ? -s : s;
+                if (a > pk) pk = a;
+
                 /* No saturation here. The bus has room; limiting once at the
                  * end is the whole point. */
                 sink[2 * i]     += (s * gl_q12) >> Q12_BITS;
                 sink[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
+            }
+
+            /* Raise the meter; the fall already happened above. */
+            {
+                uint8_t m = (uint8_t)((pk * 127) >> 15);
+                if (m > meter_[vi]) meter_[vi] = m;
             }
         }
 

@@ -108,6 +108,10 @@ void    fm1_drone_set_param(uint8_t voice, uint8_t param, uint8_t value);
 uint8_t fm1_drone_get_param(uint8_t voice, uint8_t param);
 void    fm1_drone_set_global(uint8_t param, uint8_t value);
 
+/* Post-fader peak for voice v, 0..127, with a slow fall. For the mixer
+ * meters. */
+uint8_t fm1_drone_meter(uint8_t voice);
+
 /* The label for a parameter, for the screen. Never NULL. */
 const char *fm1_drone_param_name(uint8_t param);
 
