@@ -16,7 +16,7 @@ Four concepts. Nothing else is invented.
 
 | Term | Definition |
 | --- | --- |
-| **Menu** | A collection of Pages on one topic: Oscillator, Filter, Modulation, LFO, Mixer, Global, Patch. Reached by one dedicated button. |
+| **Menu** | A collection of Pages on one topic: Oscillator, Effects, Mixer, Envelope, Modulation, LFO, Global, Patch. Reached by one dedicated button. |
 | **Page** | One screenful inside a Menu. Exposes **exactly four Parameters**, one per knob. |
 | **Parameter** | A single named value, 0–127 (or an enum), owned by a Subject. Every Parameter is automatically MIDI-CC addressable. |
 | **Subject** | What the current Menu acts on — voice 1–4, FX channel 1–4, mixer channel 1–4, or LFO 1–4. Chosen by the SELECT encoder. Global menus have no Subject. |
@@ -95,14 +95,14 @@ repeated presses. SHIFT + the button returns to page 1.
 | --- | --- | --- |
 | **FX** | Effect-channel menu → next page | page 1 |
 | **SEL** | **SHIFT** (dedicated modifier) | — |
-| **ENV** | Modulation menu → next page | page 1 |
+| **ENV** | **Envelope** menu (AHDSR) → next page | page 1 |
 | **LFO** | LFO menu → next page | page 1 |
 | **EDIT** | Oscillator menu → next page | page 1 |
 | **GLO** | Global menu → next page | page 1 |
 | **HOME** | Overview page | — |
 | **SAVE** | Patch menu | save to current slot |
 | **ARP** | **MIX** — the mixer (one page) | — |
-| **SEQ** | *(reserved)* | — |
+| **SEQ** | **MOD** — modulation routing → next page | page 1 |
 | **PLAY** | mute / unmute Subject voice | **solo** Subject voice |
 | **REC** | strike all voices | strike Subject voice only |
 
@@ -451,7 +451,55 @@ routing restricted.
 > Evaluating per sample removed the hazard, so the restriction had nothing
 > left to justify it.
 
-### ENV — Modulation *(Subject: voice 1–4)*
+### ENV — Envelope *(Subject: voice 1–4)*
+
+AHDSR, one per voice. The button is printed ENV and it is the envelope, which
+is the version of this that needs no explaining.
+
+| Page | KNOB1 | KNOB2 | KNOB3 | KNOB4 |
+| --- | --- | --- | --- | --- |
+| 1 **ADSR** | ATTACK | DECAY | SUSTAIN | RELEASE |
+| 2 **HOLD** | HOLD | — | — | — |
+
+```
+┌────────────────────────────┐
+│ ENV · ADSR           1/2   │
+│ VOICE 1                    │
+├────────────────────────────┤
+│  ATK   DEC   SUS   REL     │
+│  008   040   127   020     │
+│                            │
+│      ╱‾‾‾╲___________      │
+│     ╱               ╲      │
+│    ╱                 ╲     │
+│   A  H   D    S      R     │
+└────────────────────────────┘
+```
+
+The four everyone expects sit on page 1. **HOLD is on page 2 because it is
+the least-reached of the five**, not because it matters least — a page with
+one knob on it is honest about that, and the alternative was cramming five
+controls onto four knobs.
+
+Every time segment spans **1.9 ms to 32.4 s**. SUSTAIN is a level, not a
+time.
+
+**Why HOLD at all.** A long attack straight into a decay never arrives
+anywhere: the two curves meet and the peak is a corner you cannot hear. A
+hold segment gives the top of a swell somewhere to sit, which on a drone
+machine is most of the point. It also makes attack-decay-with-no-sustain
+usable as a percussive hit.
+
+The curve drawing under the values redraws live, with the current stage
+marked — on a 240×240 screen there is room to show the shape you are editing,
+and an envelope is the one parameter group where the picture *is* the
+parameter.
+
+Defaults are an organ: quick attack, no hold, full sustain, short release. An
+instrument you switch on should make a sound when you press a key rather than
+fading in politely, and SUSTAIN at full means DECAY does nothing until asked.
+
+### MOD — Modulation routing *(Subject: voice 1–4)*
 
 | Page | KNOB1 | KNOB2 | KNOB3 | KNOB4 |
 | --- | --- | --- | --- | --- |
@@ -578,11 +626,12 @@ Voice Subjects map to MIDI channels 1–4, LFO Subjects and Global to channel 16
 
 1. **SHIFT placement** — SEL proposed; HOME and FX are the alternatives.
    Decide after playing, not before.
-2. **ARP now opens ROUTE**, because the patchbay needed a button and a drone
-   machine does not need an arpeggiator. The label lies, which breaks the rule
-   that a printed button does the printed thing — accepted knowingly, since
-   the alternative is burying the routing inside GLO where it would be a
-   sub-menu rather than a place. **SEQ** stays unassigned.
+2. **ARP opens MIX and SEQ opens MOD.** Both labels lie, which breaks the rule
+   that a printed button does the printed thing. Accepted knowingly: a drone
+   machine needs neither an arpeggiator nor a sequencer, and the alternative
+   was burying the mixer and the modulation matrix inside another menu as
+   sub-pages rather than giving each a place. ENV now means the envelope,
+   which is what it says.
 3. **Haas widening** is specified but not built. When it lands a voice becomes
    genuinely stereo, which is what the MONO switch on MIX page 3 is for —
    mono-compatibility has to be checkable from the panel before it ships.

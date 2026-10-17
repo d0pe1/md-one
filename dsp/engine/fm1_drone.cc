@@ -189,6 +189,9 @@ void Drone::SetParam(uint8_t voice, uint8_t param, uint8_t value)
 
     case P_DRIVE:   d.drive_q12 = value ? fm1_drive_gain(value) : Q12_ONE; break;
     case P_ATTACK:  fm1_env_set_attack(&d.env, value);  break;
+    case P_HOLD:    fm1_env_set_hold(&d.env, value);    break;
+    case P_DECAY:   fm1_env_set_decay(&d.env, value);   break;
+    case P_SUSTAIN: fm1_env_set_sustain(&d.env, value); break;
     case P_RELEASE: fm1_env_set_release(&d.env, value); break;
 
     default:

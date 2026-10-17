@@ -48,10 +48,11 @@ enum {
     P_EQ2_MODE, P_EQ2_FRQ, P_EQ2_GAIN, P_EQ2_RES, P_EQ2_MIX,
     P_EQ3_MODE, P_EQ3_FRQ, P_EQ3_GAIN, P_EQ3_RES, P_EQ3_MIX,
     P_DRIVE,
-    /* VCA envelope (fm1_env.h). Not an ADSR: voices are latched, so sustain
-     * is the normal state. Both reach about 32 s, because a drone arriving
-     * over twenty seconds is an ordinary thing to want here. */
-    P_ATTACK, P_RELEASE,
+    /* VCA envelope (fm1_env.h): AHDSR. Every time segment reaches about
+     * 32 s, because a drone arriving over twenty seconds is an ordinary
+     * thing to want here. HOLD is what gives a slow swell an audible peak
+     * instead of a corner where the attack and decay curves meet. */
+    P_ATTACK, P_HOLD, P_DECAY, P_SUSTAIN, P_RELEASE,
     P_LEVEL, P_PAN,
     /* Collapse this voice to centre regardless of PAN. A mono-compatibility
      * check you can hit while the DAW is recording -- and what the unison and
@@ -205,9 +206,15 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_EQ3_RES]   = {"EQ3 RES",127,  40, K_NUM,     0},
     [P_EQ3_MIX]   = {"EQ3 MIX",127, 127, K_PCT,     0},
     [P_DRIVE]      = {"DRIVE",  127,   0, K_NUM,     0},
-    /* Default to the fast end: an instrument you switch on should make a
-     * sound when you press a key, not fade in politely. */
+    /* Defaults are an organ: quick attack, no hold, full sustain, short
+     * release. An instrument you switch on should make a sound when you
+     * press a key, not fade in politely -- and SUSTAIN at full means DECAY
+     * does nothing until you ask it to, so the envelope starts out of the
+     * way. */
     [P_ATTACK]     = {"ATTACK", 127,   8, K_NUM,     0},
+    [P_HOLD]       = {"HOLD",   127,   0, K_NUM,     0},
+    [P_DECAY]      = {"DECAY",  127,  40, K_NUM,     0},
+    [P_SUSTAIN]    = {"SUSTAIN",127, 127, K_NUM,     0},
     [P_RELEASE]    = {"RELEASE",127,  20, K_NUM,     0},
     [P_LEVEL]      = {"LEVEL",  127, 100, K_NUM,     7},   /* GM volume */
     [P_PAN]        = {"PAN",    127,  64, K_BIP,    10},   /* GM pan */

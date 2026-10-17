@@ -603,24 +603,79 @@ static void test_env(void)
 {
     printf("\nVCA envelope\n");
 
-    /* The block on its own: does it reach its targets, and does it stop? */
+    /* Walk the whole AHDSR and check each stage actually happens, in order.
+     * A stage that is silently skipped is the classic envelope bug: it still
+     * sounds like an envelope, just not the one on the panel. */
+    {
+        fm1_env_t e;
+        fm1_env_init(&e);
+        fm1_env_set_attack(&e, 10);
+        fm1_env_set_hold(&e, 40);
+        fm1_env_set_decay(&e, 20);
+        fm1_env_set_sustain(&e, 64);
+        fm1_env_set_release(&e, 10);
+
+        int seen[ENV_STAGES] = { 0 };
+        int32_t peak = 0;
+        fm1_env_gate(&e, 1);
+        for (int i = 0; i < 44100 * 4; i++) {
+            seen[e.stage] = 1;
+            int32_t l = fm1_env_tick(&e);
+            if (l > peak) peak = l;
+            if (e.stage == ENV_SUSTAIN && i > 1000) break;
+        }
+        printf("    stages seen: A%d H%d D%d S%d, peak %d%%\n",
+               seen[ENV_ATTACK], seen[ENV_HOLD], seen[ENV_DECAY],
+               e.stage == ENV_SUSTAIN, 100 * peak / FM1_ENV_ONE);
+
+        ok(seen[ENV_ATTACK], "ATTACK runs", "the attack stage was skipped");
+        ok(seen[ENV_HOLD],   "HOLD runs",   "the hold stage was skipped");
+        ok(seen[ENV_DECAY],  "DECAY runs",  "the decay stage was skipped");
+        ok(e.stage == ENV_SUSTAIN, "and it settles in SUSTAIN",
+           "the envelope never reached sustain");
+        ok(peak == FM1_ENV_ONE, "the peak reaches full scale",
+           "the attack stalls short of unity");
+
+        /* Sustain must hold at the knob, not at full. */
+        int32_t want = (64 * FM1_ENV_ONE) / 127;
+        int32_t got = fm1_env_tick(&e);
+        ok(got == want, "SUSTAIN holds at its level, not at full",
+           "the sustain level is being ignored");
+
+        /* And release must take it to zero and then idle. */
+        fm1_env_gate(&e, 0);
+        for (int i = 0; i < 44100 * 4 && e.stage != ENV_IDLE; i++) fm1_env_tick(&e);
+        ok(e.stage == ENV_IDLE && e.level == 0,
+           "RELEASE reaches zero and the voice goes idle",
+           "the envelope never fully closes");
+        ok(fm1_env_idle(&e), "and reports idle so the voice can be skipped",
+           "a finished voice still costs cycles");
+    }
+
+    /* HOLD must actually hold -- flat, at the top, for as long as asked.
+     * Without it a slow swell has no peak, only a corner where the attack
+     * and decay curves meet. */
     {
         fm1_env_t e;
         fm1_env_init(&e);
         fm1_env_set_attack(&e, 0);
-        fm1_env_set_release(&e, 0);
-
+        fm1_env_set_hold(&e, 60);
+        fm1_env_set_decay(&e, 0);
+        fm1_env_set_sustain(&e, 0);
         fm1_env_gate(&e, 1);
-        for (int i = 0; i < 44100; i++) fm1_env_tick(&e);
-        ok(e.level == FM1_ENV_ONE, "a fast attack reaches exactly unity",
-           "the envelope stalls short of full gain");
 
-        fm1_env_gate(&e, 0);
-        for (int i = 0; i < 44100; i++) fm1_env_tick(&e);
-        ok(e.level == 0, "a fast release reaches exactly zero",
-           "the envelope never fully closes");
-        ok(fm1_env_idle(&e), "and then reports idle so the voice can be skipped",
-           "a finished voice still costs cycles");
+        int held = 0, flat = 1;
+        for (int i = 0; i < 44100 * 4; i++) {
+            fm1_env_tick(&e);
+            if (e.stage == ENV_HOLD) {
+                held++;
+                if (e.level != FM1_ENV_ONE) flat = 0;
+            } else if (held) break;
+        }
+        printf("    hold 60 held for %d samples (%.0f ms), flat %d\n",
+               held, held * 1000.0 / 44100.0, flat);
+        ok(held > 100, "HOLD holds for a measurable time", "hold did nothing");
+        ok(flat, "and holds FLAT at full scale", "the hold stage is drifting");
     }
 
     /* A slow setting must actually be slower. Catches a rate table that is

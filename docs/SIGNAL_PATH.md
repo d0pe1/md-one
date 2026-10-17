@@ -67,7 +67,7 @@ straight out of it, and both are fixed:
 | --- | --- | --- |
 | **Oscillator** | shape, timbre, color, FM, MOD | built |
 | **F1 / F2** | type, cutoff, res, mix | **built** — one mode list including COMB and RESO |
-| **VCA** | attack, release, level | **built** -- exponential, ~2 ms to 32 s |
+| **VCA** | A H D S R, level | **built** — exponential, 1.9 ms to 32.4 s |
 | **Pan / Mono** | pan, mono | built |
 | **Route** | dest | **built** — one cable out, §5b |
 
@@ -108,19 +108,28 @@ leaves a tail.** MUTE closes the VCA and lets the tail decay; **SHIFT+MUTE**
 is a hard kill that also clears filter and rack state, for the times when
 silence has to be immediate.
 
-### Envelope shape -- built
+### Envelope shape — AHDSR, built
 
-Voices are latched and mostly static, so the envelope is not an ADSR: sustain
-is the normal state and decay has nothing to decay to. Two parameters, both
-measured from the generated rate table:
+Five segments, with every time spanning **1.9 ms to 32.4 s** — measured from
+the generated rate table, not from intent:
 
 | | |
 | --- | --- |
-| **ATTACK** | knob 0 → 1.9 ms, knob 127 → 32.4 s |
-| **RELEASE** | the same range |
+| **ATTACK** | silence to full |
+| **HOLD** | stay at full, flat |
+| **DECAY** | fall to the sustain level |
+| **SUSTAIN** | a level, not a time |
+| **RELEASE** | fall to silence when the gate closes |
 
 Long ranges deliberately: a drone arriving over twenty seconds is an ordinary
 thing to want here, and nothing else in the instrument provides it.
+
+**HOLD is the segment that earns its place on this instrument.** A long attack
+straight into a decay never arrives anywhere — the two curves meet and the
+peak is a corner you cannot hear. A hold gives the top of a swell somewhere to
+sit. It also makes attack-decay with no sustain usable as a percussive hit,
+and a voice that has decayed to a sustain of zero stops being rendered, so
+that patch costs nothing once it has sounded.
 
 **It is exponential, not linear.** A linear amplitude fade is only −6 dB at
 its halfway point and −20 dB at nine tenths, so nearly all of the audible
@@ -406,9 +415,11 @@ the bus — sits near **25%**, leaving three quarters of the budget unspent.
 | | Cycles/block | % budget |
 | --- | --- | --- |
 | no envelope (hard gate) | 266,002 | 19.1% |
-| **per-sample envelope** | **284,884** | **20.4%** |
+| **AHDSR, per sample** | **284,300** | **20.4%** |
 
-**4,700 cycles per voice**, for a 64-bit multiply and a compare per sample.
+**4,575 cycles per voice**, for a stage switch, a 64-bit multiply and a
+compare per sample. Going from a two-stage AR to a five-stage AHDSR cost
+nothing measurable — the switch replaced a pair of ternaries.
 
 Per sample rather than per block, deliberately. A gain stepped once per block
 is a staircase at 172 Hz -- which is the zipper noise the envelope exists to
