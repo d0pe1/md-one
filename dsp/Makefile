@@ -69,12 +69,20 @@ $(BUILD)/test_comb: tests/test_comb.c $(ENG_HDR) | $(BUILD)
 $(BUILD)/test_mix: tests/test_mix.cc $(ENG_SRC) $(ENG_HDR) $(MI_SRC) $(MI_HDR) | $(BUILD)
 	$(CXX) $(MI_FLAGS) $(MI_INC) -o $@ tests/test_mix.cc $(ENG_SRC) $(MI_SRC)
 
-test: $(BUILD)/test_osc $(BUILD)/test_comb $(BUILD)/test_mix
+# Pure data and pure logic: no engine, no Braids, no libm. The expensive
+# assertion here is reachability -- that every parameter in fm1_params.h can
+# be found by a human turning a knob.
+$(BUILD)/test_pages: tests/test_pages.c $(ENG_HDR) | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ tests/test_pages.c
+
+test: $(BUILD)/test_osc $(BUILD)/test_comb $(BUILD)/test_mix $(BUILD)/test_pages
 	./$(BUILD)/test_osc
 	@echo
 	./$(BUILD)/test_comb
 	@echo
 	./$(BUILD)/test_mix
+	@echo
+	./$(BUILD)/test_pages
 
 bench: $(BUILD)/bench
 	./$(BUILD)/bench

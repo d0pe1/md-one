@@ -52,7 +52,7 @@ echo "toolchain $TC"
 
 # --- 1. the mathematics ----------------------------------------------------
 stage "dsp tests"
-run "make test (oscillator, comb, mix bus)" make -C "$R/dsp" -s test
+run "make test (oscillator, comb, mix bus, page map)" make -C "$R/dsp" -s test
 
 # --- 2. the chip's rules ---------------------------------------------------
 stage "target rules"
