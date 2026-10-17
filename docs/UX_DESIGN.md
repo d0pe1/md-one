@@ -39,7 +39,7 @@ From the panel (`references/hortator/docs/panel.jpg`), confirmed against
 | SELECT | encoder | **Subject select** — voice 1–4, LFO 1–4. Always. |
 | ALGORITHM | encoder | **Primary enum** of the page — oscillator shape, LFO mode. SHIFT + turn jumps by category. |
 | PRESETS | encoder | **Patch select**. Always. |
-| OCT− / OCT+ | buttons | **Octave of the selected voice**, as printed. Always. |
+| OCT− / OCT+ | buttons | **Octave of the selected voice**. Always, in every menu. |
 
 **Right of the screen**
 
@@ -50,11 +50,12 @@ From the panel (`references/hortator/docs/panel.jpg`), confirmed against
 
 **Elsewhere**: 27 keys, 14 button LEDs, 27 key LEDs, 240×240 screen.
 
-The grid, as printed:
+The grid, as MD-One uses it (the overlay carries these; the stock silkscreen
+underneath says something else and is not a constraint):
 
 ```
-  FX    SEL   ENV   LFO   EDIT  GLO
-  HOME  SAVE  ARP   SEQ   PLAY  REC
+  EDIT  SHIFT ENV   LFO   FX    GLO
+  HOME  SAVE  MIX   MOD   MUTE  HIT
 ```
 
 ---
@@ -67,9 +68,10 @@ learnable rather than memorised.
 1. **Four knobs, four parameters.** Every page exposes exactly four. A page
    with fewer shows `--` for the unused ones; it never borrows a knob for
    something else.
-2. **OCT− / OCT+ always transpose the selected voice**, exactly as the panel
-   prints them, in every menu and on every page. A button with a printed
-   label does the printed thing or the panel is lying.
+2. **A button does the same thing in every menu and on every page.** What is
+   printed on the stock panel is not a constraint — this firmware replaces
+   M-VAVE's entirely and ships with a printed overlay. What matters is that a
+   button never changes meaning depending on where you are.
 3. **SELECT only ever chooses the Subject.** Turning it never edits a value.
 4. **SHIFT is only ever SHIFT.** It has no function of its own, on any page.
 5. **A Menu button enters its Menu at page 1, and pressing it again advances
@@ -91,29 +93,35 @@ each lit when open. From anywhere, one press reaches any menu.
 Each menu button **enters its menu at page 1, then cycles its pages** on
 repeated presses. SHIFT + the button returns to page 1.
 
-| Button | Press | SHIFT + press |
-| --- | --- | --- |
-| **FX** | Effect-channel menu → next page | page 1 |
-| **SEL** | **SHIFT** (dedicated modifier) | — |
-| **ENV** | **Envelope** menu (AHDSR) → next page | page 1 |
-| **LFO** | LFO menu → next page | page 1 |
-| **EDIT** | Oscillator menu → next page | page 1 |
-| **GLO** | Global menu → next page | page 1 |
-| **HOME** | Overview page | — |
-| **SAVE** | Patch menu | save to current slot |
-| **ARP** | **MIX** — the mixer (one page) | — |
-| **SEQ** | **MOD** — modulation routing → next page | page 1 |
-| **PLAY** | mute / unmute Subject voice | **solo** Subject voice |
-| **REC** | strike all voices | strike Subject voice only |
+| Position | MD-One | Press | SHIFT + press |
+| --- | --- | --- | --- |
+| top 1 | **EDIT** | Oscillator menu → next page | page 1 |
+| top 2 | **SHIFT** | *(dedicated modifier)* | — |
+| top 3 | **ENV** | Envelope menu (AHDSR) → next page | page 1 |
+| top 4 | **LFO** | LFO menu → next page | page 1 |
+| top 5 | **FX** | Effect channels → next page | page 1 |
+| top 6 | **GLO** | Global menu → next page | page 1 |
+| bot 1 | **HOME** | Overview | — |
+| bot 2 | **SAVE** | Patch menu | save to current slot |
+| bot 3 | **MIX** | Mixer (one page) | — |
+| bot 4 | **MOD** | Modulation routing → next page | page 1 |
+| bot 5 | **MUTE** | mute / unmute Subject voice | **solo** |
+| bot 6 | **HIT** | strike all voices | strike Subject only |
 
-**SHIFT is SEL.** It sits top row, second column — reachable by the right
-hand without leaving the knobs, which is what a held modifier needs. Its
-printed name is the least informative on the grid, so least is lost. The
-"select" idea it implies lives on the SELECT encoder, which is named for it.
+Twelve functions, twelve buttons, no doubling up and nothing hidden behind a
+long press.
 
-> This is the one mapping worth revisiting after the first hour of playing.
-> The alternatives are HOME (bottom-left, the Elektron FUNC position, but a
-> genuinely useful Menu button) and FX.
+**The overlay is the panel.** The stock silkscreen reads
+`FX SEL ENV LFO EDIT GLO / HOME SAVE ARP SEQ PLAY REC`, which belongs to
+M-VAVE's firmware and has no claim on this one. The layout above is chosen for
+MD-One and the printed overlay carries it — the two most-used menus (EDIT and
+MIX) sit at the outer edges where the thumbs land, and SHIFT keeps the
+top-row-second position because a held modifier has to be reachable without
+leaving the knobs.
+
+> SHIFT's position is the one worth revisiting after an hour of playing. The
+> alternative is bottom-left, the Elektron FUNC position, which some hands
+> will prefer. It is a line in the overlay artwork either way.
 
 ---
 
@@ -626,12 +634,8 @@ Voice Subjects map to MIDI channels 1–4, LFO Subjects and Global to channel 16
 
 1. **SHIFT placement** — SEL proposed; HOME and FX are the alternatives.
    Decide after playing, not before.
-2. **ARP opens MIX and SEQ opens MOD.** Both labels lie, which breaks the rule
-   that a printed button does the printed thing. Accepted knowingly: a drone
-   machine needs neither an arpeggiator nor a sequencer, and the alternative
-   was burying the mixer and the modulation matrix inside another menu as
-   sub-pages rather than giving each a place. ENV now means the envelope,
-   which is what it says.
+2. **The overlay artwork** is not drawn yet. The button map above is what it
+   has to carry.
 3. **Haas widening** is specified but not built. When it lands a voice becomes
    genuinely stereo, which is what the MONO switch on MIX page 3 is for —
    mono-compatibility has to be checkable from the panel before it ships.
