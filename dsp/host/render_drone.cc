@@ -87,10 +87,21 @@ static void apply(fm1::Drone &d, const Preset &p)
         d.SetParam(i, P_COLOR,       s.color);
         d.SetParam(i, P_DETUNE,      s.detune);
         d.SetParam(i, P_DRIFT_RATE,  s.drift_rate);
-        d.SetParam(i, P_DRIFT_DEPTH, s.drift_depth);
-        d.SetParam(i, P_COMB_TUNE,   s.comb_tune);
-        d.SetParam(i, P_COMB_FB,     s.comb_fb);
-        d.SetParam(i, P_COMB_MIX,    s.comb_mix);
+        /* P_DRIFT_DEPTH split into two attenuverters when drift gained a pitch
+         * path. The presets' depth becomes P_FM -- drift into pitch is the one
+         * that beats against the comb and the other voices, which is what
+         * these presets were voiced around. P_MOD stays at its closed default:
+         * on the TRIPLE_* and wavetable shapes used here TIMBRE is a quantised
+         * table, and modulating it steps rather than glides. */
+        d.SetParam(i, P_FM,          s.drift_depth);
+
+        /* The comb is a filter mode now. F1 in COMB mode with these three
+         * parameters is exactly the old osc -> comb -> level -> pan chain, so
+         * the presets are unchanged in sound. */
+        d.SetParam(i, P_F1_TYPE,     F_COMB);
+        d.SetParam(i, P_F1_CUT,      s.comb_tune);
+        d.SetParam(i, P_F1_RES,      s.comb_fb);
+        d.SetParam(i, P_F1_MIX,      s.comb_mix);
         d.SetParam(i, P_LEVEL,       s.level);
         d.SetParam(i, P_PAN,         s.pan);
         d.NoteOn(i, s.note);

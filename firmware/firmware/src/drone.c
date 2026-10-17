@@ -185,13 +185,13 @@ static void draw_params(uint32_t edit)
     if (edit) {
         u8_text(fm1_drone_get_param(st.sel, FD_P_DETUNE), a);
         u8_text(fm1_drone_get_param(st.sel, FD_P_DRIFT_RATE), b);
-        u8_text(fm1_drone_get_param(st.sel, FD_P_DRIFT_DEPTH), c);
-        u8_text(fm1_drone_get_param(st.sel, FD_P_COMB_FB), d);
+        u8_text(fm1_drone_get_param(st.sel, FD_P_FM), c);
+        u8_text(fm1_drone_get_param(st.sel, FD_P_F1_RES), d);
     } else {
         u8_text(fm1_drone_get_param(st.sel, FD_P_LEVEL), a);
         u8_text(fm1_drone_get_param(st.sel, FD_P_TIMBRE), b);
         u8_text(fm1_drone_get_param(st.sel, FD_P_COLOR), c);
-        u8_text(fm1_drone_get_param(st.sel, FD_P_COMB_MIX), d);
+        u8_text(fm1_drone_get_param(st.sel, FD_P_F1_MIX), d);
     }
 
     lcd_fill(0, 70, 240, 18, C_BLACK);
@@ -263,9 +263,12 @@ static void app_main(void)
         fm1_drone_set_param(v, FD_P_TIMBRE,      (uint8_t)(70 - v * 8));
         fm1_drone_set_param(v, FD_P_DETUNE,      (uint8_t)(64 + (v & 1 ? 3 : -3)));
         fm1_drone_set_param(v, FD_P_DRIFT_RATE,  (uint8_t)(10 + v * 4));
-        fm1_drone_set_param(v, FD_P_DRIFT_DEPTH, (uint8_t)(40 + v * 6));
-        fm1_drone_set_param(v, FD_P_COMB_FB,     (uint8_t)(40 + v * 14));
-        fm1_drone_set_param(v, FD_P_COMB_MIX,    (uint8_t)(28 + v * 10));
+        fm1_drone_set_param(v, FD_P_FM,          (uint8_t)(40 + v * 6));
+        /* F1 in comb mode is the chain this boot patch has always used; the
+         * comb became a filter mode rather than a block of its own. */
+        fm1_drone_set_param(v, FD_P_F1_TYPE,     FD_F_COMB);
+        fm1_drone_set_param(v, FD_P_F1_RES,      (uint8_t)(40 + v * 14));
+        fm1_drone_set_param(v, FD_P_F1_MIX,      (uint8_t)(28 + v * 10));
         fm1_drone_set_param(v, FD_P_LEVEL,       (uint8_t)(104 - v * 12));
         fm1_drone_set_param(v, FD_P_PAN,         (uint8_t)(26 + v * 26));
         fm1_drone_note_on(v, st.note[v]);
@@ -369,11 +372,11 @@ static void app_main(void)
             params_dirty = 1; dirty = 1; t_change = fm1_ms;
         }
         if ((e = fm1_enc_take(ENC_KNOB3)) != 0) {
-            nudge(st.sel, edit_held ? FD_P_DRIFT_DEPTH : FD_P_COLOR, e * STEP, 127);
+            nudge(st.sel, edit_held ? FD_P_FM : FD_P_COLOR, e * STEP, 127);
             params_dirty = 1; dirty = 1; t_change = fm1_ms;
         }
         if ((e = fm1_enc_take(ENC_KNOB4)) != 0) {
-            nudge(st.sel, edit_held ? FD_P_COMB_FB : FD_P_COMB_MIX, e * STEP, 127);
+            nudge(st.sel, edit_held ? FD_P_F1_RES : FD_P_F1_MIX, e * STEP, 127);
             params_dirty = 1; dirty = 1; t_change = fm1_ms;
         }
         /* Level again, so balancing never needs the right bank. */

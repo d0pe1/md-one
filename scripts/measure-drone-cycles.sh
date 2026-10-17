@@ -28,8 +28,12 @@ SHAPE="${1:-TRIPLE_SAW}"
 [ -x "$EMU" ] || { echo "no emulator at $EMU"; exit 2; }
 mkdir -p "$W"
 
+# -std=c++11 matches firmware/tools/build.py. This clang is 4.0.1 and defaults
+# to C++98; measuring the engine in a different language mode from the one it
+# ships in is measuring something else.
 FLAGS="-target pi32v2 -Os -ffreestanding -nostdlib -fno-builtin -fno-exceptions
-       -fno-rtti -fno-threadsafe-statics -I$MI/shim -I$MI -I$MI/stmlib/.. -I$H"
+       -fno-rtti -fno-threadsafe-statics -std=c++11
+       -I$MI/shim -I$MI -I$MI/stmlib/.. -I$H"
 SRC="$ENG/fm1_drone.cc $MI/fm1_braids.cc $MI/braids/analog_oscillator.cc
      $MI/braids/digital_oscillator.cc $MI/braids/macro_oscillator.cc
      $MI/braids/resources.cc $MI/stmlib/utils/random.cc"

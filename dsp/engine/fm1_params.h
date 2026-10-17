@@ -34,7 +34,13 @@ enum {
     P_MOD,                  /* drift -> timbre, bipolar, 64 = none */
     P_DRIFT_RATE,           /* how fast the drift wanders, shared by both */
     P_OCTAVE, P_DETUNE, P_GLIDE,
-    P_COMB_TUNE, P_COMB_FB, P_COMB_MIX,
+    /* Two multimode filters: OSC -> F1 -> VCA -> F2 -> pan. Both run the same
+     * mode list (fm1_filter.h), which includes COMB and RESO -- so the three
+     * old CMBTUNE/CMBFB/CMBMIX parameters are gone, folded into a filter that
+     * happens to be in comb mode. Four parameters each, which is exactly one
+     * Page of the UX taxonomy. */
+    P_F1_TYPE, P_F1_CUT, P_F1_RES, P_F1_MIX,
+    P_F2_TYPE, P_F2_CUT, P_F2_RES, P_F2_MIX,
     P_LEVEL, P_PAN,
     NPARAM
 };
@@ -53,7 +59,8 @@ enum {
     K_SHAPE,    /* a Braids shape name */
     K_PCT,
     K_CENTS,
-    K_RATIO
+    K_RATIO,
+    K_FTYPE     /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
 };
 
 typedef struct {
@@ -84,9 +91,23 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_OCTAVE]     = {"OCTAVE",   8,   4, K_NUM,     0},
     [P_DETUNE]     = {"DETUNE", 127,  64, K_CENTS,   0},
     [P_GLIDE]      = {"GLIDE",  127,   0, K_NUM,     0},
-    [P_COMB_TUNE]  = {"CMBTUNE",127,  64, K_RATIO,   0},
-    [P_COMB_FB]    = {"CMBFB",  127,   0, K_NUM,     0},
-    [P_COMB_MIX]   = {"CMBMIX", 127,   0, K_PCT,     0},
+    /* Both filters default to OFF, which is a true bypass. A patch that wants
+     * the old comb character sets F1 TYPE to COMB explicitly -- the previous
+     * default was a comb at mix 0, which was the same silence reached by a
+     * more expensive route. CUT is centred because its meaning is per mode:
+     * absolute cutoff for LP/BP/HP, a semitone offset for RESO, a delay ratio
+     * for COMB, and 64 is the neutral reading of all three. */
+    /* max is F_NMODES-1 and def is F_OFF, written as literals so this header
+     * stays free of fm1_filter.h -- which would drag braids::Svf in and make
+     * it C++ only. fm1_drone.cc static_asserts that they still agree. */
+    [P_F1_TYPE]    = {"F1 TYPE",  5,   0, K_FTYPE,   0},
+    [P_F1_CUT]     = {"F1 CUT", 127,  64, K_NUM,     74},  /* GM brightness */
+    [P_F1_RES]     = {"F1 RES", 127,   0, K_NUM,     71},  /* GM harmonic content */
+    [P_F1_MIX]     = {"F1 MIX", 127, 127, K_PCT,     0},
+    [P_F2_TYPE]    = {"F2 TYPE",  5,   0, K_FTYPE,   0},
+    [P_F2_CUT]     = {"F2 CUT", 127,  64, K_NUM,     0},
+    [P_F2_RES]     = {"F2 RES", 127,   0, K_NUM,     0},
+    [P_F2_MIX]     = {"F2 MIX", 127, 127, K_PCT,     0},
     [P_LEVEL]      = {"LEVEL",  127, 100, K_NUM,     7},   /* GM volume */
     [P_PAN]        = {"PAN",    127,  64, K_BIP,    10},   /* GM pan */
 };

@@ -106,7 +106,8 @@ static int32_t render_peak(uint8_t voices, uint8_t level, uint8_t pan)
         d.SetParam(v, P_LEVEL, level);
         d.SetParam(v, P_PAN, pan);
         d.SetParam(v, P_DETUNE, 64);        /* centre: no offset */
-        d.SetParam(v, P_COMB_MIX, 0);       /* the bus is under test, not the comb */
+        d.SetParam(v, P_F1_TYPE, F_OFF);    /* the bus is under test, not the filters */
+        d.SetParam(v, P_F2_TYPE, F_OFF);
         d.SetParam(v, P_FM, 64);            /* drift off: deterministic */
         d.SetParam(v, P_MOD, 64);
         d.NoteOn(v, 45);

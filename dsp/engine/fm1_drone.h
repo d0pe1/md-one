@@ -20,8 +20,8 @@
 
 #include "../mi/fm1_braids.h"
 #include "../shared/fm1_fixed.h"
-#include "fm1_comb.h"
 #include "fm1_drift.h"
+#include "fm1_filter.h"
 #include "fm1_params.h"
 
 #define FM1_VOICES 4
@@ -29,9 +29,11 @@
 
 namespace fm1 {
 
+#define FM1_FILTERS 2       /* per voice: OSC -> F1 -> VCA -> F2 -> pan */
+
 struct DroneVoice {
     BraidsVoice  osc;
-    fm1_comb_t   comb;
+    fm1_filter_t f[FM1_FILTERS];
     fm1_drift_t  drift;
 
     uint8_t      p[NPARAM];     /* current parameter values, 0..max */

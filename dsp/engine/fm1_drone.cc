@@ -3,6 +3,19 @@
 
 namespace fm1 {
 
+/* fm1_params.h writes the filter mode range as a literal so it does not have
+ * to include fm1_filter.h (which would drag braids::Svf in and make it C++
+ * only). This is where the two are held together.
+ *
+ * It compares against the literal rather than FM1_PDEF[...].max because that
+ * table is `static const`, not constexpr, and C++ will not read it in a
+ * constant expression. Adding a mode without widening the parameter's max
+ * still fails here, which is the mistake worth catching. */
+static_assert(F_NMODES - 1 == 5,
+              "filter mode count changed -- update P_F1_TYPE/P_F2_TYPE max in fm1_params.h");
+static_assert(F_OFF == 0,
+              "F_OFF moved -- update P_F1_TYPE/P_F2_TYPE def in fm1_params.h");
+
 /* Detune and drift are applied in 1/128-semitone units, Braids' pitch unit.
  * DETUNE is 0..127 around a centre of 64, spanning +-50 cents. */
 static const int32_t kDetuneSpan = 64;      /* 50 cents = 64 units of 1/128 */
@@ -32,7 +45,7 @@ void Drone::Init(uint32_t seed)
     for (uint8_t v = 0; v < FM1_VOICES; v++) {
         DroneVoice &d = v_[v];
         d.osc.Init();
-        fm1_comb_init(&d.comb);
+        for (uint8_t fi = 0; fi < FM1_FILTERS; fi++) fm1_filter_init(&d.f[fi]);
         /* a different seed per voice, or all four drift in lockstep */
         fm1_drift_init(&d.drift, seed + v * 0x9E3779B9u);
         d.note = 36 + 12 * v;          /* spread across octaves by default */
@@ -93,7 +106,8 @@ void Drone::ApplyPitch(uint8_t v)
         hz_q16 = (q16_t)f;
     }
     uint32_t inc = fm1_phase_inc(hz_q16, FM1_K_44100);
-    fm1_comb_set_from_inc(&d.comb, inc, comb_ratio_q12(d.p[P_COMB_TUNE]));
+    fm1_filter_set_key(&d.f[0], (int16_t)pitch, inc, comb_ratio_q12(d.p[P_F1_CUT]));
+    fm1_filter_set_key(&d.f[1], (int16_t)pitch, inc, comb_ratio_q12(d.p[P_F2_CUT]));
 }
 
 void Drone::NoteOn(uint8_t voice, uint8_t note)
@@ -135,13 +149,25 @@ void Drone::SetParam(uint8_t voice, uint8_t param, uint8_t value)
     case P_SHAPE:
         d.osc.set_shape((braids::MacroOscillatorShape)value);
         break;
-    case P_OCTAVE: case P_DETUNE: case P_COMB_TUNE:
+    case P_OCTAVE: case P_DETUNE:
         ApplyPitch(voice);
         break;
-    case P_COMB_FB:
-        /* 0..127 -> 0..0.945 in Q15; never unity, or it never decays */
-        fm1_comb_set_feedback(&d.comb, ((int32_t)value * 31000) / 127);
-        break;
+
+    /* CUT drives the comb's delay, so it has to go through ApplyPitch, which
+     * is where the phase increment the comb tunes from is computed. For the
+     * SVF modes set_cut alone would do; doing both is a few cycles on a knob
+     * turn and keeps one path instead of two. */
+    case P_F1_CUT: fm1_filter_set_cut(&d.f[0], value); ApplyPitch(voice); break;
+    case P_F2_CUT: fm1_filter_set_cut(&d.f[1], value); ApplyPitch(voice); break;
+
+    case P_F1_TYPE: fm1_filter_set_mode(&d.f[0], value); ApplyPitch(voice); break;
+    case P_F2_TYPE: fm1_filter_set_mode(&d.f[1], value); ApplyPitch(voice); break;
+
+    case P_F1_RES:  fm1_filter_set_res(&d.f[0], value); break;
+    case P_F2_RES:  fm1_filter_set_res(&d.f[1], value); break;
+    case P_F1_MIX:  fm1_filter_set_mix(&d.f[0], value); break;
+    case P_F2_MIX:  fm1_filter_set_mix(&d.f[1], value); break;
+
     default:
         break;      /* read directly at render time */
     }
@@ -219,8 +245,7 @@ void Drone::Render(int16_t *out, uint32_t n)
 
             d.osc.Render(d.scratch, chunk);
 
-            /* --- per-sample: comb, level, pan ---------------------------- */
-            int32_t mix = d.p[P_COMB_MIX];              /* 0..127 */
+            /* --- per-sample: F1, VCA, F2, pan ---------------------------- */
             int32_t lvl = d.p[P_LEVEL];                 /* 0..127 */
             int32_t pan = d.p[P_PAN];                   /* 0..127, 64 centre */
 
@@ -234,20 +259,26 @@ void Drone::Render(int16_t *out, uint32_t n)
              *
              * Linear pan law, not constant-power: a sqrt is not available and
              * a drone bed does not need the 3 dB centre lift. Q12 keeps the
-             * quantisation well below a step of the 0..127 knob. */
-            int32_t gl_q12 = (lvl * (127 - pan) * Q12_ONE) / (127 * 127);
-            int32_t gr_q12 = (lvl * pan         * Q12_ONE) / (127 * 127);
+             * quantisation well below a step of the 0..127 knob.
+             *
+             * LEVEL is NOT here any more -- the VCA applies it inside the
+             * sample loop, between the two filters, so that F2 hears a voice
+             * that has already been faded. Applying it in both places would
+             * square it. */
+            int32_t gl_q12 = ((127 - pan) * Q12_ONE) / 127;
+            int32_t gr_q12 = ( pan        * Q12_ONE) / 127;
 
             for (uint32_t i = 0; i < chunk; i++) {
-                int32_t s = d.scratch[i];
-                if (mix) {
-                    int32_t c = fm1_comb_tick(&d.comb, (q15_t)s);
-                    s = s + (((c - s) * mix) >> 7);
-                } else {
-                    /* keep the line moving so switching the comb in does not
-                     * read a stale buffer */
-                    (void)fm1_comb_tick(&d.comb, (q15_t)s);
-                }
+                /* OSC -> F1 -> VCA -> F2. The VCA sits BETWEEN the filters by
+                 * design (SIGNAL_PATH.md OPEN-2): F2 in a resonant mode rings
+                 * on after the voice stops, like a struck string. The cost is
+                 * that muting leaves a tail, which is accepted deliberately --
+                 * a hard kill is the job of a separate control, not of this
+                 * ordering. */
+                int32_t s = fm1_filter_tick(&d.f[0], d.scratch[i]);
+                s = (s * lvl) >> 7;                     /* VCA */
+                s = fm1_filter_tick(&d.f[1], (q15_t)s);
+
                 /* No saturation here. The bus has room; limiting once at the
                  * end is the whole point. */
                 bus_[2 * i]     += (s * gl_q12) >> Q12_BITS;

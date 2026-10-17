@@ -326,22 +326,35 @@ Everything here is measured on the emulator at one instruction per cycle, by
 
 ### The engine as it stands
 
-| Voices | Cycles/block | % budget | Marginal per voice |
+Four voices, TRIPLE_SAW, drift and stereo mix, by configuration:
+
+| Configuration | Cycles/block | % budget | Marginal per voice |
 | --- | --- | --- | --- |
-| 1 | 67,489 | 4.8% | — |
-| 2 | 121,465 | 8.7% | 53,976 |
-| 3 | 175,297 | 12.6% | 53,832 |
-| 4 | **229,357** | **16.5%** | 54,060 |
+| comb only, old inline chain | 225,083 | 16.2% | 54,593 |
+| + int32 bus and limiter | 229,357 | 16.5% | 54,060 |
+| F1 = COMB, F2 = OFF | 250,316 | 18.0% | 59,432 |
+| **F1 = COMB, F2 = LOWPASS** | **295,710** | **21.2%** | 70,895 |
 
-Measured after the int32 bus landed. It cost **4,274 cycles** against the
-previous 225,083 — 0.3 points of budget for the single saturation point, the
-master applied with headroom intact, and the soft clip.
+Three things worth reading out of that.
 
-Note the shape of it: the *marginal per-voice* cost went **down** (54,593 →
-54,060) because the inner loop no longer saturates on every sample, while the
-fixed per-block overhead went up for the bus clear and the limiter pass. The
-change is close to free per voice and slightly more expensive per block, which
-is the right direction — voices are the thing that scales.
+**The bus cost 0.3 points** and *lowered* the marginal per-voice figure
+(54,593 → 54,060), because the inner loop stopped saturating on every sample.
+The extra went to fixed per-block work — the bus clear and the limiter pass.
+Right direction: voices are what scales.
+
+**The filter abstraction cost 1.5 points before doing any filtering.** Going
+from an inline comb to `fm1_filter_tick` twice plus the VCA added 5,372 cycles
+per voice with F2 still bypassed — roughly 21 cycles per sample for the mode
+dispatch, the bypass test and the level multiply. That is the price of modes
+being switchable at all, and it is paid whether or not they are used.
+
+**The second filter costs about what it was measured to cost.** F2 as a
+lowpass adds 11,463 per voice against the 10,004 measured for a bare SVF; the
+difference is the wet/dry blend. The whole instrument at 21.2% lands within a
+point of the projection made before any of it was built.
+
+That leaves roughly **79% of the budget** for the global FX rack — which is
+paid once rather than per voice.
 
 ### Per block type
 

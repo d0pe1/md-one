@@ -30,12 +30,29 @@ extern "C" {
 #define FD_P_OCTAVE       6
 #define FD_P_DETUNE       7
 #define FD_P_GLIDE        8
-#define FD_P_COMB_TUNE    9
-#define FD_P_COMB_FB     10
-#define FD_P_COMB_MIX    11
-#define FD_P_LEVEL       12
-#define FD_P_PAN         13
-#define FD_NPARAM        14
+/* Two multimode filters, four parameters each. These replaced the three
+ * CMBTUNE/CMBFB/CMBMIX parameters: the comb is now a filter MODE, not a
+ * separate block (dsp/engine/fm1_filter.h). */
+#define FD_P_F1_TYPE      9
+#define FD_P_F1_CUT      10
+#define FD_P_F1_RES      11
+#define FD_P_F1_MIX      12
+#define FD_P_F2_TYPE     13
+#define FD_P_F2_CUT      14
+#define FD_P_F2_RES      15
+#define FD_P_F2_MIX      16
+#define FD_P_LEVEL       17
+#define FD_P_PAN         18
+#define FD_NPARAM        19
+
+/* Filter modes, mirroring the F_* enum in fm1_filter.h. */
+#define FD_F_OFF          0
+#define FD_F_LP           1
+#define FD_F_BP           2
+#define FD_F_HP           3
+#define FD_F_COMB         4
+#define FD_F_RESO         5
+#define FD_F_NMODES       6
 
 #define FD_G_MASTER       0
 #define FD_G_SPREAD       1
