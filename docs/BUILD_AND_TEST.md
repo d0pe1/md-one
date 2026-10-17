@@ -18,6 +18,64 @@ Three independent layers, fastest first:
 Integer DSP in `dsp/shared/` compiles for both host and target. Host-only
 floating-point reference code lives in `dsp/host/`.
 
+## The gate: `scripts/check-all.sh`
+
+One command builds everything and then **runs** it. Use it before any commit;
+the `make` targets below are for working inside `dsp/`.
+
+```sh
+wsl -d archlinux -- bash scripts/check-all.sh
+```
+
+```
+== dsp tests        make test (oscillator, comb, mix bus)
+== target rules     no float, no 64-bit divide, pi32v2 clean
+== host tools       render_drone, render_braids
+== target probes    probe_drone, probe_fx, probe_braids
+== firmware         compile, link, brick checks, package
+== emulator         boots, runs 3 s
+                    250368 samples, peak 10557, rms 3228,
+                    98.6% non-zero, 0 pinned
+
+10 passed, nothing failed
+```
+
+**Why it exists.** `make test` covers `dsp/` only. Three consumers of the
+parameter table — `dsp/target/probe_drone.cc`, `dsp/host/render_drone.cc` and
+`firmware/src/drone.c` — sat broken for days after `P_DRIFT_DEPTH` was split
+into `P_FM`/`P_MOD`, because nothing built them. Two build scripts were
+separately compiling the engine as C++98 while the firmware shipped it as
+C++11.
+
+**The last stage is the one that cannot be faked.** Everything above it proves
+the code compiles; only the emulator proves the device boots and makes a
+sound. The audio assertions live in `scripts/check-audio.py`, which carries
+its own negative controls:
+
+```sh
+python3 scripts/check-audio.py --selftest
+```
+
+```
+  ok    healthy drone    expected accepted -> accepted
+  ok    dead silence     expected rejected -> rejected
+  ok    near-silence     expected rejected -> rejected
+  ok    hard clipped     expected rejected -> rejected
+  ok    stopped early    expected rejected -> rejected
+```
+
+A check that has never failed has not been shown to work.
+
+> **`scripts/run-emu.ps1` is stale.** It passes `--fwsc/--ms/--wav/--keys/--snap`
+> to `fm1-emu`, which now accepts only `--bin/--flash/--entry/--steps`. The
+> device runner is `fm1-live`, and it writes audio through the `FM1_BENCH_WAV`
+> *environment variable* — raw interleaved int16, no WAV header — not a flag.
+> Crossing from WSL to the Windows build additionally needs
+> `WSLENV=FM1_BENCH_WAV`, or the emulator runs, renders, and writes nothing,
+> which looks exactly like a silent firmware.
+
+## Working inside `dsp/`
+
 ```sh
 wsl -d archlinux
 cd /mnt/c/temp/GitHub/fm1-laboratory/dsp

@@ -55,13 +55,17 @@ wsl -d archlinux -- bash scripts/setup-wsl-toolchain.sh
 wsl -d archlinux -- bash scripts/verify-toolchain.sh
 
 # emulator
-cd references\fm1-emu; cargo build --release -p fm1-emu; cd ..\..
-.\scripts\fetch-firmware.ps1 dinghy
-.\scripts\run-emu.ps1 -Firmware dinghy -Ms 3000 -Keys "800-2200:n7,1200-2400:n11" -Snap 1500
+cd references\fm1-emu; cargo build --release -p fm1-emu -p fm1-live; cd ..\..
 
-# DSP harness
-wsl -d archlinux -- bash -c "cd /mnt/c/temp/GitHub/fm1-laboratory/dsp && make test && make target"
+# build everything and RUN it -- the gate before any commit
+wsl -d archlinux -- bash scripts/check-all.sh
 ```
+
+`check-all.sh` builds the DSP tests, the chip-rule check, the host renderers,
+the three target probes and the firmware, then **loads the firmware into the
+emulator and asserts it boots and makes a sound**. Compiling is not verifying:
+three consumers of the parameter table sat broken for days because nothing
+built them together.
 
 Exact commands and their real output: **`docs/BUILD_AND_TEST.md`**.
 
