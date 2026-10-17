@@ -380,6 +380,39 @@ everything feeding it goes quiet". Worth it, and worth knowing it is not free.
 A loaded instrument — four voices, a per-voice comb, a chorus and a filter on
 the bus — sits near **25%**, leaving three quarters of the budget unspent.
 
+### The channel EQ and drive
+
+Four voices, F1 = COMB, bands set to a boost:
+
+| Configuration | Cycles/block | % budget | Added |
+| --- | --- | --- | --- |
+| EQ flat, no drive | 266,002 | 19.1% | — |
+| 1 band | 342,149 | 24.6% | 76,147 |
+| 2 bands | 386,472 | 27.7% | 44,323 |
+| 3 bands | 429,408 | 30.8% | 42,936 |
+| drive only | 282,804 | 20.3% | 16,802 |
+| **3 bands + drive** | **445,471** | **32.0%** | — |
+
+A band costs about **10,750 cycles per voice**, which is the SVF figure again
+(10,004) — unsurprising, since a band *is* a state-variable filter with its
+outputs recombined. Drive is **4,200 per voice**: two multiplies and a shift.
+
+The first band costs more than the ones after it (76,147 against ~43,000)
+because activating any band also switches on the per-sample EQ path for that
+voice. The second and third are the honest marginal cost.
+
+**A flat EQ costs 12,455 cycles — 0.9%.** The first implementation tested each
+band's idle state *inside* the sample loop and cost **39,378** while doing
+nothing at all. That is the same mistake the patchbay made, fixed the same
+way: ask once per block, since band settings change at knob rate. The 0.9%
+that remains is two predicted-false branches per sample; removing it would
+mean duplicating the voice loop per configuration, which is not worth 0.9%.
+
+This is the third time a per-sample test of a block-rate condition has shown
+up as real budget — the patchbay at 4.2%, its channel scan at about 3.5%, the
+EQ at 2.8%. Worth stating as a rule rather than rediscovering it: **anything
+that only changes when a knob moves is decided once per block.**
+
 ### Per block type
 
 Measured with `dsp/target/probe_fx.cc`, N instances in series, four voices,

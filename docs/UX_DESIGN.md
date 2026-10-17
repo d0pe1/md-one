@@ -129,7 +129,8 @@ Subject is shown where it applies. Knobs are listed KNOB1 → KNOB4.
 | 2 **PITCH** | OCTAVE | DETUNE | GLIDE | — | — |
 | 3 **F1** | CUTOFF | RES | MIX | — | filter type |
 | 4 **F2** | CUTOFF | RES | MIX | — | filter type |
-| 5 **ROUTE** | **OUT** | LEVEL | PAN | MONO | — |
+| 5 **EQ** | FREQ | GAIN | RES | MIX | band mode |
+| 6 **ROUTE** | **OUT** | LEVEL | PAN | MONO | — |
 
 Pages 3 and 4 are the two per-voice filters, `OSC → F1 → VCA → F2 → pan`. They
 share one mode list — `OFF LOWPASS BANDPASS HIGHPASS COMB RESO` — so the comb
@@ -140,6 +141,51 @@ CUTOFF means what the mode needs it to mean: an absolute cutoff for the
 state-variable modes, a semitone offset from the note for RESO, a delay ratio
 for COMB. The screen labels it accordingly, because a knob called CUTOFF that
 sets a delay ratio is a knob nobody trusts.
+
+#### The EQ page
+
+Three bands, each multimode, in the Serum idiom — **SELECT chooses which band
+the knobs are driving**, so one page serves all three rather than three pages
+serving one each.
+
+| Band | ALGORITHM picks | What the knobs mean |
+| --- | --- | --- |
+| **LOW** | SHELF · **HIGHPASS** | FREQ · GAIN · RES · MIX |
+| **MID** | PEAK · **NOTCH** | FREQ · GAIN · RES · MIX |
+| **HIGH** | SHELF · **LOWPASS** | FREQ · GAIN · RES · MIX |
+
+```
+┌────────────────────────────┐
+│ EDIT · EQ            5/6   │
+│ VOICE 1 · BAND 2 MID       │
+├────────────────────────────┤
+│  FREQ  GAIN   RES   MIX    │
+│   072  +048   040   127    │
+│                            │
+│      ╭─╮                   │
+│  ────╯ ╰──────────         │  the curve, all three bands
+│   LO    MID     HI         │
+│   ·      ▲      ·          │  ▲ marks the selected band
+└────────────────────────────┘
+```
+
+The low band's pass is a **high**-pass and the high band's is a **low**-pass.
+That reads backwards and is obvious in use: the low band owns the bottom of
+the spectrum, so its pass mode is the one that takes the bottom away.
+
+**RES and MIX per band are what make three bands enough.** Resonance is the
+difference between a tone control and a character one; a mix on a single band
+is parallel EQ, and blending a hard notch to 50% is a different, softer thing
+than a gentle notch. Without those, three bands would be a tone stack.
+
+A band at centre gain is **bit-exactly bypassed** — a flat EQ must not colour
+anything, because every patch would inherit it invisibly.
+
+> **EQ is not the filters.** F1 and F2 are where you carve: they track pitch,
+> they go to comb and resonator modes, they are the instrument's voice. The EQ
+> is where you fix a voice that is boxy or thin without changing what it is.
+> Keeping them separate is also what lets the EQ be skipped entirely when
+> flat, which is how most voices sit most of the time.
 
 OCTAVE appears both on KNOB1 here and on the OCT−/OCT+ buttons. That is not a
 duplicate rule but a shortcut: the Parameter lives in the table once, so it
@@ -283,12 +329,22 @@ rule as everywhere else in the device: it picks the Subject, never a value.
 
 | KNOB1 | KNOB2 | KNOB3 | KNOB4 |
 | --- | --- | --- | --- |
-| VOLUME | PAN | MONO | *(reserved)* |
+| VOLUME | PAN | MONO | **DRIVE** |
 
-Knob 4 is deliberately `----` rather than filled with something invented.
-Candidates, when a use earns one: a per-channel high-pass to clear mud under a
-stack of drones, or a drive into the bus. Neither is built, and a knob that
-does a weak thing is worse than a knob that does nothing.
+**DRIVE** is a cubic soft saturator on the channel, after the EQ. It is a
+different curve from the master limiter on purpose: a limiter must be
+transparent until it is needed, so it stays flat until the signal nears the
+rail; a drive stage should be doing something at every level, so this one is
+gently nonlinear from zero. That is what makes it read as gain rather than as
+a gate opening onto distortion.
+
+Odd symmetric, so it adds third and fifth but no second harmonic and no DC —
+the warm direction rather than the fuzzy one, and clean enough to go straight
+into a DAW.
+
+The mud-clearing high-pass that was the other candidate for this knob now
+lives on the EQ page, where the LOW band's pass mode does it properly with a
+frequency and a resonance.
 
 **MONO** collapses the channel to centre regardless of PAN — a
 mono-compatibility check you can hit while the DAW is recording, and what the

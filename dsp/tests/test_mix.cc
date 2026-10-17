@@ -460,12 +460,140 @@ static void test_meters(void)
        "the clip indicator never fires");
 }
 
+/* --- the channel EQ and drive --------------------------------------------- */
+
+/* Energy at a given note, by running the band through its own SVF and summing
+ * the band-pass output. Crude, but it answers the only question these tests
+ * ask: did this band get louder or quieter? */
+static int32_t band_energy(const int16_t *buf, uint32_t n, uint8_t note)
+{
+    fm1_svf_t s;
+    fm1_svf_init(&s);
+    fm1_svf_set_note(&s, note);
+    fm1_svf_set_res(&s, 90);
+
+    int64_t sum = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        fm1_svf_out_t o = fm1_svf_tick(&s, buf[2 * i]);
+        sum += (int64_t)o.bp * o.bp;
+    }
+    return (int32_t)(sum >> 20);
+}
+
+/* Render one voice with an EQ setting and return the block. */
+static void render_eq(int16_t *buf, uint8_t band, uint8_t mode,
+                      uint8_t freq, uint8_t gain, uint8_t drive)
+{
+    static fm1::Drone d;
+    d.Init();
+    d.SetGlobal(G_SPREAD, 0);
+    for (uint8_t v = 1; v < FM1_VOICES; v++) d.SetGate(v, 0);
+    d.SetParam(0, P_FM, 64);
+    d.SetParam(0, P_MOD, 64);
+    d.SetParam(0, P_LEVEL, 100);
+    d.SetParam(0, P_DRIVE, drive);
+    d.SetParam(0, P_EQ(band, P_EQ_MODE), mode);
+    d.SetParam(0, P_EQ(band, P_EQ_FRQ),  freq);
+    d.SetParam(0, P_EQ(band, P_EQ_GAIN), gain);
+    d.NoteOn(0, 45);
+
+    for (int b = 0; b < 10; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+    }
+}
+
+static void test_eq(void)
+{
+    printf("\nchannel EQ\n");
+
+    static int16_t flat[FM1_BLOCK * 2], cut[FM1_BLOCK * 2], boost[FM1_BLOCK * 2];
+
+    /* Flat must be BIT-EXACTLY flat. An EQ at centre that colours the signal
+     * is worse than no EQ, because every patch inherits it invisibly.
+     *
+     * Tested on the block directly rather than through Drone, because two
+     * renders of the same patch are NOT bit-identical: Braids drives its
+     * jitter from a process-global RNG that Init() does not reset. Nothing
+     * here can A/B two renders sample by sample. */
+    {
+        fm1_eq_t e;
+        fm1_eq_init(&e);
+        int flatbits = 1;
+        for (int32_t x = -Q15_ONE; x <= Q15_ONE; x += 37)
+            if (fm1_eq_tick(&e, (q15_t)x) != (q15_t)x) { flatbits = 0; break; }
+        ok(flatbits, "an EQ with every band at centre is a bit-exact no-op",
+           "a flat EQ is colouring the signal");
+    }
+
+    render_eq(flat, EQ_MID, EQB_PEAK, 72, 64, 0);
+
+    /* A mid boost must raise energy at the band, a cut must lower it. The
+     * expectation is relative to the same render with the gain centred, so
+     * nothing depends on the oscillator's absolute level. */
+    int32_t e_flat = band_energy(flat, FM1_BLOCK, 72);
+    render_eq(boost, EQ_MID, EQB_PEAK, 72, 120, 0);
+    render_eq(cut,   EQ_MID, EQB_PEAK, 72,   0, 0);
+    int32_t e_boost = band_energy(boost, FM1_BLOCK, 72);
+    int32_t e_cut   = band_energy(cut,   FM1_BLOCK, 72);
+    printf("    mid band energy: cut %d, flat %d, boost %d\n", e_cut, e_flat, e_boost);
+
+    ok(e_boost > e_flat, "a mid boost adds energy at the band", "boost did nothing");
+    ok(e_cut   < e_flat, "a mid cut removes it", "cut did nothing");
+
+    /* The low band's pass mode is a HIGH-pass: it must remove the bottom. */
+    render_eq(cut, EQ_LOW, EQB_PASS, 80, 64, 0);
+    int32_t lo_flat = band_energy(flat, FM1_BLOCK, 30);
+    int32_t lo_hp   = band_energy(cut,  FM1_BLOCK, 30);
+    printf("    low energy: flat %d, highpassed %d\n", lo_flat, lo_hp);
+    ok(lo_hp < lo_flat, "LOW in pass mode is a high-pass",
+       "the low band's pass mode kept the lows");
+
+    /* ...and the high band's is a LOW-pass, removing the top. */
+    render_eq(cut, EQ_HIGH, EQB_PASS, 50, 64, 0);
+    int32_t hi_flat = band_energy(flat, FM1_BLOCK, 100);
+    int32_t hi_lp   = band_energy(cut,  FM1_BLOCK, 100);
+    printf("    high energy: flat %d, lowpassed %d\n", hi_flat, hi_lp);
+    ok(hi_lp < hi_flat, "HIGH in pass mode is a low-pass",
+       "the high band's pass mode kept the highs");
+}
+
+static void test_saturator(void)
+{
+    printf("\ndrive\n");
+
+    ok(fm1_saturate(0) == 0, "silence in, silence out", "the saturator has an offset");
+
+    int symmetric = 1, monotonic = 1, bounded = 1;
+    int32_t prev = fm1_saturate(-Q15_ONE);
+    for (int32_t x = -Q15_ONE; x <= Q15_ONE; x += 7) {
+        int32_t y = fm1_saturate(x);
+        if (y > Q15_ONE || y < -Q15_ONE) bounded = 0;
+        if (y < prev) monotonic = 0;
+        if (fm1_saturate(-x) != -y) symmetric = 0;
+        prev = y;
+    }
+    ok(bounded,   "bounded to Q15", "the saturator overflowed");
+    ok(monotonic, "monotonic", "the curve folds instead of compressing");
+    ok(symmetric, "odd symmetric (odd harmonics only, no DC)", "asymmetric");
+
+    /* Full scale in, full scale out: a drive stage that loses level is just a
+     * quiet drive stage. */
+    ok(fm1_saturate(Q15_ONE) == Q15_ONE, "unity at full scale", "the curve loses level");
+
+    /* ...and it must compress in between, or it is a wire. */
+    ok(fm1_saturate(Q15_ONE / 2) > Q15_ONE / 2,
+       "gain below full scale (the curve bends)", "the saturator is linear");
+}
+
 int main(void)
 {
     test_soft_clip();
     test_bus();
     test_rack();
     test_meters();
+    test_eq();
+    test_saturator();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

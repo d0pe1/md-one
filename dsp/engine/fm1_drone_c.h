@@ -41,11 +41,31 @@ extern "C" {
 #define FD_P_F2_CUT      14
 #define FD_P_F2_RES      15
 #define FD_P_F2_MIX      16
-#define FD_P_LEVEL       17
-#define FD_P_PAN         18
-#define FD_P_MONO        19     /* collapse to centre, ignoring PAN */
-#define FD_P_DEST        20     /* FD_DEST_* -- this voice's one cable out */
-#define FD_NPARAM        21
+/* Channel EQ: three multimode bands, five controls each (MODE, FREQ, GAIN,
+ * RES, MIX). FD_P_EQ(b, j) addresses band b (0..2), control j. */
+#define FD_P_EQ_BASE     17
+#define FD_P_EQ_STRIDE    5
+#define FD_P_EQ(b, j)    (FD_P_EQ_BASE + (b) * FD_P_EQ_STRIDE + (j))
+#define FD_P_EQ_MODE      0
+#define FD_P_EQ_FRQ       1
+#define FD_P_EQ_GAIN      2
+#define FD_P_EQ_RES       3
+#define FD_P_EQ_MIX       4
+#define FD_EQ_BANDS       3
+
+/* Band modes. 0 is the additive shape, 1 the subtractive one; which it means
+ * depends on the band -- see FM1_EQ_MODE_NAME in fm1_eq.h. */
+#define FD_EQB_SHELF      0     /* low and high bands */
+#define FD_EQB_PASS       1     /* low -> highpass, high -> lowpass */
+#define FD_EQB_PEAK       0     /* mid band */
+#define FD_EQB_NOTCH      1
+
+#define FD_P_DRIVE       32
+#define FD_P_LEVEL       33
+#define FD_P_PAN         34
+#define FD_P_MONO        35     /* collapse to centre, ignoring PAN */
+#define FD_P_DEST        36     /* FD_DEST_* -- this voice's one cable out */
+#define FD_NPARAM        37
 
 /* Filter modes, mirroring the F_* enum in fm1_filter.h. */
 #define FD_F_OFF          0

@@ -21,6 +21,7 @@
 #include "../mi/fm1_braids.h"
 #include "../shared/fm1_fixed.h"
 #include "fm1_drift.h"
+#include "fm1_eq.h"
 #include "fm1_filter.h"
 #include "fm1_params.h"
 #include "fm1_rack.h"
@@ -35,6 +36,8 @@ namespace fm1 {
 struct DroneVoice {
     BraidsVoice  osc;
     fm1_filter_t f[FM1_FILTERS];
+    fm1_eq_t     eq;            /* three multimode bands, after F2 */
+    int32_t      drive_q12;     /* Q12_ONE = clean, bypasses the saturator */
     fm1_drift_t  drift;
 
     uint8_t      p[NPARAM];     /* current parameter values, 0..max */

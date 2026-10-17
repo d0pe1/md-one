@@ -59,6 +59,8 @@ void Drone::Init(uint32_t seed)
         DroneVoice &d = v_[v];
         d.osc.Init();
         for (uint8_t fi = 0; fi < FM1_FILTERS; fi++) fm1_filter_init(&d.f[fi]);
+        fm1_eq_init(&d.eq);
+        d.drive_q12 = Q12_ONE;
         /* a different seed per voice, or all four drift in lockstep */
         fm1_drift_init(&d.drift, seed + v * 0x9E3779B9u);
         d.note = 36 + 12 * v;          /* spread across octaves by default */
@@ -181,8 +183,24 @@ void Drone::SetParam(uint8_t voice, uint8_t param, uint8_t value)
     case P_F1_MIX:  fm1_filter_set_mix(&d.f[0], value); break;
     case P_F2_MIX:  fm1_filter_set_mix(&d.f[1], value); break;
 
+    case P_DRIVE:   d.drive_q12 = value ? fm1_drive_gain(value) : Q12_ONE; break;
+
     default:
-        break;      /* read directly at render time */
+        /* The EQ is a regular block of five-per-band, like the patchbay's
+         * channels, so it is dispatched arithmetically rather than with
+         * fifteen case labels. */
+        if (param >= P_EQ_BASE && param < P_EQ_BASE + EQ_BANDS * P_EQ_STRIDE) {
+            uint8_t band = (uint8_t)((param - P_EQ_BASE) / P_EQ_STRIDE);
+            switch ((param - P_EQ_BASE) % P_EQ_STRIDE) {
+            case P_EQ_MODE: fm1_eq_set_mode(&d.eq, band, value); break;
+            case P_EQ_FRQ:  fm1_eq_set_freq(&d.eq, band, value); break;
+            case P_EQ_GAIN: fm1_eq_set_gain(&d.eq, band, value); break;
+            case P_EQ_RES:  fm1_eq_set_res(&d.eq, band, value);  break;
+            case P_EQ_MIX:  fm1_eq_set_mix(&d.eq, band, value);  break;
+            default: break;
+            }
+        }
+        break;      /* anything else is read directly at render time */
     }
 }
 
@@ -340,6 +358,12 @@ void Drone::Render(int16_t *out, uint32_t n)
                           ? bus_
                           : fxin_[dest - DEST_FX1];
 
+            /* Asked once per block, not once per sample. Both of these are
+             * flat on most voices most of the time, and testing inside the
+             * loop made them cost real cycles for doing nothing. */
+            const bool eq_on    = !fm1_eq_idle(&d.eq);
+            const bool drive_on = d.drive_q12 > Q12_ONE;
+
             int32_t pk = 0;                             /* post-fader peak */
             for (uint32_t i = 0; i < chunk; i++) {
                 /* OSC -> F1 -> VCA -> F2. The VCA sits BETWEEN the filters by
@@ -351,6 +375,12 @@ void Drone::Render(int16_t *out, uint32_t n)
                 int32_t s = fm1_filter_tick(&d.f[0], d.scratch[i]);
                 s = (s * lvl) >> 7;                     /* VCA */
                 s = fm1_filter_tick(&d.f[1], (q15_t)s);
+
+                /* Tone, then colour. EQ before DRIVE so you choose what gets
+                 * saturated -- lift the mid and the drive bites there --
+                 * rather than correcting afterwards for what the drive did. */
+                if (eq_on)    s = fm1_eq_tick(&d.eq, (q15_t)s);
+                if (drive_on) s = fm1_saturate((s * d.drive_q12) >> Q12_BITS);
 
                 int32_t a = s < 0 ? -s : s;
                 if (a > pk) pk = a;

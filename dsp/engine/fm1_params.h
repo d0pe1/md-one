@@ -41,6 +41,13 @@ enum {
      * Page of the UX taxonomy. */
     P_F1_TYPE, P_F1_CUT, P_F1_RES, P_F1_MIX,
     P_F2_TYPE, P_F2_CUT, P_F2_RES, P_F2_MIX,
+    /* Channel EQ (fm1_eq.h): three multimode bands, five controls each --
+     * MODE, FREQ, GAIN, RES, MIX. One Page of four knobs plus the mode on
+     * ALGORITHM, with SELECT choosing which band the knobs drive. */
+    P_EQ1_MODE, P_EQ1_FRQ, P_EQ1_GAIN, P_EQ1_RES, P_EQ1_MIX,
+    P_EQ2_MODE, P_EQ2_FRQ, P_EQ2_GAIN, P_EQ2_RES, P_EQ2_MIX,
+    P_EQ3_MODE, P_EQ3_FRQ, P_EQ3_GAIN, P_EQ3_RES, P_EQ3_MIX,
+    P_DRIVE,
     P_LEVEL, P_PAN,
     /* Collapse this voice to centre regardless of PAN. A mono-compatibility
      * check you can hit while the DAW is recording -- and what the unison and
@@ -53,6 +60,16 @@ enum {
     P_DEST,
     NPARAM
 };
+
+/* EQ band b (0..2), control j. Same shape as the patchbay's G_FX(). */
+#define P_EQ_BASE    P_EQ1_MODE
+#define P_EQ_STRIDE  5
+#define P_EQ(b, j)   (P_EQ_BASE + (b) * P_EQ_STRIDE + (j))
+#define P_EQ_MODE    0
+#define P_EQ_FRQ     1
+#define P_EQ_GAIN    2
+#define P_EQ_RES     3
+#define P_EQ_MIX     4
 
 /* --- global parameters (MIDI channel 16) -------------------------------- */
 enum {
@@ -115,7 +132,8 @@ enum {
     K_RATIO,
     K_FTYPE,    /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
     K_FXTYPE,   /* an effect name,     FM1_FXNAME   in fm1_rack.h */
-    K_DEST      /* a routing target,  FM1_DESTNAME in fm1_rack.h */
+    K_DEST,     /* a routing target,  FM1_DESTNAME in fm1_rack.h */
+    K_EQMODE    /* an EQ band mode, FM1_EQ_MODE_NAME in fm1_eq.h */
 };
 
 typedef struct {
@@ -163,6 +181,26 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_F2_CUT]     = {"F2 CUT", 127,  64, K_NUM,     0},
     [P_F2_RES]     = {"F2 RES", 127,   0, K_NUM,     0},
     [P_F2_MIX]     = {"F2 MIX", 127, 127, K_PCT,     0},
+    /* Three EQ bands. GAIN is centred (flat); MODE 0 is shelf/peak and 1 is
+     * the pass or notch. Defaults put the bands at roughly 65 Hz, 523 Hz and
+     * 2 kHz -- low, mid, air -- so the page is useful before anything is
+     * moved. */
+    [P_EQ1_MODE]  = {"EQ1 MOD",  1,   0, K_EQMODE,  0},
+    [P_EQ1_FRQ]   = {"EQ1 FRQ",127,  36, K_NUM,     0},
+    [P_EQ1_GAIN]  = {"EQ1 GAIN",127,  64, K_BIP,     0},
+    [P_EQ1_RES]   = {"EQ1 RES",127,  40, K_NUM,     0},
+    [P_EQ1_MIX]   = {"EQ1 MIX",127, 127, K_PCT,     0},
+    [P_EQ2_MODE]  = {"EQ2 MOD",  1,   0, K_EQMODE,  0},
+    [P_EQ2_FRQ]   = {"EQ2 FRQ",127,  72, K_NUM,     0},
+    [P_EQ2_GAIN]  = {"EQ2 GAIN",127,  64, K_BIP,     0},
+    [P_EQ2_RES]   = {"EQ2 RES",127,  40, K_NUM,     0},
+    [P_EQ2_MIX]   = {"EQ2 MIX",127, 127, K_PCT,     0},
+    [P_EQ3_MODE]  = {"EQ3 MOD",  1,   0, K_EQMODE,  0},
+    [P_EQ3_FRQ]   = {"EQ3 FRQ",127,  96, K_NUM,     0},
+    [P_EQ3_GAIN]  = {"EQ3 GAIN",127,  64, K_BIP,     0},
+    [P_EQ3_RES]   = {"EQ3 RES",127,  40, K_NUM,     0},
+    [P_EQ3_MIX]   = {"EQ3 MIX",127, 127, K_PCT,     0},
+    [P_DRIVE]      = {"DRIVE",  127,   0, K_NUM,     0},
     [P_LEVEL]      = {"LEVEL",  127, 100, K_NUM,     7},   /* GM volume */
     [P_PAN]        = {"PAN",    127,  64, K_BIP,    10},   /* GM pan */
     [P_MONO]       = {"MONO",     1,   0, K_ONOFF,   0},
