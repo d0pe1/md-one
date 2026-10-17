@@ -15,6 +15,10 @@ static_assert(F_NMODES - 1 == 5,
               "filter mode count changed -- update P_F1_TYPE/P_F2_TYPE max in fm1_params.h");
 static_assert(F_OFF == 0,
               "F_OFF moved -- update P_F1_TYPE/P_F2_TYPE def in fm1_params.h");
+static_assert(FX_NTYPES - 1 == 5,
+              "rack block count changed -- update G_FX*_TYPE max in fm1_params.h");
+static_assert(G_FX(3, G_FX_PAR) == NGPARAM - 1,
+              "rack parameter block is not the tail of the global table");
 
 /* Detune and drift are applied in 1/128-semitone units, Braids' pitch unit.
  * DETUNE is 0..127 around a centre of 64, spanning +-50 cents. */
@@ -41,6 +45,7 @@ void Drone::Init(uint32_t seed)
         for (uint8_t v = 0; v < FM1_VOICES; v++) v_[v].p[i] = FM1_PDEF[i].def;
     }
     for (uint8_t i = 0; i < NGPARAM; i++) g_[i] = FM1_GDEF[i].def;
+    fx_rack_init(&rack_);
 
     for (uint8_t v = 0; v < FM1_VOICES; v++) {
         DroneVoice &d = v_[v];
@@ -180,6 +185,23 @@ void Drone::SetGlobal(uint8_t param, uint8_t value)
     g_[param] = value;
     if (param == G_SPREAD)
         for (uint8_t v = 0; v < FM1_VOICES; v++) ApplyPitch(v);
+
+    if (param >= G_FX_BASE) {
+        uint8_t slot = (uint8_t)((param - G_FX_BASE) / G_FX_STRIDE);
+        uint8_t what = (uint8_t)((param - G_FX_BASE) % G_FX_STRIDE);
+        fx_slot_t *s = &rack_.slot[slot];
+        switch (what) {
+        case G_FX_TYPE: fx_slot_set_type(s, value); break;
+        case G_FX_P1:   fx_slot_set_p1(s, value);   break;
+        case G_FX_P2:   fx_slot_set_p2(s, value);   break;
+        case G_FX_MIX:  s->mix = value;             break;
+        case G_FX_PAR:
+            s->flags = (uint8_t)(value ? (s->flags | FM1_FX_PAR)
+                                       : (s->flags & ~FM1_FX_PAR));
+            break;
+        default: break;
+        }
+    }
 }
 
 uint8_t Drone::GetParam(uint8_t voice, uint8_t param) const
@@ -285,6 +307,14 @@ void Drone::Render(int16_t *out, uint32_t n)
                 bus_[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
             }
         }
+
+        /* --- the global FX rack ------------------------------------------
+         *
+         * On the summed bus, before master, while the two bits of headroom
+         * are still there. A wavefolder or a resonant filter needs room above
+         * the signal to work in; running the rack after the limiter would
+         * give it already-flattened material. */
+        fx_rack_process(&rack_, bus_, chunk);
 
         /* --- master, then the one saturation point ------------------------
          *

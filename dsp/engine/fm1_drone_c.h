@@ -59,7 +59,27 @@ extern "C" {
 #define FD_G_BINAURAL     2
 #define FD_G_HAAS         3
 #define FD_G_DRIFT_SYNC   4
-#define FD_NGPARAM        5
+
+/* The global FX rack: four ordered slots on the mix bus, five controls each
+ * (TYPE, P1, P2, MIX, PAR). FD_G_FX(n, j) addresses slot n, control j. */
+#define FD_G_FX_BASE      5
+#define FD_G_FX_STRIDE    5
+#define FD_G_FX(n, j)     (FD_G_FX_BASE + (n) * FD_G_FX_STRIDE + (j))
+#define FD_G_FX_TYPE      0
+#define FD_G_FX_P1        1
+#define FD_G_FX_P2        2
+#define FD_G_FX_MIX       3
+#define FD_G_FX_PAR       4
+#define FD_NGPARAM       25
+
+/* Rack block types, mirroring the FX_* enum in fm1_rack.h. */
+#define FD_FX_NONE        0
+#define FD_FX_CHORUS      1
+#define FD_FX_FOLD        2
+#define FD_FX_WIDTH       3
+#define FD_FX_LP          4
+#define FD_FX_HP          5
+#define FD_FX_NTYPES      6
 
 #define FD_VOICES         4
 

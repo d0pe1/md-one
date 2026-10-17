@@ -23,6 +23,7 @@
 #include "fm1_drift.h"
 #include "fm1_filter.h"
 #include "fm1_params.h"
+#include "fm1_rack.h"
 
 #define FM1_VOICES 4
 #define FM1_BLOCK  256      /* the firmware's audio ISR block */
@@ -87,6 +88,10 @@ class Drone {
      * the mix rather than limiting it. 2 KiB; a member rather than a local
      * because the user stack is only ~24 KiB. */
     int32_t    bus_[FM1_BLOCK * 2];
+
+    /* The global FX rack runs on that bus, after the voices sum and before
+     * master. Shared, so its cost is paid once rather than per voice. */
+    fx_rack_t  rack_;
 };
 
 }  // namespace fm1

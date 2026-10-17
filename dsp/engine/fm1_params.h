@@ -48,8 +48,28 @@ enum {
 /* --- global parameters (MIDI channel 16) -------------------------------- */
 enum {
     G_MASTER, G_SPREAD, G_BINAURAL, G_HAAS, G_DRIFT_SYNC,
+    /* The global FX rack: four ordered slots on the mix bus (fm1_rack.h).
+     * Five controls each -- TYPE, two block parameters, MIX, and PAR, the
+     * toggle that makes a slot read the same input as the one above it and
+     * sum into it. Five is one Page of four plus the routing toggle, which
+     * belongs on the rack overview rather than under a knob. */
+    G_FX1_TYPE, G_FX1_P1, G_FX1_P2, G_FX1_MIX, G_FX1_PAR,
+    G_FX2_TYPE, G_FX2_P1, G_FX2_P2, G_FX2_MIX, G_FX2_PAR,
+    G_FX3_TYPE, G_FX3_P1, G_FX3_P2, G_FX3_MIX, G_FX3_PAR,
+    G_FX4_TYPE, G_FX4_P1, G_FX4_P2, G_FX4_MIX, G_FX4_PAR,
     NGPARAM
 };
+
+/* Slot n (0-based) parameter j. The five-per-slot stride is relied on by the
+ * engine's SetGlobal and by any UI that walks the rack. */
+#define G_FX_BASE    G_FX1_TYPE
+#define G_FX_STRIDE  5
+#define G_FX(n, j)   (G_FX_BASE + (n) * G_FX_STRIDE + (j))
+#define G_FX_TYPE    0
+#define G_FX_P1      1
+#define G_FX_P2      2
+#define G_FX_MIX     3
+#define G_FX_PAR     4
 
 /* How a value is shown. The engine ignores this; the firmware's UI uses it. */
 enum {
@@ -60,7 +80,8 @@ enum {
     K_PCT,
     K_CENTS,
     K_RATIO,
-    K_FTYPE     /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
+    K_FTYPE,    /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
+    K_FXTYPE    /* a rack block name,  FM1_FXNAME    in fm1_rack.h */
 };
 
 typedef struct {
@@ -118,6 +139,31 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_BINAURAL]   = {"BINAURL",127,   0, K_NUM,     0},
     [G_HAAS]       = {"HAAS",   127,   0, K_NUM,     0},
     [G_DRIFT_SYNC] = {"DRFTSYN",  1,   0, K_ONOFF,   0},
+
+    /* Rack slots. max for TYPE is FX_NTYPES-1, written as a literal so this
+     * header stays free of fm1_rack.h; fm1_drone.cc static_asserts it. All
+     * four default to OFF, so a patch opts into the rack rather than having
+     * to switch it off. */
+    [G_FX1_TYPE]   = {"FX1 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX1_P1]     = {"FX1 P1", 127,  64, K_NUM,     0},
+    [G_FX1_P2]     = {"FX1 P2", 127,  64, K_NUM,     0},
+    [G_FX1_MIX]    = {"FX1 MIX",127, 127, K_PCT,     0},
+    [G_FX1_PAR]    = {"FX1 PAR",  1,   0, K_ONOFF,   0},
+    [G_FX2_TYPE]   = {"FX2 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX2_P1]     = {"FX2 P1", 127,  64, K_NUM,     0},
+    [G_FX2_P2]     = {"FX2 P2", 127,  64, K_NUM,     0},
+    [G_FX2_MIX]    = {"FX2 MIX",127, 127, K_PCT,     0},
+    [G_FX2_PAR]    = {"FX2 PAR",  1,   0, K_ONOFF,   0},
+    [G_FX3_TYPE]   = {"FX3 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX3_P1]     = {"FX3 P1", 127,  64, K_NUM,     0},
+    [G_FX3_P2]     = {"FX3 P2", 127,  64, K_NUM,     0},
+    [G_FX3_MIX]    = {"FX3 MIX",127, 127, K_PCT,     0},
+    [G_FX3_PAR]    = {"FX3 PAR",  1,   0, K_ONOFF,   0},
+    [G_FX4_TYPE]   = {"FX4 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX4_P1]     = {"FX4 P1", 127,  64, K_NUM,     0},
+    [G_FX4_P2]     = {"FX4 P2", 127,  64, K_NUM,     0},
+    [G_FX4_MIX]    = {"FX4 MIX",127, 127, K_PCT,     0},
+    [G_FX4_PAR]    = {"FX4 PAR",  1,   0, K_ONOFF,   0},
 };
 
 /* CC -> parameter index + 1, 0 meaning unassigned. Built once at startup so

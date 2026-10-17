@@ -279,10 +279,16 @@ documented, rather than arriving as an accident.
 
 The Serum mapping resolves the *structure*; what is left is the block list.
 
-> **[OPEN-5]** Which block types the per-voice filter offers beyond
-> LP/BP/HP/COMB/RESO, and which the global rack offers. Costs must be measured
-> per block before the list is fixed — the SVF is measured at 9,730
-> cycles/voice/block, the comb is not yet broken out.
+> **[OPEN-5] — settled for v1.** Both lists are built and measured.
+>
+> Voice filter: `OFF LOWPASS BANDPASS HIGHPASS COMB RESO`.
+> Global rack: `OFF CHORUS FOLD WIDTH LOWPASS HIGHPASS`, four ordered slots
+> with a PAR toggle.
+>
+> The split follows the rule it was supposed to: pitch-tracking blocks are per
+> voice, blocks that want a summed stereo signal are on the bus. Costs are in
+> §8. What remains open is only *additions* — a phaser, a bit crusher, a
+> ring modulator — which is a shopping list, not an architecture question.
 
 ## 6. Deliberately not here
 
@@ -353,8 +359,39 @@ lowpass adds 11,463 per voice against the 10,004 measured for a bare SVF; the
 difference is the wet/dry blend. The whole instrument at 21.2% lands within a
 point of the projection made before any of it was built.
 
-That leaves roughly **79% of the budget** for the global FX rack — which is
-paid once rather than per voice.
+### The global FX rack
+
+Four voices, F1 = COMB, measured per configuration:
+
+| Rack | Cycles/block | % budget | Block alone |
+| --- | --- | --- | --- |
+| empty | 251,883 | 18.1% | — |
+| WIDTH | 272,121 | 19.5% | 20,238 |
+| FOLD | 276,590 | 19.9% | 24,707 |
+| LOWPASS | — | — | ~31,300 |
+| CHORUS | 290,122 | 20.8% | 38,239 |
+| CHORUS + WIDTH | 304,463 | 21.9% | 52,580 |
+| **CHORUS + LOWPASS** | **321,418** | **23.1%** | 69,535 |
+
+**An empty rack costs 1,567 cycles — 0.1%.** The first version tested every
+slot's type inside the sample loop and cost **12,816**, almost a full point of
+budget to decide four times per frame that there was nothing to do. Gathering
+the active slots once per block instead made it eight times cheaper, and
+configuration only changes at knob rate so the hoist is exact, not an
+approximation.
+
+**The rack costs nothing per voice, which is the whole reason it is shared.**
+With a chorus running, the marginal cost of each additional voice is 59,240 /
+59,162 / 59,414 cycles — against 59,432 with no rack at all. Every cycle the
+rack spends is fixed per block. That is the measured version of the claim in
+§5b, not a restatement of it:
+
+> Four independent chorus instances summed afterwards is four times the cost
+> for a worse result than one chorus on the mix.
+
+A fully loaded instrument — four voices, two per-voice filters, a chorus and a
+filter on the bus — sits near **23%**, leaving three quarters of the budget
+unspent.
 
 ### Per block type
 

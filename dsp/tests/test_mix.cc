@@ -175,10 +175,131 @@ static void test_bus(void)
     ok(render_peak(1, 0, 64) == 0, "level 0 is silent", "a muted voice still sounds");
 }
 
+/* --- the global FX rack ---------------------------------------------------
+ *
+ * Exercised directly rather than through Drone, because the thing worth
+ * pinning is the ROUTING -- that a chain is a chain, and that PAR means
+ * "same input as the slot above, outputs sum". That is the one piece of the
+ * rack that is not a plain for-loop, so it is the piece that can be wrong.
+ */
+static void fill_ramp(int32_t *bus, uint32_t frames)
+{
+    for (uint32_t i = 0; i < frames; i++) {
+        bus[2 * i]     =  (int32_t)(i % 400) * 40 - 8000;
+        bus[2 * i + 1] = -(int32_t)(i % 400) * 40 + 8000;
+    }
+}
+
+static void test_rack(void)
+{
+    printf("\nfx rack\n");
+
+    static fm1::fx_rack_t r;
+    static int32_t bus[FM1_BLOCK * 2], ref[FM1_BLOCK * 2];
+
+    /* All slots off is a bit-exact no-op. A rack that colours the signal when
+     * every block is bypassed is a rack nobody can trust to be out of the
+     * way. */
+    fx_rack_init(&r);
+    fill_ramp(bus, FM1_BLOCK);
+    fill_ramp(ref, FM1_BLOCK);
+    fx_rack_process(&r, bus, FM1_BLOCK);
+    int clean = 1;
+    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
+        if (bus[i] != ref[i]) { clean = 0; break; }
+    ok(clean, "all slots OFF is bit-exact bypass", "an idle rack altered the signal");
+
+    /* WIDTH at 64 is unity: mid/side round-trips. Catches a shift that lost
+     * a bit somewhere in the M/S maths. */
+    fx_rack_init(&r);
+    fx_slot_set_type(&r.slot[0], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[0], 64);
+    fill_ramp(bus, FM1_BLOCK);
+    fx_rack_process(&r, bus, FM1_BLOCK);
+    int unity = 1;
+    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
+        if (bus[i] - ref[i] > 1 || ref[i] - bus[i] > 1) { unity = 0; break; }
+    ok(unity, "WIDTH at centre is unity (within 1 LSB)", "mid/side is not transparent");
+
+    /* WIDTH at 0 is mono: both channels equal. */
+    fx_rack_init(&r);
+    fx_slot_set_type(&r.slot[0], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[0], 0);
+    fill_ramp(bus, FM1_BLOCK);
+    fx_rack_process(&r, bus, FM1_BLOCK);
+    int mono = 1;
+    for (uint32_t i = 0; i < FM1_BLOCK; i++)
+        if (bus[2 * i] != bus[2 * i + 1]) { mono = 0; break; }
+    ok(mono, "WIDTH at 0 collapses to mono", "channels still differ");
+
+    /* PAR is the routing claim. Two WIDTH slots, the second PAR, both fed the
+     * same input: the output must be the SUM of what each produces, not the
+     * second applied to the first's output.
+     *
+     * Computed from single-slot runs rather than from a constant, so the
+     * expectation cannot drift away from the blocks. */
+    static int32_t a_only[FM1_BLOCK * 2], b_only[FM1_BLOCK * 2];
+
+    fx_rack_init(&r);
+    fx_slot_set_type(&r.slot[0], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[0], 0);              /* mono-ing block */
+    fill_ramp(a_only, FM1_BLOCK);
+    fx_rack_process(&r, a_only, FM1_BLOCK);
+
+    fx_rack_init(&r);
+    fx_slot_set_type(&r.slot[0], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[0], 127);            /* widening block */
+    fill_ramp(b_only, FM1_BLOCK);
+    fx_rack_process(&r, b_only, FM1_BLOCK);
+
+    fx_rack_init(&r);
+    fx_slot_set_type(&r.slot[0], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[0], 0);
+    fx_slot_set_type(&r.slot[1], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[1], 127);
+    r.slot[1].flags |= FM1_FX_PAR;
+    fill_ramp(bus, FM1_BLOCK);
+    fx_rack_process(&r, bus, FM1_BLOCK);
+
+    int par_ok = 1;
+    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) {
+        int32_t want = a_only[i] + b_only[i];
+        if (bus[i] - want > 1 || want - bus[i] > 1) { par_ok = 0; break; }
+    }
+    ok(par_ok, "PAR sums two slots fed the same input",
+       "PAR is chaining instead of branching");
+
+    /* ...and without PAR the same two slots must NOT sum -- otherwise the
+     * test above passes for a rack that sums everything. */
+    fx_rack_init(&r);
+    fx_slot_set_type(&r.slot[0], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[0], 0);
+    fx_slot_set_type(&r.slot[1], FX_WIDTH);
+    fx_slot_set_p1(&r.slot[1], 127);
+    fill_ramp(bus, FM1_BLOCK);
+    fx_rack_process(&r, bus, FM1_BLOCK);
+    int differs = 0;
+    for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++)
+        if (bus[i] != a_only[i] + b_only[i]) { differs = 1; break; }
+    ok(differs, "without PAR the same slots chain, not sum",
+       "serial and parallel are indistinguishable");
+
+    /* The folder must stay in range for any input the bus can carry, and must
+     * never return the clipped value -- folding that saturates is clipping
+     * with extra steps. */
+    int folded_ok = 1;
+    for (int32_t x = -4 * 32768; x <= 4 * 32768; x += 97) {
+        int32_t y = fm1::fx_fold1(x, Q12_ONE * 3, 0);
+        if (y > Q15_ONE || y < -Q15_ONE) { folded_ok = 0; break; }
+    }
+    ok(folded_ok, "FOLD stays in range across +-4.0 at 3x drive", "folder escaped Q15");
+}
+
 int main(void)
 {
     test_soft_clip();
     test_bus();
+    test_rack();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

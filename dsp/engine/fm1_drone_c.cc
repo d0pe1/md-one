@@ -29,6 +29,11 @@ static_assert(FD_P_LEVEL      == P_LEVEL,       "param mirror drifted");
 static_assert(FD_P_PAN        == P_PAN,         "param mirror drifted");
 static_assert(FD_NPARAM       == NPARAM,        "param mirror drifted");
 static_assert(FD_NGPARAM      == NGPARAM,       "global mirror drifted");
+static_assert(FD_G_FX_BASE    == G_FX_BASE,     "rack base mirror drifted");
+static_assert(FD_G_FX_STRIDE  == G_FX_STRIDE,   "rack stride mirror drifted");
+static_assert(FD_G_FX(2, FD_G_FX_MIX) == G_FX(2, G_FX_MIX), "rack index mirror drifted");
+static_assert(FD_FX_CHORUS    == FX_CHORUS,     "rack type mirror drifted");
+static_assert(FD_FX_NTYPES    == FX_NTYPES,     "rack type mirror drifted");
 static_assert(FD_VOICES       == FM1_VOICES,    "voice count mirror drifted");
 
 /* The engine's state is about 87 KB -- four MacroOscillators at 17 KB each
