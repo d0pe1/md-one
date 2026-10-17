@@ -133,6 +133,122 @@ or from hortator, it would have been GPL-3.0 and confined to `firmware/`.
    They are gitignored and must not be republished. Each has a `.json` beside
    it recording author, licence, source URL and SHA-256.
 
+## The official M-VAVE SDK — assessed 2026-10-17
+
+M-VAVE published an **FM1 Open** firmware track and a development kit:
+[open.m-vave.com/fm1-workbench](https://open.m-vave.com/fm1-workbench) →
+`FM1-Open-V13-Development-Kit.zip`
+(sha256 `2a3b2ede…f68f57`, 1,682,912 B, matching the hash in its own URL).
+
+A manufacturer openly supporting custom firmware on its own hardware is not
+the usual outcome, and it changes several assumptions recorded above.
+
+### What is in it
+
+| Part | Licence | Relevance |
+| --- | --- | --- |
+| `app/`, `web/` application source | **GPL-3.0-only** + SDK linking exception | the same licence our fork already carries |
+| `sdk/lib/libfm1_engine.a` | **proprietary**, FM1-devices-only grant | their FM engine. We do not want it |
+| `sdk/lib/libcompiler_rt.a` | **compiler-rt** (Apache-2.0 + LLVM exception) | **soft-float and 64-bit division** |
+| `sdk/lib/libc.a` | **newlib** (BSD-family) | a real libc for the target |
+| `sdk/tools/pack/*`, `sdk/firmware/FM-1_015.fwsc` | **Apache-2.0** | `uboot.boot`, `ota.bin`, `cfg_tool.bin`, recovery image |
+| `app/board/` | GPL-3.0-only | real HAL source: audio, panel, LCD, input |
+
+Derived from the JieLi AC79 AIoT SDK at commit `5fa84a9b…`, Apache-2.0 — the
+same upstream we already use.
+
+### The finding that matters
+
+**`libcompiler_rt.a` exports exactly the symbols `dsp/target/check.sh` bans:**
+
+```
+__adddf3 __subdf3 __muldf3 __divdf3      double
+__addsf3 __subsf3 __mulsf3 __divsf3      float
+__floatsidf __floatsisf __fixdfsi __fixsfsi __extendsfdf2 __truncdfsf2
+__udivdi3 __divdi3 __umoddi3 __moddi3 __muldi3
+```
+
+So **"no float, no 64-bit division" is a property of our build, not of the
+chip.** The AC791N still has no FPU, and a float still fails to *link* in our
+tree today — that part was always true. But the runtime library that fixes it
+exists, is permissively licensed, and is redistributable.
+
+This is not an argument for rewriting `dsp/` in float. Soft-float costs tens
+of cycles per operation against one or two for integer arithmetic, and the
+budget is 1,360 cycles per sample across all four voices. The fixed-point
+work stands. What the library actually buys:
+
+* it removes a class of build fragility — a stray `0.5` currently fails the
+  link with an unhelpful message about a missing symbol;
+* it allows `exp()` and `sin()` at **setup** rate, which is exactly what
+  `gen_svf_table.py` and `gen_env_table.py` exist to work around (generating
+  tables offline remains better practice, but it stops being forced);
+* it makes porting float DSP **possible to attempt**. See below.
+
+### Macro Oscillator 2 (Plaits)
+
+This is the interesting consequence. Braids ported because Braids is already
+fixed point — it targets an STM32F1 with no FPU. **Plaits is float
+throughout**, because it targets an STM32F4 that has one. That is why it was
+previously not a candidate: it would not have linked at all.
+
+With compiler-rt it links. Whether it *runs* is a separate question, and an
+empirical one:
+
+* budget is **1,360 cycles per sample** across four voices, or about 5,440
+  for one voice alone;
+* a soft-float multiply or add is roughly 30–100 cycles;
+* so the ceiling is very roughly **50–150 float operations per sample** for a
+  single voice, and a quarter of that at four.
+
+Plaits' engines are not uniformly expensive, exactly as Braids' shapes were
+not — our own per-shape table ranged 15,129 to 45,139 cycles. The right move
+is the one that worked before: **measure first**, with the existing probe
+harness, one engine at a time, before porting anything.
+
+Licensing is clean: Plaits is an STM32F project, so MIT under the
+`pichenettes/eurorack` rule already recorded above, and a port may live in
+`dsp/`. Note that hortator's integer Plaits drum ports are **GPL-3.0-only**
+and would be confined to `firmware/` — if a float port measures acceptably,
+it is also the licensing-cleaner route.
+
+### The other usable piece
+
+The boot and packaging resources are **Apache-2.0**: `uboot.boot`,
+`cfg_tool.bin`, `ota.bin`, `boot-config.bin`. `firmware/tools/build.py`
+currently refuses to run without an external `AC79_SDK` checkout for exactly
+these files. Taking them from here makes the build self-contained, and
+Apache-2.0 is GPL-3.0 compatible.
+
+### What this does NOT change
+
+* **The brick risk.** Their recovery restores a device *stuck at the upgrade
+  screen*, at the same firmware version. It is not a brick-fix, and the
+  warning is explicit: *force flashing may erase data, cause boot failure,
+  and require dedicated tools to recover*. `docs/FIRMWARE_SAFETY.md` stands,
+  and the boxed second unit is still the right call.
+* **Our licence.** GPL-3.0-only either way. `dsp/` stays MIT because it
+  depends on none of this.
+* **`libfm1_engine.a` stays out.** It is their FM engine, MD-One has its own,
+  and its grant is restricted to FM1 devices — a restriction worth not
+  propagating into something meant to be reusable.
+
+### Should `firmware/` move from Dinghy to the official APP?
+
+Not on this evidence. The arguments for are real — official, maintained,
+ships its own boot resources, hash-verified. Against:
+
+* the build is **Windows x64 + PowerShell** (`build.bat`, `Build.ps1`,
+  `Package.cs`); our entire toolchain is WSL and bash;
+* the APP is structured around `fm1_engine_render()`, the proprietary blob we
+  do not want;
+* our Dinghy fork builds, boots and passes the brick checks today.
+
+The valuable parts — compiler-rt, the boot resources, the HAL as a reference
+— are permissively licensed and can be taken **without** migrating the
+platform. Borrow the libraries, keep the build.
+
+
 ## If we release
 
 - [ ] `LICENSE` with the full GPL-3.0 text
