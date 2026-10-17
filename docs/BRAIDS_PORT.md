@@ -33,6 +33,79 @@ and would each need a full fixed-point rewrite — a different project.
 This is also why hortator could ship Plaits' *drum* models: those are the
 cheap, mostly-integer ones. It is not evidence the rest of Plaits fits.
 
+### Plaits, measured — the prediction above, confirmed
+
+The section above argued from source inspection that Plaits assumes an FPU.
+On 2026-10-17 it became possible to test that claim rather than infer it:
+M-VAVE's official SDK ships `libcompiler_rt.a`, which supplies the soft-float
+arithmetic our toolchain lacks, so Plaits **links** for the first time
+(`docs/LICENSE_REGISTER.md`).
+
+It links. It does not run.
+
+| Engine | cycles / 24-frame call | per 256-frame block | % budget |
+| --- | --- | --- | --- |
+| wavetable | 146,938 | 1,567,336 | **113%** |
+| virtual_analog | 172,597 | 1,841,033 | **132%** |
+| fm | 220,687 | 2,353,998 | **169%** |
+
+That is **one voice, free-running**, against the 1,393,152 cycles available
+for the entire instrument. The shipping four-voice engine — two filters, EQ,
+drive, AHDSR, patchbay and mixer — runs at **20.4%**.
+
+The gap is the whole story:
+
+```
+Braids, dearest shape  (HARMONICS)     45,139 cycles / voice / block
+Plaits, cheapest engine (wavetable) 1,567,336 cycles / voice / block
+                                        ~35x
+```
+
+Same algorithm class, same chip, same harness. The only difference is the
+number format — and on a chip with no FPU, that difference is everything.
+
+#### What was done to make the measurement falsifiable
+
+* **Trigger state was handled, not ignored.** 11 of Plaits' 22 engines read
+  `EngineParameters::trigger`, and nine branch on `TRIGGER_UNPATCHED`
+  specifically — they behave *differently* unpatched rather than merely
+  staying silent. Free-running engines were measured unpatched; triggered
+  ones get a rising edge on the first block and are measured while ringing,
+  which is the expensive part. Measuring an untriggered percussive engine
+  would have given a flatteringly low number — the same trap Braids'
+  `strike_` flag set, documented above.
+* **The spread was sampled rather than assumed**: 1.5x between cheapest and
+  dearest, against 3x across Braids' shapes. No spread rescues something that
+  starts at 113%.
+* **stmlib's portable paths** were used (`-DTEST`), not its ARM inline
+  assembly (`ssat`, `usat`, `vsqrt.f32`), which this chip cannot execute.
+* **The libm surface is tiny** and was not the obstacle: Plaits calls no libm
+  at all — its own comments say *"to avoid the call to sinf, we use a 3rd
+  order polynomial"* — and stmlib needs only `sqrtf`, `sinf`, `cosf` and
+  `fabsf`, none at audio rate.
+
+#### What this does not overturn
+
+**Float is not forbidden by the chip, only by our link.** That correction
+stands and is useful on its own: it removes the failure mode where a stray
+`0.5` produces a cryptic missing-symbol error, and it allows `exp()` and
+`sin()` at setup rate.
+
+**Plaits is still interesting as algorithms, not as code.** A hand-written
+fixed-point port of one or two engines is a different project with a
+plausible budget — exactly how Braids got here. The two worth the effort for
+a drone instrument are `modal` and `string`, the resonators.
+
+hortator's integer Plaits *drum* ports are evidence the approach works, but
+they are **GPL-3.0-only** and would live in `firmware/`, never `dsp/`. A port
+written from the MIT original keeps `dsp/` reusable and is the cleaner route.
+
+#### The experiment is not in the tree
+
+Plaits was never vendored into `dsp/`, and the probe was never added to
+`dsp/target/`, because measuring before porting was the entire point. The
+table above is the only thing worth keeping.
+
 ## Provenance — take it from upstream, not from VCV
 
 AudibleInstruments is two projects in one tree, and the distinction decides

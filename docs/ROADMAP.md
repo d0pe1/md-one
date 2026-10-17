@@ -161,4 +161,4 @@ page is wrong.
 | More than four voices | Four is already twelve oscillators; the earlier "one-dimensional" complaint was about timbre, not count. |
 | Polyphonic note handling | Voices are latched and addressed, not allocated. |
 | Supporting the internal speaker | Mono, and irrelevant to the use case. |
-| Porting Plaits, Rings or Elements | They assume an FPU; each would be a full fixed-point rewrite. |
+| Porting Plaits, Rings or Elements | They assume an FPU. **Measured 2026-10-17**: Plaits links now that the SDK supplies soft-float, but its cheapest engine costs 113% of the whole audio budget for ONE voice -- about 35x the dearest Braids shape. Each would be a full fixed-point rewrite. See `docs/BRAIDS_PORT.md`. |
