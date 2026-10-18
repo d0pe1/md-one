@@ -95,6 +95,8 @@ void Drone::Init(uint32_t seed)
         d.osc.set_shape((braids::MacroOscillatorShape)d.p[P_SHAPE]);
         ApplyPitch(v);
     }
+    for (uint32_t i = 0; i < 1536u; i++) haas_[i] = 0;
+    haas_w_ = 0;
     blocks_ = 0;
 }
 
@@ -166,6 +168,10 @@ void Drone::NoteOn(uint8_t voice, uint8_t note)
     if (voice >= FM1_VOICES) return;
     v_[voice].note = (int16_t)note;
     v_[voice].gate = 1;
+    /* A voice that has never sounded has nowhere to glide FROM, and sliding
+     * up from note 0 on the first keypress is not portamento, it is a
+     * swoop nobody asked for. */
+    if (!v_[voice].pitch_now) v_[voice].pitch_now = v_[voice].pitch_base;
     fm1_env_gate(&v_[voice].env, 1);
     ApplyPitch(voice);
     v_[voice].osc.Strike();
@@ -400,9 +406,15 @@ int32_t Drone::ModOf(const DroneVoice &d, uint8_t n) const
 
     /* Unrouted, or routed with the depth at its centre detent: the same
      * silence reached two ways, and both cost one compare. */
-    if (src == MD_SRC_NONE || src > FM1_LFOS) return 0;
+    if (src == MD_SRC_NONE || src >= MD_SRC_COUNT) return 0;
     depth = (int32_t)d.p[P_MD(n, P_MD_DEPTH)] - 64;
     if (depth == 0) return 0;
+
+    /* The voice's own drift, which is why this is not simply an LFO index:
+     * every voice has a different one, so routing DRIFT to four voices gives
+     * four unrelated wanders where an LFO gives one shared movement. */
+    if (src == MD_SRC_DRIFT)
+        return (d.drift_now * depth) >> 6;
 
     /* lfo_out_ is +-32767 and depth is -64..+63, so >> 6 lands back in Q15.
      * Bipolar depth is what makes an inverted modulation possible without a
@@ -479,6 +491,10 @@ void Drone::Render(int16_t *out, uint32_t n)
              * at full depth and scale per destination, so the two knobs are
              * independent and either can be closed. */
             int32_t dr = fm1_drift_block(&d.drift, d.p[P_DRIFT_RATE], 127);
+            /* Published before ModOf is called, because the matrix can now
+             * route it anywhere. FM and MOD below are unchanged: they are
+             * Braids' own attenuverters and keep their hardwired reach. */
+            d.drift_now = dr;
             int32_t fm_amt  = (int32_t)d.p[P_FM]  - 64;     /* -64..+63 */
             int32_t mod_amt = (int32_t)d.p[P_MOD] - 64;
 
@@ -490,8 +506,24 @@ void Drone::Render(int16_t *out, uint32_t n)
             /* FM: drift into pitch. +-50 cents at full deflection -- enough
              * to beat against the fixed comb and the other voices, not enough
              * to sound out of tune. */
+            /* GLIDE: the sounding pitch slews toward the note rather than
+             * jumping to it. Zero is instant, and must be exactly instant --
+             * a portamento knob at zero that still smears is a knob that is
+             * broken. Snap-on-stall for the same reason the parameter slew
+             * needs one: a shift-based one-pole never arrives. */
+            {
+                uint8_t gl = d.p[P_GLIDE];
+                int32_t base = (int32_t)d.pitch_base;
+                if (gl == 0) {
+                    d.pitch_now = base;
+                } else if (d.pitch_now != base) {
+                    int32_t step = (base - d.pitch_now) >> (1 + (gl >> 4));
+                    d.pitch_now = step ? d.pitch_now + step : base;
+                }
+            }
+
             int32_t dp = (((dr * 64) >> 15) * fm_amt) >> 6;
-            int32_t pitch = d.pitch_base + dp;
+            int32_t pitch = d.pitch_now + dp;
             /* The matrix reaches pitch at up to +-12 semitones -- a full
              * octave, which is the range that makes a slow ramp into pitch
              * useful rather than merely a vibrato. The drift above is a
@@ -700,6 +732,37 @@ void Drone::Render(int16_t *out, uint32_t n)
          * instrument distorts; the final add is saturating only to honour
          * Render()'s contract of mixing into whatever the caller left in
          * `out`. */
+        /* HAAS: delay ONE channel by a few milliseconds. Under the echo
+         * threshold the ear fuses the two arrivals and localises toward the
+         * earlier one, so the image widens without the tone changing -- no
+         * filter, no EQ, nothing taken away.
+         *
+         * 0..127 maps to 0..29 ms. The upper end is deliberately past where
+         * it stops reading as width and starts reading as a slap: a control
+         * that can only do the tasteful thing is a control that cannot do
+         * the interesting one.
+         *
+         * Mono compatibility is the catch, and it is not hidden: summed to
+         * mono a delayed copy IS a comb filter. The MIX page's MONO switch
+         * exists to let you hear that while the DAW is recording, which is
+         * the only honest way to ship this. */
+        {
+            uint32_t hd = ((uint32_t)g_[G_HAAS] * 1280u) / 127u;
+            if (hd) {
+                for (uint32_t i = 0; i < chunk; i++) {
+                    uint32_t rd = (haas_w_ + 1536u - hd) % 1536u;
+                    haas_[haas_w_] = (int16_t)fm1_soft_clip(bus_[i * 2u + 1u]);
+                    haas_w_ = (haas_w_ + 1u) % 1536u;
+                    bus_[i * 2u + 1u] = haas_[rd];
+                }
+            } else if (haas_w_) {
+                /* Turning it off must not leave a stale tail to be played
+                 * back the next time it is turned on. */
+                for (uint32_t i = 0; i < 1536u; i++) haas_[i] = 0;
+                haas_w_ = 0;
+            }
+        }
+
         int32_t m = g_[G_MASTER];
         for (uint32_t i = 0; i < chunk * 2u; i++) {
             int32_t s = bus_[i];

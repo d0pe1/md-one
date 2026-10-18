@@ -225,7 +225,7 @@ static const fm1_page_t FM1_PG_GLO[] = {
     { "OUTPUT", { G_MASTER, G_SPREAD, PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_NONE, 0 },
-    { "STEREO", { G_BINAURAL, G_HAAS, G_DRIFT_SYNC, PG_NONE },
+    { "STEREO", { G_BINAURAL, G_HAAS, PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_NONE, 0 },
 };

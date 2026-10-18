@@ -70,6 +70,7 @@ static_assert(FD_P_MD(8, FD_P_MD_SRC) == P_MD(8, P_MD_SRC), "mod index mirror dr
 static_assert(FD_MD_NDEST     == MD_NDEST,      "mod destination mirror drifted");
 static_assert(FD_MD_PAN       == MD_PAN,        "mod destination mirror drifted");
 static_assert(FD_MD_SRC_NONE  == MD_SRC_NONE,   "mod source mirror drifted");
+static_assert(FD_MD_SRC_DRIFT == MD_SRC_DRIFT,  "mod source mirror drifted");
 
 /* The engine's state is about 87 KB -- four MacroOscillators at 17 KB each
  * plus the combs. The device's .data/.bss region is 96 KiB and the platform

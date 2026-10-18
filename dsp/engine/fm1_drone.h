@@ -60,6 +60,12 @@ struct DroneVoice {
     int16_t      acc[NPARAM];   /* Q8; 127 << 8 = 32512, inside int16 */
     int16_t      note;          /* MIDI note, 0..127 */
     int16_t      pitch_base;    /* note+octave+detune+spread, before drift */
+    /* Where the pitch actually IS, which during a glide is behind
+     * pitch_base. Separate because the comb tunes from the base and must not
+     * slide with the portamento -- a resonator chasing the note is a
+     * different instrument from one the note slides against. */
+    int32_t      pitch_now;
+    int32_t      drift_now;     /* this block's drift, Q15, for the matrix */
     uint8_t      gate;          /* sounding at all */
 
     int16_t      scratch[FM1_BLOCK];
@@ -184,6 +190,15 @@ class Drone {
      * the opposite -- all four voices moving together. */
     fm1_lfo_t  lfo_[FM1_LFOS];
     q15_t      lfo_out_[FM1_LFOS];  /* this block's value, for the screen */
+
+    /* HAAS: a few milliseconds of delay on one channel. Below the echo
+     * threshold the ear fuses the two and localises toward the earlier one,
+     * so the image widens without the tone changing -- no filter, no EQ.
+     *
+     * 1536 samples is 34.8 ms at 44.1 kHz, past the 30 ms where it starts
+     * being heard as a distinct repeat rather than as width. 3 KiB. */
+    int16_t    haas_[1536];
+    uint32_t   haas_w_;
     uint8_t    meter_[FM1_VOICES];      /* see Meter() */
     uint8_t    clip_[FM1_VOICES];       /* blocks of red remaining */
     uint32_t   blocks_;        /* blocks rendered, for drift scheduling */

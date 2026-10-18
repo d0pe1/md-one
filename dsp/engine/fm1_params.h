@@ -101,10 +101,24 @@ enum {
     MD_NDEST
 };
 
-/* A source is none, or one of the four LFOs. */
-#define MD_SRC_NONE 0
-static const char *const FM1_MODSRC_NAME[5] = {
-    "---", "LFO1", "LFO2", "LFO3", "LFO4"
+/* A source is none, one of the four LFOs, or the voice's own DRIFT.
+ *
+ * Drift is in the list because it was already a modulator with nowhere to
+ * go: a per-voice random walk (fm1_drift.h) hardwired to exactly two
+ * destinations, pitch and timbre, through the FM and MOD attenuverters that
+ * Braids' own panel gives it. Those stay -- they are the module's layout --
+ * but there was no reason the same signal could not also reach a filter or a
+ * pan, which is all this does.
+ *
+ * It differs from an LFO in the way that matters: every voice has its OWN
+ * drift, seeded differently, so routing drift to four voices gives four
+ * unrelated movements where routing an LFO gives one shared movement. */
+#define MD_SRC_NONE  0
+#define MD_SRC_LFO1  1
+#define MD_SRC_DRIFT 5
+#define MD_SRC_COUNT 6
+static const char *const FM1_MODSRC_NAME[MD_SRC_COUNT] = {
+    "---", "LFO1", "LFO2", "LFO3", "LFO4", "DRIFT"
 };
 
 /* EQ band b (0..2), control j. Same shape as the patchbay's G_FX(). */
@@ -119,7 +133,7 @@ static const char *const FM1_MODSRC_NAME[5] = {
 
 /* --- global parameters (MIDI channel 16) -------------------------------- */
 enum {
-    G_MASTER, G_SPREAD, G_BINAURAL, G_HAAS, G_DRIFT_SYNC,
+    G_MASTER, G_SPREAD, G_BINAURAL, G_HAAS,
     /* The FX patchbay: four effect channels (fm1_rack.h). Five controls
      * each -- TYPE, two effect parameters, MIX, and DEST, the one cable out.
      * DEST is what makes this a patchbay rather than an insert rack: set it
@@ -289,23 +303,23 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * bipolar so 64 is the centre detent, exactly as FM and MOD are on the
      * BRAIDS page -- the same gesture means the same thing. */
     [P_MD0_DEPTH] = {"PITCH",  127,  64, K_BIP,     0},
-    [P_MD0_SRC]   = {"SRCPIT",   4,   0, K_MODSRC,  0},
+    [P_MD0_SRC]   = {"SRCPIT",   5,   0, K_MODSRC,  0},
     [P_MD1_DEPTH] = {"TIMBRE", 127,  64, K_BIP,     0},
-    [P_MD1_SRC]   = {"SRCTMB",   4,   0, K_MODSRC,  0},
+    [P_MD1_SRC]   = {"SRCTMB",   5,   0, K_MODSRC,  0},
     [P_MD2_DEPTH] = {"COLOR",  127,  64, K_BIP,     0},
-    [P_MD2_SRC]   = {"SRCCOL",   4,   0, K_MODSRC,  0},
+    [P_MD2_SRC]   = {"SRCCOL",   5,   0, K_MODSRC,  0},
     [P_MD3_DEPTH] = {"LEVEL",  127,  64, K_BIP,     0},
-    [P_MD3_SRC]   = {"SRCLVL",   4,   0, K_MODSRC,  0},
+    [P_MD3_SRC]   = {"SRCLVL",   5,   0, K_MODSRC,  0},
     [P_MD4_DEPTH] = {"F1CUT",  127,  64, K_BIP,     0},
-    [P_MD4_SRC]   = {"SRCF1C",   4,   0, K_MODSRC,  0},
+    [P_MD4_SRC]   = {"SRCF1C",   5,   0, K_MODSRC,  0},
     [P_MD5_DEPTH] = {"F1RES",  127,  64, K_BIP,     0},
-    [P_MD5_SRC]   = {"SRCF1R",   4,   0, K_MODSRC,  0},
+    [P_MD5_SRC]   = {"SRCF1R",   5,   0, K_MODSRC,  0},
     [P_MD6_DEPTH] = {"F2CUT",  127,  64, K_BIP,     0},
-    [P_MD6_SRC]   = {"SRCF2C",   4,   0, K_MODSRC,  0},
+    [P_MD6_SRC]   = {"SRCF2C",   5,   0, K_MODSRC,  0},
     [P_MD7_DEPTH] = {"F2RES",  127,  64, K_BIP,     0},
-    [P_MD7_SRC]   = {"SRCF2R",   4,   0, K_MODSRC,  0},
+    [P_MD7_SRC]   = {"SRCF2R",   5,   0, K_MODSRC,  0},
     [P_MD8_DEPTH] = {"PAN",    127,  64, K_BIP,     0},
-    [P_MD8_SRC]   = {"SRCPAN",   4,   0, K_MODSRC,  0},
+    [P_MD8_SRC]   = {"SRCPAN",   5,   0, K_MODSRC,  0},
 };
 
 static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
@@ -313,7 +327,6 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_SPREAD]     = {"SPREAD", 127,   0, K_NUM,     0},
     [G_BINAURAL]   = {"BINAURL",127,   0, K_NUM,     0},
     [G_HAAS]       = {"HAAS",   127,   0, K_NUM,     0},
-    [G_DRIFT_SYNC] = {"DRFTSYN",  1,   0, K_ONOFF,   0},
 
     /* Effect channels. max for TYPE is FX_NTYPES-1 and for OUT is
      * DEST_NDEST-1, written as literals so this header stays free of

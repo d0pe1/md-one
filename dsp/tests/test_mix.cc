@@ -1100,6 +1100,150 @@ static void test_mod_matrix(void)
     }
 }
 
+/* GLIDE, HAAS and drift-as-a-source.
+ *
+ * These three exist because four parameters were found sitting on pages,
+ * addressable over MIDI and saved into patches, wired to nothing at all.
+ * The reachability test proves a parameter can be FOUND; only this kind
+ * proves turning it does something. Written first for that reason.
+ */
+static void test_late_additions(void)
+{
+    printf("\nglide, haas, drift routing\n");
+
+    static fm1::Drone d;
+    static int16_t buf[FM1_BLOCK * 2];
+
+    /* --- GLIDE ---------------------------------------------------------- */
+    d.Init();
+    d.SetGlobal(G_SPREAD, 0);
+    for (uint8_t v = 0; v < FM1_VOICES; v++) d.SetGate(v, v == 0);
+    d.SetParam(0, P_SHAPE, 3);
+    d.SetParam(0, P_F1_TYPE, F_OFF);
+    d.SetParam(0, P_F2_TYPE, F_OFF);
+    d.SetParam(0, P_FM, 64);
+    d.SetParam(0, P_MOD, 64);
+    d.SetParam(0, P_GLIDE, 0);
+    d.NoteOn(0, 45);
+    d.SnapParams();
+
+    {
+        int lo, hi, settled, moved = 0;
+        crossing_range(d, 8, &lo, &hi);
+        crossing_range(d, 20, &lo, &hi);
+        settled = hi;
+
+        /* Glide off: an octave jump must land inside one block. */
+        d.NoteOn(0, 57);
+        crossing_range(d, 2, &lo, &hi);
+        printf("    glide 0,   after a +12 jump: crossings %d (was %d)\n",
+               hi, settled);
+        ok(hi > settled * 3 / 2, "GLIDE 0 arrives immediately",
+           "the pitch did not move -- or it is gliding when it should not");
+
+        /* Glide on: the same jump must take time. */
+        d.SetParam(0, P_GLIDE, 100);
+        d.SnapParams();
+        d.NoteOn(0, 45);
+        crossing_range(d, 40, &lo, &hi);        /* let it arrive */
+        crossing_range(d, 20, &lo, &hi);
+        settled = hi;
+        d.NoteOn(0, 57);
+        crossing_range(d, 2, &lo, &hi);
+        printf("    glide 100, after a +12 jump: crossings %d (was %d)\n",
+               hi, settled);
+        if (hi < settled * 3 / 2) moved = 1;
+        ok(moved, "GLIDE delays the arrival",
+           "the pitch jumped anyway -- glide is not applied");
+    }
+
+    /* --- HAAS ------------------------------------------------------------
+     * A delay on one channel decorrelates it from the other. Comparing the
+     * two channels sample by sample is enough: identical before, different
+     * after, and nothing about the LEVEL changed. */
+    {
+        int32_t diff_off = 0, diff_on = 0, energy = 0;
+        d.Init();
+        d.SetGlobal(G_SPREAD, 0);
+        for (uint8_t v = 0; v < FM1_VOICES; v++) d.SetGate(v, v == 0);
+        d.SetParam(0, P_PAN, 64);               /* centre: L and R identical */
+        d.SetParam(0, P_FM, 64);
+        d.SetParam(0, P_MOD, 64);
+        d.NoteOn(0, 45);
+        d.SnapParams();
+
+        for (int b = 0; b < 12; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+        }
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i += 2) {
+            int32_t x = buf[i] - buf[i + 1];
+            diff_off += x < 0 ? -x : x;
+            energy += buf[i] < 0 ? -buf[i] : buf[i];
+        }
+
+        d.SetGlobal(G_HAAS, 100);
+        d.SnapParams();
+        for (int b = 0; b < 12; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+        }
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i += 2) {
+            int32_t x = buf[i] - buf[i + 1];
+            diff_on += x < 0 ? -x : x;
+        }
+
+        printf("    L-R difference: haas off %d, haas on %d (energy %d)\n",
+               diff_off, diff_on, energy);
+        /* NOT zero, and deliberately so: centre is 64/127 left against
+         * 63/127 right, one LSB of asymmetry that keeps the two gains
+         * summing to what a panned voice has. That is 1/127 of the signal,
+         * so the bound is a fraction of the energy rather than a constant --
+         * which is also what makes it survive a change of test note. */
+        ok(diff_off < energy / 50,
+           "a centred voice is the same in both channels but for one LSB",
+           "something is already decorrelating them");
+        ok(diff_on > diff_off * 10, "HAAS decorrelates the channels",
+           "the delay is not reaching the output");
+    }
+
+    /* --- DRIFT as a routable source --------------------------------------
+     * Drift used to reach exactly two destinations, through Braids' own FM
+     * and MOD attenuverters. Routed to PAN it should move the image, which
+     * neither of those could ever do. */
+    {
+        int32_t bal_lo = 1 << 30, bal_hi = -(1 << 30);
+        d.Init();
+        d.SetGlobal(G_SPREAD, 0);
+        for (uint8_t v = 0; v < FM1_VOICES; v++) d.SetGate(v, v == 0);
+        d.SetParam(0, P_FM, 64);                /* the attenuverters closed: */
+        d.SetParam(0, P_MOD, 64);               /* only the matrix is active */
+        d.SetParam(0, P_DRIFT_RATE, 120);       /* fast, so the test is short */
+        d.SetParam(0, P_MD(MD_PAN, P_MD_SRC), MD_SRC_DRIFT);
+        d.SetParam(0, P_MD(MD_PAN, P_MD_DEPTH), 127);
+        d.NoteOn(0, 45);
+        d.SnapParams();
+
+        for (int b = 0; b < 200; b++) {
+            int32_t l = 0, r = 0;
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i += 2) {
+                l += buf[i] < 0 ? -buf[i] : buf[i];
+                r += buf[i + 1] < 0 ? -buf[i + 1] : buf[i + 1];
+            }
+            if (l + r > 1000) {
+                int32_t bal = (l - r) * 100 / (l + r);
+                if (bal < bal_lo) bal_lo = bal;
+                if (bal > bal_hi) bal_hi = bal;
+            }
+        }
+        printf("    DRIFT -> PAN: balance %d%%..%d%%\n", bal_lo, bal_hi);
+        ok(bal_hi - bal_lo > 20, "DRIFT reaches the matrix",
+           "routing the drift to pan did not move the image");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -1112,6 +1256,7 @@ int main(void)
     test_slew();
     test_lfo();
     test_mod_matrix();
+    test_late_additions();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");
