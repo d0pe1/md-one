@@ -547,11 +547,14 @@ static void ui_body_env(void)
     /* Which segment the voice is in now. On a drone an envelope is often
      * minutes long, so this is a real question rather than a decoration. */
     {
-        /* Six cells across 240 px is 40 each, which is four characters.
-         * Spelling them out gave "USTAI ELEAS" on screen -- the same
-         * overlap as the knob labels, for the same reason: nothing clips. */
+        /* The conventional three-letter set, and the SAME strings the knob
+         * row shows (FM1_ABBREV in fm1_pages.h) -- one segment, one name,
+         * however you are looking at it.
+         *
+         * Six cells across 240 px is 40 each, which is about four
+         * characters. Spelling them out rendered "USTAI ELEAS". */
         static const char *const NAME[FD_ENV_STAGES] = {
-            "IDLE", "ATK", "HOLD", "DEC", "SUS", "REL"
+            "IDLE", "ATT", "HLD", "DEC", "SUS", "REL"
         };
         uint8_t k;
         for (k = 0; k < FD_ENV_STAGES; k++)

@@ -320,9 +320,18 @@ static inline int fm1_menu_has_more(uint8_t menu)
 #define FM1_LABEL_MAX 6
 
 static const struct { const char *full; const char *brief; } FM1_ABBREV[] = {
-    { "DRIFTRT", "DRIFT" },
+    /* The envelope segments use the conventional three-letter set, the one
+     * every synth panel has used for decades. Two reasons it is not a free
+     * choice: it is what a player already reads without learning, and it has
+     * to match the stage names drawn under the curve -- ATTACK on the knob
+     * and ATK on the curve is two names for one segment on one page. */
+    { "ATTACK",  "ATT"   },
+    { "HOLD",    "HLD"   },
+    { "DECAY",   "DEC"   },
     { "SUSTAIN", "SUS"   },
     { "RELEASE", "REL"   },
+
+    { "DRIFTRT", "DRIFT" },
     { "BINAURL", "BINAU" },
     { "DRFTSYN", "SYNC"  },
 };
