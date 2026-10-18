@@ -75,6 +75,10 @@ class Drone {
 
     uint8_t GetParam(uint8_t voice, uint8_t param) const;
 
+    /* The UI has to SHOW a global, not only set one. Without this the FX and
+     * GLO pages could edit values they could not display. */
+    uint8_t GetGlobal(uint8_t param) const;
+
     /* Post-fader peak for the mixer meter, 0..127, with a slow fall.
      *
      * Post-fader because the meter has one job -- showing what the channel

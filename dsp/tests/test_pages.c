@@ -15,6 +15,7 @@
  * comment.
  */
 #include "../engine/fm1_pages.h"
+#include "../engine/fm1_shapes.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -263,10 +264,49 @@ static void test_stride(void)
     check(fx3_dest, "the FX route page follows the same channel", 0);
 }
 
+/* The shape table's index IS the parameter value, so it has to agree with
+ * P_SHAPE's range and with braids::MacroOscillatorShape. The count is
+ * checkable here; the spelling is not checkable anywhere, which is why the
+ * names were transcribed against the enum rather than from memory.
+ *
+ * The categories must also tile the range: contiguous, ascending, starting at
+ * zero. A gap would make SHIFT + ALGORITHM skip shapes that are still
+ * reachable one detent at a time -- the "where did it go" failure the
+ * grouping exists to prevent. */
+static void test_shapes(void)
+{
+    uint8_t c, s;
+    int ascending = 1, covers = 1, named = 1;
+
+    for (c = 0; c < FM1_NSHAPE_CATS; c++) {
+        if (!FM1_SHAPE_CAT[c].name || !*FM1_SHAPE_CAT[c].name) named = 0;
+        if (c && FM1_SHAPE_CAT[c].first <= FM1_SHAPE_CAT[c - 1].first)
+            ascending = 0;
+    }
+    if (FM1_SHAPE_CAT[0].first != 0) covers = 0;
+    if (FM1_SHAPE_CAT[FM1_NSHAPE_CATS - 1].first >= FM1_NSHAPES) covers = 0;
+
+    for (s = 0; s < FM1_NSHAPES; s++) {
+        uint8_t cat = fm1_shape_cat(s);
+        if (cat >= FM1_NSHAPE_CATS) covers = 0;
+        if (FM1_SHAPE_CAT[cat].first > s) covers = 0;
+        if (cat + 1 < FM1_NSHAPE_CATS && FM1_SHAPE_CAT[cat + 1].first <= s)
+            covers = 0;
+        if (!FM1_SHAPE_NAME[s] || !*FM1_SHAPE_NAME[s]) named = 0;
+    }
+
+    check(FM1_NSHAPES == (int)FM1_PDEF[P_SHAPE].max + 1,
+          "the shape table covers P_SHAPE's whole range", 0);
+    check(named, "every shape and category has a name", 0);
+    check(ascending, "category starts ascend", 0);
+    check(covers, "every shape lands in exactly one category", 0);
+}
+
 int main(void)
 {
     printf("menu and page map\n");
     test_reachable();
+    test_shapes();
     test_no_duplicate_on_page();
     test_ids_in_range();
     test_navigation();

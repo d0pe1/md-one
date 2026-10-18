@@ -88,6 +88,7 @@ void fm1_drone_set_gate(uint8_t v, uint8_t on) { g_drone.SetGate(v, on); }
 void fm1_drone_set_param(uint8_t v, uint8_t p, uint8_t val) { g_drone.SetParam(v, p, val); }
 uint8_t fm1_drone_get_param(uint8_t v, uint8_t p)           { return g_drone.GetParam(v, p); }
 void fm1_drone_set_global(uint8_t p, uint8_t val)           { g_drone.SetGlobal(p, val); }
+uint8_t fm1_drone_get_global(uint8_t p)                     { return g_drone.GetGlobal(p); }
 
 uint8_t fm1_drone_meter(uint8_t v)    { return g_drone.Meter(v); }
 uint8_t fm1_drone_clipping(uint8_t v) { return g_drone.Clipping(v) ? 1u : 0u; }

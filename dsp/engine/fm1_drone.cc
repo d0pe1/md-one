@@ -242,6 +242,12 @@ uint8_t Drone::GetParam(uint8_t voice, uint8_t param) const
     return v_[voice].p[param];
 }
 
+uint8_t Drone::GetGlobal(uint8_t param) const
+{
+    if (param >= NGPARAM) return 0;
+    return g_[param];
+}
+
 void Drone::Render(int16_t *out, uint32_t n)
 {
     while (n) {

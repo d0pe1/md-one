@@ -28,27 +28,15 @@
 #include "../shared/fm1_fixed.h"
 #include "fm1_comb.h"
 
-/* Mode list. Order is the order the knob steps through, so the three cheap
- * state-variable modes come first and the two pitch-tracking ones last.
+/* The mode list and its names. Deliberately at global scope, not inside
+ * namespace fm1: these are parameter VALUES, and they belong with the P_*
+ * parameter indices in fm1_params.h, which are also global. Presets, tests
+ * and probes name both in the same breath.
  *
- * Deliberately at global scope, not inside namespace fm1: these are parameter
- * VALUES, and they belong with the P_* parameter indices in fm1_params.h,
- * which are also global. Presets, tests and probes name both in the same
- * breath. */
-enum {
-    F_OFF = 0,      /* true bypass: costs nothing, not even a multiply */
-    F_LP,           /* state-variable low pass */
-    F_BP,           /* band pass */
-    F_HP,           /* high pass */
-    F_COMB,         /* tuned feedback comb; CUT is tune, RES is feedback */
-    F_RESO,         /* keytracked resonant peak; CUT is an offset in semitones */
-    F_NMODES
-};
-
-/* Eight characters at most, to match fm1_params.h's screen labels. */
-static const char *const FM1_FMODE_NAME[F_NMODES] = {
-    "OFF", "LOWPASS", "BANDPASS", "HIGHPASS", "COMB", "RESO"
-};
+ * They live in their own header because this one embeds braids::Svf and is
+ * therefore C++ only, while the firmware's UI is C and has to put a mode name
+ * on the screen. */
+#include "fm1_fmode.h"
 
 namespace fm1 {
 

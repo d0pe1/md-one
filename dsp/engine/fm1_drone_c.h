@@ -134,6 +134,9 @@ void fm1_drone_set_gate(uint8_t voice, uint8_t on);
 void    fm1_drone_set_param(uint8_t voice, uint8_t param, uint8_t value);
 uint8_t fm1_drone_get_param(uint8_t voice, uint8_t param);
 void    fm1_drone_set_global(uint8_t param, uint8_t value);
+/* The UI has to SHOW a global, not only set one -- without this the FX and
+ * GLO pages could edit values they could not display. */
+uint8_t fm1_drone_get_global(uint8_t param);
 
 /* Post-fader peak for voice v, 0..127, with a slow fall. For the mixer
  * meters. */
