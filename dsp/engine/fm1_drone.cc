@@ -97,6 +97,7 @@ void Drone::Init(uint32_t seed)
     }
     for (uint32_t i = 0; i < 1536u; i++) haas_[i] = 0;
     haas_w_ = 0;
+    haas_side_ = 0;
     blocks_ = 0;
 }
 
@@ -747,19 +748,33 @@ void Drone::Render(int16_t *out, uint32_t n)
          * exists to let you hear that while the DAW is recording, which is
          * the only honest way to ship this. */
         {
-            uint32_t hd = ((uint32_t)g_[G_HAAS] * 1280u) / 127u;
-            if (hd) {
-                for (uint32_t i = 0; i < chunk; i++) {
-                    uint32_t rd = (haas_w_ + 1536u - hd) % 1536u;
-                    haas_[haas_w_] = (int16_t)fm1_soft_clip(bus_[i * 2u + 1u]);
-                    haas_w_ = (haas_w_ + 1u) % 1536u;
-                    bus_[i * 2u + 1u] = haas_[rd];
-                }
-            } else if (haas_w_) {
-                /* Turning it off must not leave a stale tail to be played
-                 * back the next time it is turned on. */
+            /* Bipolar: 64 is no delay and either channel can be the early
+             * one. A one-directional widener always pushes the image the
+             * same way, so using it on two voices stacks them in the same
+             * place instead of opening them apart -- which is the whole
+             * reason to have it. */
+            int32_t  h    = (int32_t)g_[G_HAAS] - 64;
+            uint32_t hd   = ((uint32_t)(h < 0 ? -h : h) * 1280u) / 64u;
+            int8_t   side = hd ? (h > 0 ? 1 : -1) : 0;
+
+            /* A side change swaps which channel is early, and the line still
+             * holds the other channel's audio. Playing that out is a click
+             * and a moment of the wrong signal in the wrong ear, so the line
+             * is cleared whenever the side changes -- including to zero. */
+            if (side != haas_side_) {
                 for (uint32_t i = 0; i < 1536u; i++) haas_[i] = 0;
                 haas_w_ = 0;
+                haas_side_ = side;
+            }
+
+            if (side) {
+                uint32_t ch = (side > 0) ? 1u : 0u;
+                for (uint32_t i = 0; i < chunk; i++) {
+                    uint32_t rd = (haas_w_ + 1536u - hd) % 1536u;
+                    haas_[haas_w_] = (int16_t)fm1_soft_clip(bus_[i * 2u + ch]);
+                    haas_w_ = (haas_w_ + 1u) % 1536u;
+                    bus_[i * 2u + ch] = haas_[rd];
+                }
             }
         }
 

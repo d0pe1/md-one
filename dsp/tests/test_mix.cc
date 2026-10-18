@@ -1182,7 +1182,7 @@ static void test_late_additions(void)
             energy += buf[i] < 0 ? -buf[i] : buf[i];
         }
 
-        d.SetGlobal(G_HAAS, 100);
+        d.SetGlobal(G_HAAS, 120);               /* well right of centre */
         d.SnapParams();
         for (int b = 0; b < 12; b++) {
             for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
@@ -1205,6 +1205,70 @@ static void test_late_additions(void)
            "something is already decorrelating them");
         ok(diff_on > diff_off * 10, "HAAS decorrelates the channels",
            "the delay is not reaching the output");
+
+        /* Both sides, and the centre. A one-directional widener always
+         * pushes the image the same way, so two voices using it stack in
+         * the same place instead of opening apart -- the bipolar range is
+         * the feature, not a convenience. */
+        {
+            int32_t diff_left = 0, lead_r = 0, lead_l = 0;
+
+            d.SetGlobal(G_HAAS, 8);             /* well LEFT of centre */
+            d.SnapParams();
+            for (int b = 0; b < 12; b++) {
+                for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+                d.Render(buf, FM1_BLOCK);
+            }
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i += 2) {
+                int32_t x = buf[i] - buf[i + 1];
+                diff_left += x < 0 ? -x : x;
+            }
+            printf("    L-R difference: haas left %d\n", diff_left);
+            ok(diff_left > diff_off * 10, "HAAS works on the other side too",
+               "only one direction is wired");
+
+            /* And which channel is DELAYED must actually swap.
+             *
+             * The discriminator is the block right after the line clears: a
+             * side change zeroes it, so for the first 29 ms the delayed
+             * channel reads silence while the other plays normally. Measured
+             * any later, both channels are running continuously and carry
+             * the same energy -- which is how the first version of this test
+             * managed to report the same sign for both extremes. */
+            d.SetGlobal(G_HAAS, 64);            /* centre: clears, no delay */
+            d.SnapParams();
+            for (int b = 0; b < 12; b++) {
+                for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+                d.Render(buf, FM1_BLOCK);
+            }
+            d.SetGlobal(G_HAAS, 127);           /* hard right, line clears */
+            d.SnapParams();
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);           /* the ONE block that shows it */
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i += 2)
+                lead_r += (buf[i] < 0 ? -buf[i] : buf[i])
+                        - (buf[i + 1] < 0 ? -buf[i + 1] : buf[i + 1]);
+
+            d.SetGlobal(G_HAAS, 64);
+            d.SnapParams();
+            for (int b = 0; b < 12; b++) {
+                for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+                d.Render(buf, FM1_BLOCK);
+            }
+            d.SetGlobal(G_HAAS, 0);             /* hard left, line clears */
+            d.SnapParams();
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i += 2)
+                lead_l += (buf[i] < 0 ? -buf[i] : buf[i])
+                        - (buf[i + 1] < 0 ? -buf[i + 1] : buf[i + 1]);
+
+            printf("    L-R energy in the first block: +127 %d, 0 %d\n",
+                   lead_r, lead_l);
+            ok((lead_r > 0) != (lead_l > 0),
+               "the two extremes delay opposite channels",
+               "both ends of the knob do the same thing");
+        }
     }
 
     /* --- DRIFT as a routable source --------------------------------------

@@ -199,6 +199,7 @@ class Drone {
      * being heard as a distinct repeat rather than as width. 3 KiB. */
     int16_t    haas_[1536];
     uint32_t   haas_w_;
+    int8_t     haas_side_;      /* -1 left, +1 right, 0 off */
     uint8_t    meter_[FM1_VOICES];      /* see Meter() */
     uint8_t    clip_[FM1_VOICES];       /* blocks of red remaining */
     uint32_t   blocks_;        /* blocks rendered, for drift scheduling */

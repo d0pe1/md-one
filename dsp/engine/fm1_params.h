@@ -133,7 +133,7 @@ static const char *const FM1_MODSRC_NAME[MD_SRC_COUNT] = {
 
 /* --- global parameters (MIDI channel 16) -------------------------------- */
 enum {
-    G_MASTER, G_SPREAD, G_BINAURAL, G_HAAS,
+    G_MASTER, G_SPREAD, G_HAAS,
     /* The FX patchbay: four effect channels (fm1_rack.h). Five controls
      * each -- TYPE, two effect parameters, MIX, and DEST, the one cable out.
      * DEST is what makes this a patchbay rather than an insert rack: set it
@@ -325,8 +325,11 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
 static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_MASTER]     = {"MASTER", 127, 100, K_NUM,     7},
     [G_SPREAD]     = {"SPREAD", 127,   0, K_NUM,     0},
-    [G_BINAURAL]   = {"BINAURL",127,   0, K_NUM,     0},
-    [G_HAAS]       = {"HAAS",   127,   0, K_NUM,     0},
+    /* Bipolar: 64 is no delay, and either side can be the early one. A
+     * one-directional widener always pushes the image the same way, so
+     * using it on two voices stacks them in the same place instead of
+     * opening them apart. */
+    [G_HAAS]       = {"HAAS",   127,  64, K_BIP,     0},
 
     /* Effect channels. max for TYPE is FX_NTYPES-1 and for OUT is
      * DEST_NDEST-1, written as literals so this header stays free of

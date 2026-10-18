@@ -213,19 +213,19 @@ static const fm1_page_t FM1_PG_MIX[] = {
 
 /* --- GLO: global ---------------------------------------------------------
  *
- * Page 2 is STEREO rather than the TUNE page the UX document sketches:
- * TRANSPOSE and FINE do not exist as parameters, while BINAURAL, HAAS and
- * DRIFT SYNC do and had no home. Phase 1 is done when every parameter is
- * reachable, so the page that exists wins over the page that was drawn.
+ * ONE page, not the two the UX document sketches. TRANSPOSE and FINE never
+ * existed as parameters; BINAURAL and DRIFT SYNC did and were deleted once
+ * it was clear the instrument already did both jobs better -- two detuned
+ * voices panned apart beat against each other and the drift keeps that
+ * moving, and coherent movement is what the LFOs are for. What is left fits
+ * on one page with a knob to spare, and a menu with one page does not blink
+ * its button.
  *
  * Stereo WIDTH is deliberately not here -- it is an effect type on an FX
  * channel, so it can sit anywhere in the patch rather than only at the end.
  */
 static const fm1_page_t FM1_PG_GLO[] = {
-    { "OUTPUT", { G_MASTER, G_SPREAD, PG_NONE, PG_NONE },
-      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_NONE, 0 },
-    { "STEREO", { G_BINAURAL, G_HAAS, PG_NONE, PG_NONE },
+    { "GLOBAL", { G_MASTER, G_SPREAD, G_HAAS, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_NONE, 0 },
 };

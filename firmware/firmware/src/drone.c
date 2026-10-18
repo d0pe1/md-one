@@ -97,7 +97,7 @@ typedef struct {
  * into P_OCTAVE, and again at 0xD3 when the four LFOs added 16 globals. An
  * old patch has a different layout, and loading it would scatter its bytes
  * across the wrong parameters. */
-#define PATCH_MAGIC 0xD5
+#define PATCH_MAGIC 0xD6
 
 static void patch_store(patch_t *q)
 {

@@ -109,12 +109,11 @@ extern "C" {
 
 #define FD_G_MASTER       0
 #define FD_G_SPREAD       1
-#define FD_G_BINAURAL     2
-#define FD_G_HAAS         3
+#define FD_G_HAAS         2
 
 /* The FX patchbay: four effect channels, five controls each (TYPE, P1, P2,
  * MIX, DEST). FD_G_FX(n, j) addresses channel n, control j. */
-#define FD_G_FX_BASE      4
+#define FD_G_FX_BASE      3
 #define FD_G_FX_STRIDE    5
 #define FD_G_FX(n, j)     (FD_G_FX_BASE + (n) * FD_G_FX_STRIDE + (j))
 #define FD_G_FX_TYPE      0
@@ -124,7 +123,7 @@ extern "C" {
 #define FD_G_FX_DEST      4
 
 /* Four LFOs, four controls each. FD_G_LFO(n, j) addresses LFO n, control j. */
-#define FD_G_LFO_BASE    24
+#define FD_G_LFO_BASE    23
 #define FD_G_LFO_STRIDE   4
 #define FD_G_LFO(n, j)   (FD_G_LFO_BASE + (n) * FD_G_LFO_STRIDE + (j))
 #define FD_G_LFO_RATE     0
@@ -132,7 +131,7 @@ extern "C" {
 #define FD_G_LFO_PHASE    2
 #define FD_G_LFO_MODE     3
 #define FD_LFOS           4
-#define FD_NGPARAM       40
+#define FD_NGPARAM       39
 
 /* LFO shapes, mirroring the LFO_* enum in fm1_lfo.h. */
 #define FD_LFO_TRI        0
