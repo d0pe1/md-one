@@ -32,20 +32,20 @@ Feasibility is settled. Everything below was measured, not assumed.
 | C++ on the target | **proven** | Braids compiles, 99 KB of 526 KB |
 | Braids port correctness | **proven** | matches a 96 kHz reference, 0.0 cents / 0.0 dB |
 | Tables at 44.1 kHz | **proven** | regenerated; reproduces upstream at 96 kHz, all 45 tables identical |
-| Engine on the chip | **proven** | 4 voices = 20.4% of the audio budget |
+| Engine on the chip | **proven** | 4 voices = 20.6% of the audio budget |
 | Signal path complete | **built** | two filters, EQ, drive, AHDSR, patchbay, mixer — `SIGNAL_PATH.md` §8 |
 | Firmware boots and sounds | **proven** | runs in `fm1-live`, all brick checks pass |
 | FM feasibility | **measured** | 7,553 cycles/operator; 12 voices × 6 ops = 37.7% — `BRAIDS_PORT.md` |
-| Playable UX | **not started** | this is the next phase |
+| Playable UX | **built** | seven menus, every parameter on a page, slewed so CC does not zipper |
 | Hardware | **none** | two units ordered, not arrived |
 
-The 20.4% is the engine as it stands: four voices, two filters, metering and
-an AHDSR. A loaded patch — three EQ bands and drive on every channel — is
-**32%**.
+The 20.6% is the engine as it stands: four voices, two filters, metering, an
+AHDSR and parameter slewing. A loaded patch — three EQ bands and drive on
+every channel — is **32%**.
 
 The headroom is real but optimistic: the emulator models 1 instruction per
 cycle and every Braids table lives in XIP flash. **At a pessimistic 3× for
-stalls, 20.4% becomes 61% and the 32% patch becomes 96%.** That no longer
+stalls, 20.6% becomes 62% and the 32% patch becomes 96%.** That no longer
 clears the "stay under half" rule, and it is the first number in this project
 that hardware could plausibly refute. It does not change what to build next —
 the UX costs nothing at audio rate — but it does mean the block list is now
@@ -88,10 +88,23 @@ Built and measured, in order along the chain:
    including feedback. Modular, not a reorderable rack.
 6. ✅ **Mixer** — four strips, levels, pan, nine-segment meters, on one page.
 
-**What remains is the control surface, and that is the whole of Phase 1.**
-Forty-two per-voice and twenty-five global parameters exist; none of them is
-reachable by a human. The point: make it operable by someone who did not build
-it.
+**The control surface is now built too**, from `docs/UX_DESIGN.md`:
+
+7. ✅ **Page framework** — seven menus, fifteen pages, each exposing exactly
+   four parameters. The map is `dsp/engine/fm1_pages.h` (MIT, host-tested);
+   only the drawing is in the firmware.
+8. ✅ **Every parameter is reachable.** All 42 per-voice and 25 global
+   parameters sit on a page, and `dsp/tests/test_pages.c` fails if one stops
+   being reachable — the phase's own done-condition, as a test.
+9. ✅ **Parameter smoothing** — a one-pole slew at block rate, 0.16% of
+   budget (`SIGNAL_PATH.md` §8).
+
+*Still open in Phase 1:* the ENV and EQ curve drawings, which are decoration
+over controls that already work.
+
+The point was to make it operable by someone who did not build it. The
+remaining gaps are Phase 2's: LFO and MOD have buttons but no menus, because
+their parameters do not exist yet.
 
 Build the Menu/Page framework from `docs/UX_DESIGN.md` before adding features,
 so every later feature has an obvious home.

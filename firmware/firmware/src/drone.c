@@ -120,6 +120,10 @@ static void patch_apply(const patch_t *q)
         st.on[v] = q->on[v];
         fm1_drone_note_on(v, st.note[v]);       /* pitch, then gate below */
     }
+    /* Land everything at once. Restoring a patch and then hearing 42
+     * parameters per voice slide into place over 45 ms is a glitch, not a
+     * feature -- the slew is there for knobs and CC, not for this. */
+    fm1_drone_snap_params();
     apply_gates();
 }
 
@@ -177,6 +181,10 @@ static void app_main(void)
         fm1_drone_set_param(v, FD_P_PAN,         (uint8_t)(26 + v * 26));
         fm1_drone_note_on(v, st.note[v]);
     }
+    /* The boot patch is not a knob turn either: without this the instrument
+     * powers on at the table defaults and slides into its own preset over
+     * the first 45 ms. */
+    fm1_drone_snap_params();
     /* st lives in .bss, so this would otherwise default to 0 -- which is a
      * valid voice index, and would boot with voice 1 soloed. */
     st.solo = SOLO_NONE;

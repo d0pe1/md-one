@@ -260,6 +260,75 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_FX4_DEST]   = {"FX4 OUT",  5,   0, K_DEST,    0},
 };
 
+/* --- which parameters are slewed -----------------------------------------
+ *
+ * A 7-bit control is 128 steps, and on a sustained drone a step in anything
+ * that multiplies the signal is a click. The engine slews those toward their
+ * target at block rate instead of jumping (docs/ROADMAP.md, Phase 1).
+ *
+ * Mostly this follows from `kind`: an enum has nothing between its values, so
+ * sliding through them would be meaningless -- a filter easing from COMB to
+ * RESO is not a thing. Everything continuous is slewed.
+ *
+ * The exceptions are real rather than tidy:
+ *
+ *   OCTAVE       a button, and an octave should land when pressed. Sliding
+ *                there is what GLIDE is for, and it is a separate control.
+ *   A H D S R    times, not levels. There is nothing to zipper, and slewing
+ *                a time means nothing. SUSTAIN is a level but the envelope
+ *                already moves toward it at the decay rate -- it is slewed
+ *                by construction, and slewing it twice would only add lag.
+ *   DRIFT RATE   the drift wanders continuously anyway; a step in its speed
+ *                is inaudible because the output is already smooth.
+ */
+static inline int fm1_param_is_smoothed(uint8_t p)
+{
+    if (p >= NPARAM) return 0;
+    switch (p) {
+    case P_OCTAVE: case P_DRIFT_RATE:
+    case P_ATTACK: case P_HOLD: case P_DECAY: case P_SUSTAIN: case P_RELEASE:
+        return 0;
+    default:
+        break;
+    }
+    switch (FM1_PDEF[p].kind) {
+    case K_SHAPE: case K_ONOFF: case K_FTYPE:
+    case K_FXTYPE: case K_DEST: case K_EQMODE:
+        return 0;
+    default:
+        return 1;
+    }
+}
+
+static inline int fm1_gparam_is_smoothed(uint8_t p)
+{
+    if (p >= NGPARAM) return 0;
+    switch (FM1_GDEF[p].kind) {
+    case K_SHAPE: case K_ONOFF: case K_FTYPE:
+    case K_FXTYPE: case K_DEST: case K_EQMODE:
+        return 0;
+    default:
+        return 1;
+    }
+}
+
+/* How fast. The slew is a one-pole at block rate -- 172 blocks a second --
+ * so a shift of 3 closes 1/8 of the remaining gap each block: 63% of the way
+ * in 8 blocks, about 46 ms. Fast enough that a knob still feels direct, slow
+ * enough that a 128th-of-range step stops being a click.
+ *
+ * A one-pole never actually ARRIVES, which matters twice over. The gap only
+ * shrinks by 7/8 a block, so a full-scale jump needs 62 blocks -- 360 ms --
+ * to land exactly, and for the last 36 of those the value is already within
+ * one step of its target and audibly finished. Those blocks are pure waste:
+ * every one of them calls back into the engine, and for a filter cutoff that
+ * means recomputing a coefficient and the comb's tuning to move nothing.
+ *
+ * So the slew snaps as soon as the gap is under one whole step. The renderer
+ * reads bytes; a gap smaller than that cannot change what it sees. */
+#define FM1_SLEW_SHIFT 3
+#define FM1_SLEW_SNAP  256      /* one step, in Q8 */
+
 /* CC -> parameter index + 1, 0 meaning unassigned. Built once at startup so
  * MIDI handling is a single array read per message. */
 typedef struct {

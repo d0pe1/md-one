@@ -476,6 +476,42 @@ Measured with `dsp/target/probe_fx.cc`, N instances in series, four voices,
 | 4 LFOs | ~200 total | — | estimate; block rate, shared |
 | int32 bus | roughly neutral | — | removes per-add saturation |
 | **FM operator** | **7,553** | 2.17% | `probe_fm.cc`; flat out to 72 operators. See `BRAIDS_PORT.md` |
+| **Parameter slew** | ~560 | **0.16%** | all 193 parameters, every block, settled |
+
+### Parameter slewing
+
+A 7-bit control is 128 steps, and on a sustained drone a step in anything
+that multiplies the signal is a click. Every continuous parameter is now
+slewed toward its target at block rate — a one-pole closing 1/8 of the gap
+each block, so no block moves a value more than 1/8 of full scale.
+
+Measured at **286,550 cycles** for four voices against 284,300 before:
+**2,250 cycles, 0.16% of budget**, to walk 4 × 42 voice parameters and 25
+globals every block and find almost all of them settled. The settled case is
+one compare, which is what makes walking all of them affordable rather than
+maintaining a list of what is moving.
+
+Three details that are not arbitrary:
+
+* **It snaps a whole step early.** A one-pole never arrives — the gap shrinks
+  by 7/8 a block, so an exact landing takes 62 blocks and for the last 36 the
+  value is already within one step and audibly finished. Those blocks are
+  pure waste: each one calls back into the engine, and for a filter cutoff
+  that means recomputing a coefficient and the comb's tuning to move nothing.
+  Snapping at one step cuts a 0→127 sweep from 360 ms to 220 ms and costs
+  nothing audible.
+* **Without a snap it would never land at all.** `(t − s) >> 3` rounds to
+  zero once the gap is under eight, so the last fraction never arrives and
+  every slewed parameter sits permanently just short of where it was put.
+  Invisible from outside, because the getter returns the target. Same lesson
+  as the envelope: watch the step, not the distance.
+* **Enums are excluded**, and so are the envelope times. There is nothing
+  between COMB and RESO to slide through, and SUSTAIN is already slewed by
+  construction — the envelope moves toward it at the decay rate.
+
+A bulk set — a patch load, the boot preset — calls `SnapParams()` and lands
+everything at once. Restoring a patch and then hearing 42 parameters per
+voice slide into place is a glitch, not a feature.
 
 **The comb costs less than the SVF.** That is the result that matters for
 §5b: folding comb and resonator into the filter's mode list is not a

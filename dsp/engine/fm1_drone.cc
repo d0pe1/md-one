@@ -49,10 +49,21 @@ static inline int32_t comb_ratio_q12(uint8_t v)
 void Drone::Init(uint32_t seed)
 {
     for (uint8_t i = 0; i < NPARAM; i++) {
-        /* defaults from the table, so the engine and the UI agree */
-        for (uint8_t v = 0; v < FM1_VOICES; v++) v_[v].p[i] = FM1_PDEF[i].def;
+        /* defaults from the table, so the engine and the UI agree.
+         * In force, targeted and settled all at once -- booting is not a
+         * knob turn, and an instrument that slid into tune over its first
+         * 45 ms would be making a noise nobody asked for. */
+        for (uint8_t v = 0; v < FM1_VOICES; v++) {
+            v_[v].p[i]   = FM1_PDEF[i].def;
+            v_[v].tgt[i] = FM1_PDEF[i].def;
+            v_[v].acc[i] = (int16_t)(FM1_PDEF[i].def << 8);
+        }
     }
-    for (uint8_t i = 0; i < NGPARAM; i++) g_[i] = FM1_GDEF[i].def;
+    for (uint8_t i = 0; i < NGPARAM; i++) {
+        g_[i]    = FM1_GDEF[i].def;
+        gtgt_[i] = FM1_GDEF[i].def;
+        gacc_[i] = (int16_t)(FM1_GDEF[i].def << 8);
+    }
     fx_rack_init(&rack_);
 
     for (uint8_t v = 0; v < FM1_VOICES; v++) {
@@ -161,6 +172,21 @@ void Drone::SetParam(uint8_t voice, uint8_t param, uint8_t value)
     if (value > FM1_PDEF[param].max) value = FM1_PDEF[param].max;
 
     DroneVoice &d = v_[voice];
+    if (d.tgt[param] == value) return;
+    d.tgt[param] = value;
+
+    /* A slewed parameter only gets a new destination here; SlewBlock walks
+     * it there. Everything else lands now -- an enum has nowhere to slide
+     * to, and waiting a block to change filter mode would just be lag. */
+    if (!fm1_param_is_smoothed(param)) {
+        d.acc[param] = (int16_t)(value << 8);
+        ApplyParam(voice, param, value);
+    }
+}
+
+void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
+{
+    DroneVoice &d = v_[voice];
     if (d.p[param] == value) return;
     d.p[param] = value;
 
@@ -217,6 +243,18 @@ void Drone::SetGlobal(uint8_t param, uint8_t value)
 {
     if (param >= NGPARAM) return;
     if (value > FM1_GDEF[param].max) value = FM1_GDEF[param].max;
+    if (gtgt_[param] == value) return;
+    gtgt_[param] = value;
+
+    if (!fm1_gparam_is_smoothed(param)) {
+        gacc_[param] = (int16_t)(value << 8);
+        ApplyGlobal(param, value);
+    }
+}
+
+void Drone::ApplyGlobal(uint8_t param, uint8_t value)
+{
+    if (g_[param] == value) return;
     g_[param] = value;
     if (param == G_SPREAD)
         for (uint8_t v = 0; v < FM1_VOICES; v++) ApplyPitch(v);
@@ -236,22 +274,95 @@ void Drone::SetGlobal(uint8_t param, uint8_t value)
     }
 }
 
+/* The TARGET, not the value in force. What the screen shows and what a patch
+ * saves is what you asked for; a knob that read back a number crawling toward
+ * where you put it would look broken, and a patch saved mid-slew would store
+ * a value nobody chose. */
 uint8_t Drone::GetParam(uint8_t voice, uint8_t param) const
 {
     if (voice >= FM1_VOICES || param >= NPARAM) return 0;
-    return v_[voice].p[param];
+    return v_[voice].tgt[param];
 }
 
 uint8_t Drone::GetGlobal(uint8_t param) const
 {
     if (param >= NGPARAM) return 0;
-    return g_[param];
+    return gtgt_[param];
+}
+
+void Drone::SnapParams()
+{
+    for (uint8_t v = 0; v < FM1_VOICES; v++) {
+        DroneVoice &d = v_[v];
+        for (uint8_t i = 0; i < NPARAM; i++) {
+            d.acc[i] = (int16_t)(d.tgt[i] << 8);
+            ApplyParam(v, i, d.tgt[i]);
+        }
+    }
+    for (uint8_t i = 0; i < NGPARAM; i++) {
+        gacc_[i] = (int16_t)(gtgt_[i] << 8);
+        ApplyGlobal(i, gtgt_[i]);
+    }
+}
+
+/* One slew step for everything in flight, once per block.
+ *
+ * The snap is not an optimisation, it is what makes the slew terminate. A
+ * one-pole approaches asymptotically: `(t - s) >> 3` rounds to zero once the
+ * gap is under eight, so without a snap the last fraction never lands and
+ * every slewed parameter sits permanently just short of where it was put --
+ * quietly flat, quietly dark, quietly quiet. It would also be invisible from
+ * outside, because GetParam returns the target.
+ *
+ * Snapping a whole step early rather than at the stall point costs nothing
+ * audible and saves the 36 blocks of tail where the value is already
+ * finished. Same lesson as the envelope (SIGNAL_PATH.md section 8): watch the
+ * step, not the distance.
+ */
+static inline int32_t slew_step(int32_t s, int32_t t)
+{
+    int32_t gap = t - s;
+    if (gap < 0) gap = -gap;
+    if (gap < FM1_SLEW_SNAP) return t;
+    return s + ((t - s) >> FM1_SLEW_SHIFT);
+}
+
+void Drone::SlewBlock()
+{
+    for (uint8_t v = 0; v < FM1_VOICES; v++) {
+        DroneVoice &d = v_[v];
+        for (uint8_t i = 0; i < NPARAM; i++) {
+            int32_t t = (int32_t)d.tgt[i] << 8;
+            int32_t s = d.acc[i];
+
+            if (s == t) continue;               /* settled: one compare */
+            s = slew_step(s, t);
+            d.acc[i] = (int16_t)s;
+            ApplyParam(v, i, (uint8_t)(s >> 8));
+        }
+    }
+
+    for (uint8_t i = 0; i < NGPARAM; i++) {
+        int32_t t = (int32_t)gtgt_[i] << 8;
+        int32_t s = gacc_[i];
+
+        if (s == t) continue;
+        s = slew_step(s, t);
+        gacc_[i] = (int16_t)s;
+        ApplyGlobal(i, (uint8_t)(s >> 8));
+    }
 }
 
 void Drone::Render(int16_t *out, uint32_t n)
 {
     while (n) {
         uint32_t chunk = (n > FM1_BLOCK) ? FM1_BLOCK : n;
+
+        /* Walk every parameter one step toward where it was put. Block rate,
+         * because a 172 Hz staircase on a gain is inaudible while a 128-step
+         * jump is a click -- and because deciding this per sample would cost
+         * 256 times as much for nothing. */
+        SlewBlock();
 
         for (uint32_t i = 0; i < chunk * 2u; i++) bus_[i] = 0;
 

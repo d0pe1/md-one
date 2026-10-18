@@ -138,6 +138,12 @@ void    fm1_drone_set_global(uint8_t param, uint8_t value);
  * GLO pages could edit values they could not display. */
 uint8_t fm1_drone_get_global(uint8_t param);
 
+/* Continuous parameters are slewed toward their target over ~45 ms, so a
+ * 7-bit step does not click. Call this after setting MANY at once -- loading
+ * a patch is not a knob turn, and hearing 42 parameters slide into place is
+ * a glitch rather than a feature. */
+void fm1_drone_snap_params(void);
+
 /* Post-fader peak for voice v, 0..127, with a slow fall. For the mixer
  * meters. */
 uint8_t fm1_drone_meter(uint8_t voice);

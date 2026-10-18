@@ -115,6 +115,11 @@ static int32_t render_peak(uint8_t voices, uint8_t level, uint8_t pan)
 
     /* Discard the first blocks: the oscillators need a few to settle. */
     int32_t pk = 0;
+    /* A test rig sets a patch, it does not turn a knob: without this the
+     * slewed parameters are still on their way when the render below
+     * samples them, and every level- or pan-dependent assertion reads a
+     * value nobody set. The firmware does the same after a patch load. */
+    d.SnapParams();
     for (int b = 0; b < 12; b++) {
         for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
         d.Render(buf, FM1_BLOCK);
@@ -389,6 +394,11 @@ static void test_meters(void)
         d.SetParam(v, P_LEVEL, v == 0 ? 127 : 40);
         if (v < 2) d.NoteOn(v, 45);
     }
+    /* A test rig sets a patch, it does not turn a knob: without this the
+     * slewed parameters are still on their way when the render below
+     * samples them, and every level- or pan-dependent assertion reads a
+     * value nobody set. The firmware does the same after a patch load. */
+    d.SnapParams();
     for (int b = 0; b < 16; b++) {
         for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
         d.Render(buf, FM1_BLOCK);
@@ -449,6 +459,11 @@ static void test_meters(void)
     d.SetParam(0, P_MOD, 64);
     d.NoteOn(0, 45);
     int sawRed = 0; uint8_t hottest = 0;
+    /* A test rig sets a patch, it does not turn a knob: without this the
+     * slewed parameters are still on their way when the render below
+     * samples them, and every level- or pan-dependent assertion reads a
+     * value nobody set. The firmware does the same after a patch load. */
+    d.SnapParams();
     for (int b = 0; b < 400 && !sawRed; b++) {
         for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
         d.Render(buf, FM1_BLOCK);
@@ -497,6 +512,11 @@ static void render_eq(int16_t *buf, uint8_t band, uint8_t mode,
     d.SetParam(0, P_EQ(band, P_EQ_GAIN), gain);
     d.NoteOn(0, 45);
 
+    /* A test rig sets a patch, it does not turn a knob: without this the
+     * slewed parameters are still on their way when the render below
+     * samples them, and every level- or pan-dependent assertion reads a
+     * value nobody set. The firmware does the same after a patch load. */
+    d.SnapParams();
     for (int b = 0; b < 10; b++) {
         for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
         d.Render(buf, FM1_BLOCK);
@@ -711,6 +731,11 @@ static void test_env(void)
         d.NoteOn(0, 45);
 
         int32_t natural = 0;
+        /* A test rig sets a patch, it does not turn a knob: without this the
+     * slewed parameters are still on their way when the render below
+     * samples them, and every level- or pan-dependent assertion reads a
+     * value nobody set. The firmware does the same after a patch load. */
+    d.SnapParams();
         for (int b = 0; b < 12; b++) {
             for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
             d.Render(buf, FM1_BLOCK);
@@ -736,6 +761,84 @@ static void test_env(void)
     }
 }
 
+/* Parameter slewing.
+ *
+ * The assertion that matters is ARRIVAL. A one-pole written as
+ * `s += (t - s) >> 3` stops moving once the gap drops below eight, so
+ * without a snap the last fraction of every change never lands: the
+ * instrument sits permanently a little flat, a little dark, a little quiet.
+ * It is invisible from outside because GetParam returns the target, which is
+ * exactly what makes it worth a test.
+ *
+ * This is the same trap the envelope set -- test the STEP, not the distance
+ * (SIGNAL_PATH.md section 8) -- and it is why the engine snaps when the step
+ * rounds to zero rather than when the gap looks small.
+ */
+static void test_slew(void)
+{
+    printf("\nparameter slew\n");
+
+    static fm1::Drone d;
+    static int16_t buf[FM1_BLOCK * 2];
+    int blocks_to_arrive = -1;
+
+    d.Init();
+    d.SetGate(0, 1);
+    d.NoteOn(0, 45);
+
+    /* A full-scale jump on a continuous parameter: 0 -> 127. */
+    d.SetParam(0, P_LEVEL, 0);
+    d.SnapParams();
+    d.SetParam(0, P_LEVEL, 127);
+
+    ok(d.GetParam(0, P_LEVEL) == 127,
+       "GetParam reports the target immediately", "it reported something else");
+
+    /* The property that matters is not how long it takes but how big the
+     * biggest single jump is. A zipper IS a step: smoothing works when no
+     * block moves the value far enough to click, however many blocks that
+     * takes. Timing is a comfort question; step size is the bug. */
+    int biggest = 0, prev = d.CurrentParam(0, P_LEVEL);
+    for (int b = 0; b < 400; b++) {
+        int cur;
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+        cur = d.CurrentParam(0, P_LEVEL);
+        if (cur - prev > biggest) biggest = cur - prev;
+        prev = cur;
+        if (cur == 127 && blocks_to_arrive < 0) { blocks_to_arrive = b + 1; break; }
+    }
+
+    printf("    0 -> 127 arrived after %d blocks (%d ms), biggest step %d/127\n",
+           blocks_to_arrive, blocks_to_arrive * 1000 * (int)FM1_BLOCK / 44100,
+           biggest);
+
+    ok(blocks_to_arrive > 0, "a slewed parameter ARRIVES at its target",
+       "it stalled short -- the shift rounds to zero near the end");
+    ok(biggest < 127, "and does not jump there in one block",
+       "it is not being slewed at all");
+    /* A full-scale jump is the worst case anyone can ask for, and 1/8 of it
+     * per block is what a shift of 3 means by definition. The assertion is
+     * that nothing exceeds it. */
+    ok(biggest <= 16, "no block moves it more than 1/8 of full scale",
+       "a step that large is still a click");
+    ok(blocks_to_arrive < 60, "and it finishes inside a third of a second",
+       "the tail is not being snapped");
+
+    /* An enum must not slide: there is nothing between COMB and RESO, and a
+     * filter easing through BANDPASS on the way would be audible nonsense. */
+    d.SetParam(0, P_F1_TYPE, F_COMB);
+    ok(d.CurrentParam(0, P_F1_TYPE) == F_COMB,
+       "an enum lands immediately, without a block of lag",
+       "a mode change was slewed");
+
+    /* And a patch load lands as a unit. */
+    d.SetParam(0, P_LEVEL, 10);
+    d.SnapParams();
+    ok(d.CurrentParam(0, P_LEVEL) == 10,
+       "SnapParams lands everything at once", "a snapped value was still moving");
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -745,6 +848,7 @@ int main(void)
     test_eq();
     test_saturator();
     test_env();
+    test_slew();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

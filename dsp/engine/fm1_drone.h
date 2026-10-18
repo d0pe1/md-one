@@ -42,7 +42,21 @@ struct DroneVoice {
     fm1_drift_t  drift;
     fm1_env_t    env;           /* the VCA; `gate` below is its input */
 
-    uint8_t      p[NPARAM];     /* current parameter values, 0..max */
+    /* Three arrays, because a slewed parameter has three different answers
+     * to "what is it".
+     *
+     *   p    what the RENDERER reads -- the value in force this block. Every
+     *        read site in Render() already used this name, so slewing changed
+     *        none of them.
+     *   tgt  where it is heading: what was last set by a knob, a CC or a
+     *        patch. GetParam returns this, so the screen shows what you asked
+     *        for rather than a number crawling toward it.
+     *   acc  the same value in Q8. Needed because p is a byte: a slew of one
+     *        step per block would stall forever without somewhere to keep the
+     *        fraction. */
+    uint8_t      p[NPARAM];
+    uint8_t      tgt[NPARAM];
+    int16_t      acc[NPARAM];   /* Q8; 127 << 8 = 32512, inside int16 */
     int16_t      note;          /* MIDI note, 0..127 */
     int16_t      pitch_base;    /* note+octave+detune+spread, before drift */
     uint8_t      gate;          /* sounding at all */
@@ -107,11 +121,37 @@ class Drone {
      * so the buffer must be zeroed or carry something to mix into. */
     void Render(int16_t *out, uint32_t n);
 
+    /* The value actually IN FORCE this block, which during a slew is behind
+     * the target. Not what the screen should show -- that is GetParam -- but
+     * a test cannot otherwise see whether a slew arrived, and "it stalled one
+     * step short" is exactly the failure worth catching. */
+    uint8_t CurrentParam(uint8_t voice, uint8_t param) const
+    { return (voice < FM1_VOICES && param < NPARAM) ? v_[voice].p[param] : 0; }
+
+    /* Land every slewed parameter on its target at once.
+     *
+     * A patch load is not a knob turn: restoring 42 parameters and then
+     * hearing them slide into place over 45 ms is a glitch, not a feature.
+     * Call this after setting many parameters at once. */
+    void SnapParams();
+
  private:
     void ApplyPitch(uint8_t v);
 
+    /* Put `value` into force for real: store it in p[] and tell whichever
+     * block owns it. Split out of SetParam so the slew can reach the same
+     * code -- two copies of that switch would drift apart by the second
+     * parameter anyone added. */
+    void ApplyParam(uint8_t voice, uint8_t param, uint8_t value);
+    void ApplyGlobal(uint8_t param, uint8_t value);
+
+    /* One slew step for everything in flight. Called once per block. */
+    void SlewBlock();
+
     DroneVoice v_[FM1_VOICES];
-    uint8_t    g_[NGPARAM];
+    uint8_t    g_[NGPARAM];         /* in force now, as DroneVoice::p */
+    uint8_t    gtgt_[NGPARAM];
+    int16_t    gacc_[NGPARAM];
     uint8_t    meter_[FM1_VOICES];      /* see Meter() */
     uint8_t    clip_[FM1_VOICES];       /* blocks of red remaining */
     uint32_t   blocks_;        /* blocks rendered, for drift scheduling */
