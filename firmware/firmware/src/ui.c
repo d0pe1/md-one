@@ -547,19 +547,24 @@ static void ui_body_env(void)
     /* Which segment the voice is in now. On a drone an envelope is often
      * minutes long, so this is a real question rather than a decoration. */
     {
-        /* The conventional three-letter set, and the SAME strings the knob
-         * row shows (FM1_ABBREV in fm1_pages.h) -- one segment, one name,
-         * however you are looking at it.
+        /* The five SEGMENTS, in the order the curve draws them, each sitting
+         * under the part of the shape it names.
          *
-         * Six cells across 240 px is 40 each, which is about four
-         * characters. Spelling them out rendered "USTAI ELEAS". */
-        static const char *const NAME[FD_ENV_STAGES] = {
-            "IDLE", "ATT", "HLD", "DEC", "SUS", "REL"
-        };
+         * IDLE is deliberately not among them. It is a state -- the voice is
+         * not sounding -- not a segment, so it labels nothing in the picture
+         * above and would be a sixth cell pointing at empty space. Leaving it
+         * out gives the five real ones 48 px each instead of 40, and an idle
+         * voice simply lights nothing, which says "not running" without a
+         * word for it.
+         *
+         * The strings are the same ones the knob row shows (FM1_ABBREV in
+         * fm1_pages.h): one segment, one name, however you look at it. */
+        static const char *const NAME[5] = { "ATT", "HLD", "DEC", "SUS", "REL" };
         uint8_t k;
-        for (k = 0; k < FD_ENV_STAGES; k++)
-            draw_text_box((int32_t)k * 40, Y_BODY + ENV_CV_H + 6, 40, &FONT_S,
-                          NAME[k], k == stage ? C_ACC : C_TRACK, 1);
+        for (k = 0; k < 5u; k++)
+            draw_text_box((int32_t)k * 48, Y_BODY + ENV_CV_H + 6, 48, &FONT_S,
+                          NAME[k],
+                          (k + FD_ENV_ATTACK) == stage ? C_ACC : C_TRACK, 1);
     }
 }
 
