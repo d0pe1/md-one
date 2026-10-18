@@ -23,12 +23,10 @@
 
 /* --- menus ---------------------------------------------------------------
  *
- * Six of the nine buttons in docs/UX_DESIGN.md section 4 are here. LFO and
- * MOD are deliberately absent: their parameters do not exist yet (Phase 2
- * creates them), and a menu that navigates to nothing is worse than a menu
- * that is not there. They get added the same day their parameters do.
+ * All nine of docs/UX_DESIGN.md section 4's menus, now that Phase 2 has
+ * created the LFO and modulation parameters they navigate.
  */
-enum { M_EDIT, M_ENV, M_LFO, M_FX, M_MIX, M_GLO, M_HOME, M_SAVE, M_NMENU };
+enum { M_EDIT, M_ENV, M_LFO, M_MOD, M_FX, M_MIX, M_GLO, M_HOME, M_SAVE, M_NMENU };
 
 /* Which table a page's parameter ids index. */
 enum { SCOPE_VOICE, SCOPE_GLOBAL };
@@ -59,6 +57,15 @@ static const char *const FM1_SUBJ_NAME[SUBJ_NKIND] = {
 typedef struct {
     const char *name;               /* page name, shown in the title row */
     int16_t     k[FM1_KNOBS];       /* KNOB1..4, or PG_NONE */
+    /* What SHIFT + the same knob edits, or PG_NONE. Only the MOD pages use
+     * it, and they are why it exists: a destination needs a DEPTH and a
+     * SOURCE, which is eight controls on a four-knob page. Putting the
+     * source on the modifier keeps both visible at once -- the routing IS
+     * the page -- instead of making it a matrix to navigate.
+     *
+     * It does not break "SHIFT is only ever SHIFT" (invariant 4): SHIFT
+     * still reveals a second function rather than having one of its own. */
+    int16_t     ks[FM1_KNOBS];
     int16_t     alg;                /* the ALGORITHM encoder's enum, or PG_NONE */
     uint8_t     subject;            /* SUBJ_* -- what SELECT moves here */
     /* Parameter id step per subject. Zero means the subject picks which
@@ -79,6 +86,7 @@ typedef struct {
 /* --- EDIT: the oscillator and its voice ---------------------------------- */
 static const fm1_page_t FM1_PG_EDIT[] = {
     { "BRAIDS", { P_TIMBRE, P_COLOR, P_FM, P_MOD },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_SHAPE, SUBJ_VOICE, 0 },
 
     /* DRIFT RATE sits on KNOB4 because it has nowhere else to be and belongs
@@ -86,6 +94,7 @@ static const fm1_page_t FM1_PG_EDIT[] = {
      * this is the drift they scale. The UX document leaves this knob empty
      * and leaves the parameter homeless, which cannot both be right. */
     { "PITCH",  { P_OCTAVE, P_DETUNE, P_GLIDE, P_DRIFT_RATE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
 
     /* Both filters run the same mode list, so these two pages are identical
@@ -94,19 +103,23 @@ static const fm1_page_t FM1_PG_EDIT[] = {
      * COMB -- and the screen relabels it, because a knob called CUTOFF that
      * sets a delay ratio is a knob nobody trusts. */
     { "F1",     { P_F1_CUT, P_F1_RES, P_F1_MIX, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_F1_TYPE, SUBJ_VOICE, 0 },
     { "F2",     { P_F2_CUT, P_F2_RES, P_F2_MIX, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_F2_TYPE, SUBJ_VOICE, 0 },
 
     /* One page, three bands, SELECT choosing between them -- the Serum idiom.
      * The stride is what makes that one page instead of three. */
     { "EQ",     { P_EQ(0, P_EQ_FRQ), P_EQ(0, P_EQ_GAIN),
                   P_EQ(0, P_EQ_RES), P_EQ(0, P_EQ_MIX) },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_EQ(0, P_EQ_MODE), SUBJ_BAND, P_EQ_STRIDE },
 
     /* Routing lives on the last page of the menu that owns the thing being
      * routed. One cable out, and `---` is unplugged. */
     { "ROUTE",  { P_DEST, P_LEVEL, P_PAN, P_MONO },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
 };
 
@@ -119,8 +132,10 @@ static const fm1_page_t FM1_PG_EDIT[] = {
  */
 static const fm1_page_t FM1_PG_ENV[] = {
     { "ADSR",   { P_ATTACK, P_DECAY, P_SUSTAIN, P_RELEASE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
     { "HOLD",   { P_HOLD, PG_NONE, PG_NONE, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
 };
 
@@ -133,8 +148,10 @@ static const fm1_page_t FM1_PG_ENV[] = {
 static const fm1_page_t FM1_PG_FX[] = {
     { "EFFECT", { G_FX(0, G_FX_P1), G_FX(0, G_FX_P2),
                   G_FX(0, G_FX_MIX), PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       G_FX(0, G_FX_TYPE), SUBJ_FX, G_FX_STRIDE },
     { "ROUTE",  { G_FX(0, G_FX_DEST), PG_NONE, PG_NONE, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_FX, G_FX_STRIDE },
 };
 
@@ -146,7 +163,36 @@ static const fm1_page_t FM1_PG_FX[] = {
 static const fm1_page_t FM1_PG_LFO[] = {
     { "SHAPE",  { G_LFO(0, G_LFO_RATE), G_LFO(0, G_LFO_AMT),
                   G_LFO(0, G_LFO_PHASE), PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE },
+};
+
+
+/* --- MOD: where the LFOs reach ------------------------------------------
+ *
+ * A knob sets the DEPTH into a destination, bipolar. SHIFT + the same knob
+ * picks the SOURCE. So each page shows four of the nine modulatable inputs
+ * with their depth and source together -- the routing IS the page, rather
+ * than a matrix to navigate to.
+ *
+ * Nine destinations rather than twelve because folding the comb into the
+ * filter did it: COMB TUNE / FB / MIX were three of their own, and are now
+ * the filter's CUT and RES, which had to be modulatable anyway.
+ */
+static const fm1_page_t FM1_PG_MOD[] = {
+    { "MOD A",  { P_MD(MD_PITCH, P_MD_DEPTH), P_MD(MD_TIMBRE, P_MD_DEPTH),
+                  P_MD(MD_COLOR, P_MD_DEPTH), P_MD(MD_LEVEL,  P_MD_DEPTH) },
+                { P_MD(MD_PITCH, P_MD_SRC),   P_MD(MD_TIMBRE, P_MD_SRC),
+                  P_MD(MD_COLOR, P_MD_SRC),   P_MD(MD_LEVEL,  P_MD_SRC)   },
+      PG_NONE, SUBJ_VOICE, 0 },
+    { "MOD B",  { P_MD(MD_F1CUT, P_MD_DEPTH), P_MD(MD_F1RES, P_MD_DEPTH),
+                  P_MD(MD_F2CUT, P_MD_DEPTH), P_MD(MD_F2RES, P_MD_DEPTH) },
+                { P_MD(MD_F1CUT, P_MD_SRC),   P_MD(MD_F1RES, P_MD_SRC),
+                  P_MD(MD_F2CUT, P_MD_SRC),   P_MD(MD_F2RES, P_MD_SRC)   },
+      PG_NONE, SUBJ_VOICE, 0 },
+    { "MOD C",  { P_MD(MD_PAN, P_MD_DEPTH), PG_NONE, PG_NONE, PG_NONE },
+                { P_MD(MD_PAN, P_MD_SRC),   PG_NONE, PG_NONE, PG_NONE },
+      PG_NONE, SUBJ_VOICE, 0 },
 };
 
 /* --- MIX: one page, all four channels visible ----------------------------
@@ -161,6 +207,7 @@ static const fm1_page_t FM1_PG_LFO[] = {
  */
 static const fm1_page_t FM1_PG_MIX[] = {
     { "MIXER",  { P_LEVEL, P_PAN, P_MONO, P_DRIVE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
 };
 
@@ -176,18 +223,22 @@ static const fm1_page_t FM1_PG_MIX[] = {
  */
 static const fm1_page_t FM1_PG_GLO[] = {
     { "OUTPUT", { G_MASTER, G_SPREAD, PG_NONE, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_NONE, 0 },
     { "STEREO", { G_BINAURAL, G_HAAS, G_DRIFT_SYNC, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_NONE, 0 },
 };
 
 /* --- HOME and SAVE: no knobs --------------------------------------------- */
 static const fm1_page_t FM1_PG_HOME[] = {
     { "HOME",   { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_NONE, 0 },
 };
 static const fm1_page_t FM1_PG_SAVE[] = {
     { "PATCH",  { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_NONE, 0 },
 };
 
@@ -197,6 +248,7 @@ static const fm1_menu_t FM1_MENU[M_NMENU] = {
     [M_EDIT] = { "EDIT", SCOPE_VOICE,  FM1_NPG(FM1_PG_EDIT), FM1_PG_EDIT },
     [M_ENV]  = { "ENV",  SCOPE_VOICE,  FM1_NPG(FM1_PG_ENV),  FM1_PG_ENV  },
     [M_LFO]  = { "LFO",  SCOPE_GLOBAL, FM1_NPG(FM1_PG_LFO),  FM1_PG_LFO  },
+    [M_MOD]  = { "MOD",  SCOPE_VOICE,  FM1_NPG(FM1_PG_MOD),  FM1_PG_MOD  },
     [M_FX]   = { "FX",   SCOPE_GLOBAL, FM1_NPG(FM1_PG_FX),   FM1_PG_FX   },
     [M_MIX]  = { "MIX",  SCOPE_VOICE,  FM1_NPG(FM1_PG_MIX),  FM1_PG_MIX  },
     [M_GLO]  = { "GLO",  SCOPE_GLOBAL, FM1_NPG(FM1_PG_GLO),  FM1_PG_GLO  },
@@ -279,6 +331,19 @@ static inline int fm1_page_knob(const fm1_nav_t *n, uint8_t knob)
 
     if (knob >= FM1_KNOBS) return PG_NONE;
     id = p->k[knob];
+    if (id == PG_NONE) return PG_NONE;
+    return id + (int)p->stride * (int)n->sel[p->subject];
+}
+
+/* What SHIFT + this knob edits, or PG_NONE. Same stride arithmetic as the
+ * knob layer, so a shifted control on a strided page follows its subject. */
+static inline int fm1_page_shift_knob(const fm1_nav_t *n, uint8_t knob)
+{
+    const fm1_page_t *p = fm1_nav_page(n);
+    int id;
+
+    if (knob >= FM1_KNOBS) return PG_NONE;
+    id = p->ks[knob];
     if (id == PG_NONE) return PG_NONE;
     return id + (int)p->stride * (int)n->sel[p->subject];
 }

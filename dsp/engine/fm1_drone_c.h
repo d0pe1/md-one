@@ -72,7 +72,30 @@ extern "C" {
 #define FD_P_PAN         39
 #define FD_P_MONO        40     /* collapse to centre, ignoring PAN */
 #define FD_P_DEST        41     /* FD_DEST_* -- this voice's one cable out */
-#define FD_NPARAM        42
+
+/* The modulation matrix: nine destinations, each a DEPTH (bipolar, 64 = none)
+ * and a SOURCE (FD_MD_SRC_NONE, or 1..4 for the LFOs).
+ * FD_P_MD(n, j) addresses destination n, control j. */
+#define FD_P_MD_BASE     42
+#define FD_P_MD_STRIDE    2
+#define FD_P_MD(n, j)    (FD_P_MD_BASE + (n) * FD_P_MD_STRIDE + (j))
+#define FD_P_MD_DEPTH     0
+#define FD_P_MD_SRC       1
+#define FD_MD_SRC_NONE    0
+
+/* What each destination reaches, in the order the MOD pages walk them. */
+#define FD_MD_PITCH       0
+#define FD_MD_TIMBRE      1
+#define FD_MD_COLOR       2
+#define FD_MD_LEVEL       3
+#define FD_MD_F1CUT       4
+#define FD_MD_F1RES       5
+#define FD_MD_F2CUT       6
+#define FD_MD_F2RES       7
+#define FD_MD_PAN         8
+#define FD_MD_NDEST       9
+
+#define FD_NPARAM        60
 
 /* Filter modes, mirroring the F_* enum in fm1_filter.h. */
 #define FD_F_OFF          0

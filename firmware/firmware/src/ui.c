@@ -224,6 +224,10 @@ static void ui_fmt(int id, char *out)
         ui_str(out, &i, FM1_LFO_MODE_NAME[v % LFO_NMODES]);
         out[i] = 0;
         break;
+    case K_MODSRC:
+        ui_str(out, &i, FM1_MODSRC_NAME[v < 5u ? v : 0]);
+        out[i] = 0;
+        break;
     case K_EQMODE:
         ui_str(out, &i,
                FM1_EQ_MODE_NAME[ui_nav.sel[SUBJ_BAND] % EQ_BANDS][v & 1u]);
@@ -315,10 +319,15 @@ static void ui_draw_knobs(void)
     uint8_t k;
 
     for (k = 0; k < FM1_KNOBS; k++) {
-        int  id = fm1_page_knob(&ui_nav, k);
+        /* Hold SHIFT and the row shows what SHIFT would edit. Anywhere but
+         * the MOD pages there is nothing under the modifier, so the row does
+         * not change and SHIFT stays invisible -- which is what makes it
+         * safe to hold while reaching for something else. */
+        int  id = ui_shift ? fm1_page_shift_knob(&ui_nav, k) : PG_NONE;
         char val[20];
         int32_t x = (int32_t)k * COL_W;
 
+        if (id == PG_NONE) id = fm1_page_knob(&ui_nav, k);
         ui_fmt(id, val);
         draw_text_box(x, Y_LABEL, COL_W, &FONT_S,
                       id == PG_NONE ? "----" : ui_label(id),
@@ -616,6 +625,70 @@ static void ui_body_lfo(void)
     }
 }
 
+/* --- the modulation matrix ------------------------------------------------
+ *
+ * Four rows, one per knob on this page, each showing the whole cable:
+ * destination, source, and how far the modulation is actually swinging right
+ * now. The routing IS the page -- there is no matrix to navigate to, and
+ * nothing is hidden behind the modifier except the one control the modifier
+ * edits.
+ *
+ * The live bar is the part that makes this usable. Depth and source are two
+ * numbers that tell you a connection exists; the bar tells you whether it is
+ * doing anything, which on a 100-second LFO is a different question.
+ */
+static void ui_body_mod(void)
+{
+    const fm1_page_t *p = fm1_nav_page(&ui_nav);
+    uint8_t k;
+
+    for (k = 0; k < FM1_KNOBS; k++) {
+        int dep = fm1_page_knob(&ui_nav, k);
+        int src = fm1_page_shift_knob(&ui_nav, k);
+        int32_t y = Y_BODY + 4 + (int32_t)k * 26;
+        const fm1_pdef_t *dd;
+        uint8_t sv;
+        char line[24];
+        uint32_t i = 0;
+
+        if (dep == PG_NONE || src == PG_NONE) continue;
+        dd = fm1_page_def(&ui_nav, dep);
+        sv = fm1_drone_get_param(ui_voice(), (uint8_t)src);
+
+        /* destination  <-  source */
+        ui_str(line, &i, dd ? fm1_label_fit(dd->name) : "?");
+        while (i < 7u) line[i++] = ' ';
+        ui_str(line, &i, FM1_MODSRC_NAME[sv < 5u ? sv : 0]);
+        line[i] = 0;
+        draw_text_box(6, y, 110, &FONT_S, line,
+                      sv == MD_SRC_NONE ? C_TRACK : C_ON, 0);
+
+        /* What it is delivering this instant: the source's output scaled by
+         * the depth, which is the only honest answer to "is this doing
+         * anything". Unrouted or centred, it sits still at zero. */
+        {
+            int32_t depth = (int32_t)fm1_drone_get_param(ui_voice(),
+                                                         (uint8_t)dep) - 64;
+            int32_t v = (sv == MD_SRC_NONE) ? 0
+                      : ((int32_t)fm1_drone_lfo_value((uint8_t)(sv - 1))
+                         * depth) >> 6;
+            int32_t w = (v * 56) / 32768;
+            int32_t mid = 180;
+            lcd_fill(124, y + 8, 112, 1, C_TRACK);
+            lcd_fill(mid, y + 3, 1, 11, C_GREY);
+            if (w > 0)      lcd_fill(mid, y + 4, w, 9, C_ACC);
+            else if (w < 0) lcd_fill(mid + w, y + 4, -w, 9, C_ACC);
+        }
+    }
+
+    /* SHIFT is what reaches the sources, and that is not discoverable by
+     * looking at four knobs. One line, on the page where it is true. */
+    draw_text_box(6, Y_BODY + 108, 228, &FONT_S,
+                  ui_shift ? "SHIFT: PICKING SOURCE" : "SHIFT + KNOB = SOURCE",
+                  ui_shift ? C_ACC : C_TRACK, 0);
+    (void)p;
+}
+
 /* All four voices at once: the page you return to to see the whole
  * instrument. Not editable -- that is what the other menus are for. */
 static void ui_body_home(void)
@@ -656,6 +729,7 @@ static void ui_draw_body(void)
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
     if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
     if (ui_nav.menu == M_LFO)  { ui_body_lfo();   return; }
+    if (ui_nav.menu == M_MOD)  { ui_body_mod();   return; }
 
     if (p->alg == P_SHAPE && FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE) {
         ui_body_shapes();
@@ -701,8 +775,8 @@ static void ui_draw(void)
 static void ui_leds(void)
 {
     static const uint8_t BTN[M_NMENU] = {
-        UI_B_EDIT, UI_B_ENV, UI_B_LFO, UI_B_FX, UI_B_MIX, UI_B_GLO,
-        UI_B_HOME, UI_B_SAVE
+        UI_B_EDIT, UI_B_ENV, UI_B_LFO, UI_B_MOD, UI_B_FX, UI_B_MIX,
+        UI_B_GLO, UI_B_HOME, UI_B_SAVE
     };
     uint8_t m;
     uint32_t blink = (fm1_ms / 400u) & 1u;
@@ -713,9 +787,6 @@ static void ui_leds(void)
         fm1_led_key(BTN[m], on);
     }
     fm1_led_key(UI_B_SHIFT, ui_shift ? 1u : 0u);
-    /* MOD still has no menu. Dark rather than lit-and-inert: a lit button
-     * that does nothing is worse than an unlit one. */
-    fm1_led_key(UI_B_MOD, 0);
 }
 
 /* --- encoders -------------------------------------------------------------
@@ -756,7 +827,12 @@ static int ui_encoders(void)
 
     for (k = 0; k < FM1_KNOBS; k++) {
         if ((e = fm1_enc_take((uint8_t)(ENC_KNOB1 + k))) != 0) {
-            int id = fm1_page_knob(&ui_nav, k);
+            /* SHIFT reveals the second function of the SAME knob -- the
+             * modulation source behind its depth. It still has no function
+             * of its own (invariant 4), and on every page without a shift
+             * layer it changes nothing. */
+            int id = ui_shift ? fm1_page_shift_knob(&ui_nav, k) : PG_NONE;
+            if (id == PG_NONE) id = fm1_page_knob(&ui_nav, k);
             if (id != PG_NONE) { ui_nudge(id, e); changed = 1; }
         }
     }

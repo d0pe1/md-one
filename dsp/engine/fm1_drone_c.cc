@@ -64,6 +64,12 @@ static_assert(FD_G_LFO(3, FD_G_LFO_MODE) == G_LFO(3, G_LFO_MODE), "LFO index mir
 static_assert(FD_LFOS         == FM1_LFOS,      "LFO count mirror drifted");
 static_assert(FD_LFO_SMOOTH   == LFO_SMOOTH,    "LFO mode mirror drifted");
 static_assert(FD_LFO_NMODES   == LFO_NMODES,    "LFO mode mirror drifted");
+static_assert(FD_P_MD_BASE    == P_MD_BASE,     "mod matrix base mirror drifted");
+static_assert(FD_P_MD_STRIDE  == P_MD_STRIDE,   "mod matrix stride mirror drifted");
+static_assert(FD_P_MD(8, FD_P_MD_SRC) == P_MD(8, P_MD_SRC), "mod index mirror drifted");
+static_assert(FD_MD_NDEST     == MD_NDEST,      "mod destination mirror drifted");
+static_assert(FD_MD_PAN       == MD_PAN,        "mod destination mirror drifted");
+static_assert(FD_MD_SRC_NONE  == MD_SRC_NONE,   "mod source mirror drifted");
 
 /* The engine's state is about 87 KB -- four MacroOscillators at 17 KB each
  * plus the combs. The device's .data/.bss region is 96 KiB and the platform

@@ -957,6 +957,88 @@ static void test_lfo(void)
     }
 }
 
+/* The modulation matrix.
+ *
+ * A screen can show a cable and a moving bar without one sample changing, so
+ * the assertion that matters is that modulation reaches the AUDIO. Pitch is
+ * the destination to prove it on: a frequency change shows up as a change in
+ * zero crossings, which needs no spectrum and no reference recording.
+ */
+static int count_crossings(const int16_t *buf, uint32_t frames)
+{
+    int n = 0;
+    for (uint32_t i = 2; i < frames * 2u; i += 2)       /* left channel */
+        if ((buf[i] >= 0) != (buf[i - 2] >= 0)) n++;
+    return n;
+}
+
+static void crossing_range(fm1::Drone &d, int blocks, int *lo, int *hi)
+{
+    static int16_t buf[FM1_BLOCK * 2];
+    *lo = 1 << 30;
+    *hi = 0;
+    for (int b = 0; b < blocks; b++) {
+        int c;
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+        c = count_crossings(buf, FM1_BLOCK);
+        if (c < *lo) *lo = c;
+        if (c > *hi) *hi = c;
+    }
+}
+
+static void test_mod_matrix(void)
+{
+    printf("\nmodulation matrix\n");
+
+    static fm1::Drone d;
+    int lo, hi, steady;
+
+    d.Init();
+    d.SetGlobal(G_SPREAD, 0);
+    for (uint8_t v = 0; v < FM1_VOICES; v++) d.SetGate(v, v == 0);
+    d.SetParam(0, P_SHAPE, 3);              /* SINE_TRIANGLE: clean crossings */
+    d.SetParam(0, P_F1_TYPE, F_OFF);
+    d.SetParam(0, P_F2_TYPE, F_OFF);
+    d.SetParam(0, P_FM, 64);                /* drift off: the matrix alone */
+    d.SetParam(0, P_MOD, 64);
+    d.SetParam(0, P_LEVEL, 127);
+    d.NoteOn(0, 45);
+    d.SnapParams();
+
+    /* Unrouted first. If the pitch is not steady to begin with, nothing
+     * measured afterwards can be attributed to the matrix. */
+    crossing_range(d, 8, &lo, &hi);             /* settle */
+    crossing_range(d, 60, &lo, &hi);
+    printf("    unrouted:                  crossings %d..%d\n", lo, hi);
+    steady = hi - lo;
+    ok(steady <= 2, "an unrouted voice holds its pitch",
+       "something else is already moving it");
+
+    /* Route LFO1 into pitch at full depth. */
+    d.SetGlobal(G_LFO(0, G_LFO_MODE), LFO_TRI);
+    d.SetGlobal(G_LFO(0, G_LFO_RATE), 90);
+    d.SetGlobal(G_LFO(0, G_LFO_AMT), 127);
+    d.SetParam(0, P_MD(MD_PITCH, P_MD_SRC), 1);
+    d.SetParam(0, P_MD(MD_PITCH, P_MD_DEPTH), 127);
+    d.SnapParams();
+
+    crossing_range(d, 200, &lo, &hi);
+    printf("    LFO1 -> PITCH, full depth: crossings %d..%d\n", lo, hi);
+    ok(hi - lo > steady * 4 && hi > lo * 5 / 4,
+       "modulation reaches the audio",
+       "the pitch never moved -- the matrix is drawn but not wired");
+
+    /* And pulling the cable stops it, rather than leaving the voice stuck
+     * wherever the LFO happened to be when the source was cleared. */
+    d.SetParam(0, P_MD(MD_PITCH, P_MD_SRC), MD_SRC_NONE);
+    d.SnapParams();
+    crossing_range(d, 8, &lo, &hi);             /* settle */
+    crossing_range(d, 60, &lo, &hi);
+    printf("    unrouted again:            crossings %d..%d\n", lo, hi);
+    ok(hi - lo <= 2, "unrouting stops it", "the modulation is stuck on");
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -968,6 +1050,7 @@ int main(void)
     test_env();
     test_slew();
     test_lfo();
+    test_mod_matrix();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

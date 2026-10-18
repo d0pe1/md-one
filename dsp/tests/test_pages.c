@@ -42,7 +42,13 @@ static void sweep(uint8_t *voice_seen, uint8_t *global_seen)
             uint8_t nsub = FM1_SUBJ_COUNT[kind];
 
             for (s = 0; s < nsub; s++) {
-                int ids[FM1_KNOBS + 1];
+                /* Knobs, SHIFT + knobs, and the ALGORITHM encoder. The
+                 * shift layer is part of the sweep because it is part of
+                 * what a human can reach: the MOD pages put a destination's
+                 * depth on the knob and its source on the modifier, and a
+                 * source nobody can get to is as broken as a knob nobody
+                 * can turn. */
+                int ids[FM1_KNOBS * 2 + 1];
                 uint8_t i;
 
                 fm1_nav_init(&n);
@@ -50,10 +56,13 @@ static void sweep(uint8_t *voice_seen, uint8_t *global_seen)
                 n.page = pg;
                 n.sel[kind] = s;
 
-                for (k = 0; k < FM1_KNOBS; k++) ids[k] = fm1_page_knob(&n, k);
-                ids[FM1_KNOBS] = fm1_page_alg(&n);
+                for (k = 0; k < FM1_KNOBS; k++) {
+                    ids[k] = fm1_page_knob(&n, k);
+                    ids[FM1_KNOBS + k] = fm1_page_shift_knob(&n, k);
+                }
+                ids[FM1_KNOBS * 2] = fm1_page_alg(&n);
 
-                for (i = 0; i < FM1_KNOBS + 1; i++) {
+                for (i = 0; i < FM1_KNOBS * 2 + 1; i++) {
                     if (ids[i] == PG_NONE) continue;
                     if (FM1_MENU[m].scope == SCOPE_GLOBAL) global_seen[ids[i]] = 1;
                     else                                   voice_seen[ids[i]] = 1;

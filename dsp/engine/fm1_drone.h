@@ -162,6 +162,13 @@ class Drone {
     /* One slew step for everything in flight. Called once per block. */
     void SlewBlock();
 
+    /* What the matrix is delivering to destination n of this voice, Q15
+     * bipolar: the chosen LFO's output scaled by the depth knob, and zero
+     * when either is at rest. Each caller scales it into its own units,
+     * because a full-depth swing means +-12 semitones on pitch and +-64
+     * steps on a level, and nothing sensible can average the two. */
+    int32_t ModOf(const DroneVoice &d, uint8_t n) const;
+
     DroneVoice v_[FM1_VOICES];
     uint8_t    g_[NGPARAM];         /* in force now, as DroneVoice::p */
     uint8_t    gtgt_[NGPARAM];

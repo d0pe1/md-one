@@ -63,7 +63,48 @@ enum {
      * cable -- which is what keeps the routing model a single idea instead of
      * two (fm1_rack.h). */
     P_DEST,
+    /* The modulation matrix: nine destinations, each a DEPTH and a SOURCE.
+     *
+     * Nine rather than twelve because folding the comb into the filter did
+     * it -- COMB TUNE / FB / MIX were three destinations of their own and
+     * are now the filter's CUT, RES and MIX, which had to be modulatable
+     * anyway. The routing IS the page: four destinations per page with their
+     * depth and source visible together, rather than a matrix to navigate.
+     *
+     * DEPTH is bipolar with 64 as none, so a destination with no source and
+     * a destination at zero depth are the same silence reached two ways. */
+    P_MD0_DEPTH, P_MD0_SRC,     /* pitch   */
+    P_MD1_DEPTH, P_MD1_SRC,     /* timbre  */
+    P_MD2_DEPTH, P_MD2_SRC,     /* colour  */
+    P_MD3_DEPTH, P_MD3_SRC,     /* level   */
+    P_MD4_DEPTH, P_MD4_SRC,     /* F1 cut  */
+    P_MD5_DEPTH, P_MD5_SRC,     /* F1 res  */
+    P_MD6_DEPTH, P_MD6_SRC,     /* F2 cut  */
+    P_MD7_DEPTH, P_MD7_SRC,     /* F2 res  */
+    P_MD8_DEPTH, P_MD8_SRC,     /* pan     */
     NPARAM
+};
+
+/* Destination n (0-based), control j. Same shape as P_EQ() and G_FX(). */
+#define P_MD_BASE    P_MD0_DEPTH
+#define P_MD_STRIDE  2
+#define P_MD(n, j)   (P_MD_BASE + (n) * P_MD_STRIDE + (j))
+#define P_MD_DEPTH   0
+#define P_MD_SRC     1
+
+/* What each destination reaches. The order is the order the MOD pages walk
+ * them, so a page is a contiguous run of four. */
+enum {
+    MD_PITCH = 0, MD_TIMBRE, MD_COLOR, MD_LEVEL,
+    MD_F1CUT, MD_F1RES, MD_F2CUT, MD_F2RES,
+    MD_PAN,
+    MD_NDEST
+};
+
+/* A source is none, or one of the four LFOs. */
+#define MD_SRC_NONE 0
+static const char *const FM1_MODSRC_NAME[5] = {
+    "---", "LFO1", "LFO2", "LFO3", "LFO4"
 };
 
 /* EQ band b (0..2), control j. Same shape as the patchbay's G_FX(). */
@@ -156,7 +197,8 @@ enum {
     K_FXTYPE,   /* an effect name,     FM1_FXNAME   in fm1_rack.h */
     K_DEST,     /* a routing target,  FM1_DESTNAME in fm1_rack.h */
     K_EQMODE,   /* an EQ band mode, FM1_EQ_MODE_NAME in fm1_eq.h */
-    K_LFOMODE   /* an LFO shape, FM1_LFO_MODE_NAME in fm1_lfo.h */
+    K_LFOMODE,  /* an LFO shape, FM1_LFO_MODE_NAME in fm1_lfo.h */
+    K_MODSRC    /* a modulation source, FM1_MODSRC_NAME above */
 };
 
 typedef struct {
@@ -242,6 +284,28 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * an instrument you just switched on. max is DEST_NDEST-1 as a literal,
      * checked against the enum in fm1_drone.cc. */
     [P_DEST]       = {"DEST",     5,   5, K_DEST,    0},
+
+    /* Everything off: a new patch modulates nothing until asked. DEPTH is
+     * bipolar so 64 is the centre detent, exactly as FM and MOD are on the
+     * BRAIDS page -- the same gesture means the same thing. */
+    [P_MD0_DEPTH] = {"PITCH",  127,  64, K_BIP,     0},
+    [P_MD0_SRC]   = {"SRCPIT",   4,   0, K_MODSRC,  0},
+    [P_MD1_DEPTH] = {"TIMBRE", 127,  64, K_BIP,     0},
+    [P_MD1_SRC]   = {"SRCTMB",   4,   0, K_MODSRC,  0},
+    [P_MD2_DEPTH] = {"COLOR",  127,  64, K_BIP,     0},
+    [P_MD2_SRC]   = {"SRCCOL",   4,   0, K_MODSRC,  0},
+    [P_MD3_DEPTH] = {"LEVEL",  127,  64, K_BIP,     0},
+    [P_MD3_SRC]   = {"SRCLVL",   4,   0, K_MODSRC,  0},
+    [P_MD4_DEPTH] = {"F1CUT",  127,  64, K_BIP,     0},
+    [P_MD4_SRC]   = {"SRCF1C",   4,   0, K_MODSRC,  0},
+    [P_MD5_DEPTH] = {"F1RES",  127,  64, K_BIP,     0},
+    [P_MD5_SRC]   = {"SRCF1R",   4,   0, K_MODSRC,  0},
+    [P_MD6_DEPTH] = {"F2CUT",  127,  64, K_BIP,     0},
+    [P_MD6_SRC]   = {"SRCF2C",   4,   0, K_MODSRC,  0},
+    [P_MD7_DEPTH] = {"F2RES",  127,  64, K_BIP,     0},
+    [P_MD7_SRC]   = {"SRCF2R",   4,   0, K_MODSRC,  0},
+    [P_MD8_DEPTH] = {"PAN",    127,  64, K_BIP,     0},
+    [P_MD8_SRC]   = {"SRCPAN",   4,   0, K_MODSRC,  0},
 };
 
 static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
@@ -334,7 +398,7 @@ static inline int fm1_param_is_smoothed(uint8_t p)
     }
     switch (FM1_PDEF[p].kind) {
     case K_SHAPE: case K_ONOFF: case K_FTYPE:
-    case K_FXTYPE: case K_DEST: case K_EQMODE:
+    case K_FXTYPE: case K_DEST: case K_EQMODE: case K_MODSRC:
         return 0;
     default:
         return 1;

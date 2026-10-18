@@ -97,7 +97,7 @@ typedef struct {
  * into P_OCTAVE, and again at 0xD3 when the four LFOs added 16 globals. An
  * old patch has a different layout, and loading it would scatter its bytes
  * across the wrong parameters. */
-#define PATCH_MAGIC 0xD3
+#define PATCH_MAGIC 0xD4
 
 static void patch_store(patch_t *q)
 {
@@ -156,7 +156,7 @@ static void draw_keys(uint32_t lit)
 static void app_main(void)
 {
     patch_t saved;
-    uint32_t prev = 0, dirty = 0, t_change = 0, t_meter = 0;
+    uint32_t prev = 0, dirty = 0, t_change = 0, t_meter = 0, shift_drawn = 2;
     uint32_t lit_drawn = ~0u, redraw = 1;
     uint8_t v;
 
@@ -205,6 +205,12 @@ static void app_main(void)
         /* SHIFT is read as a HELD state, not an edge. It has no function of
          * its own on any page -- invariant 4 -- so it is never consumed. */
         ui_shift = (fm1_in.buttons >> UI_B_SHIFT) & 1u;
+        /* The knob row shows what the modifier would edit, so releasing
+         * SHIFT changes the screen even though nothing was turned. Without
+         * this the MOD page keeps displaying the source layer after SHIFT is
+         * let go -- the labels say SRCPIT while the knobs are back on
+         * depth. */
+        if (ui_shift != shift_drawn) { shift_drawn = ui_shift; redraw = 1; }
 
         /* --- keys: set the Subject voice's note and latch it on ---------- */
         keys = fm1_in.notes;
@@ -236,6 +242,7 @@ static void app_main(void)
         if (b & (1u << UI_B_EDIT)) { fm1_nav_press(&ui_nav, M_EDIT, (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_ENV))  { fm1_nav_press(&ui_nav, M_ENV,  (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_LFO))  { fm1_nav_press(&ui_nav, M_LFO,  (int)ui_shift); redraw = 1; }
+        if (b & (1u << UI_B_MOD))  { fm1_nav_press(&ui_nav, M_MOD,  (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_FX))   { fm1_nav_press(&ui_nav, M_FX,   (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_MIX))  { fm1_nav_press(&ui_nav, M_MIX,  (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_GLO))  { fm1_nav_press(&ui_nav, M_GLO,  (int)ui_shift); redraw = 1; }
@@ -345,8 +352,8 @@ static void app_main(void)
         /* The meters have to move on their own -- nothing presses a button to
          * make a drone get louder. 20 Hz is fast enough to read a peak and
          * slow enough to leave the audio alone. */
-        if ((ui_nav.menu == M_MIX || ui_nav.menu == M_LFO)
-            && fm1_ms - t_meter > 50u) {
+        if ((ui_nav.menu == M_MIX || ui_nav.menu == M_LFO
+             || ui_nav.menu == M_MOD) && fm1_ms - t_meter > 50u) {
             t_meter = fm1_ms;
             ui_draw_body();
         }

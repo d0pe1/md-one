@@ -384,6 +384,24 @@ void Drone::SlewBlock()
     }
 }
 
+int32_t Drone::ModOf(const DroneVoice &d, uint8_t n) const
+{
+    uint8_t src = d.p[P_MD(n, P_MD_SRC)];
+    int32_t depth;
+
+    /* Unrouted, or routed with the depth at its centre detent: the same
+     * silence reached two ways, and both cost one compare. */
+    if (src == MD_SRC_NONE || src > FM1_LFOS) return 0;
+    depth = (int32_t)d.p[P_MD(n, P_MD_DEPTH)] - 64;
+    if (depth == 0) return 0;
+
+    /* lfo_out_ is +-32767 and depth is -64..+63, so >> 6 lands back in Q15.
+     * Bipolar depth is what makes an inverted modulation possible without a
+     * second control: two voices on one LFO with opposite depths breathe
+     * against each other. */
+    return ((int32_t)lfo_out_[src - 1] * depth) >> 6;
+}
+
 void Drone::Render(int16_t *out, uint32_t n)
 {
     while (n) {
@@ -457,6 +475,11 @@ void Drone::Render(int16_t *out, uint32_t n)
              * to sound out of tune. */
             int32_t dp = (((dr * 64) >> 15) * fm_amt) >> 6;
             int32_t pitch = d.pitch_base + dp;
+            /* The matrix reaches pitch at up to +-12 semitones -- a full
+             * octave, which is the range that makes a slow ramp into pitch
+             * useful rather than merely a vibrato. The drift above is a
+             * separate, finer thing (+-50 cents) and they add. */
+            pitch += (ModOf(d, MD_PITCH) * (12 * kPitchPerSemitone)) >> 15;
             if (pitch < 0) pitch = 0;
             if (pitch > 127 * kPitchPerSemitone) pitch = 127 * kPitchPerSemitone;
             d.osc.set_pitch((int16_t)pitch);
@@ -473,17 +496,64 @@ void Drone::Render(int16_t *out, uint32_t n)
              * a knob is worse than letting it do something surprising. */
             int32_t timbre = (int32_t)d.p[P_TIMBRE] << 8;
             timbre += (((dr >> 2) * mod_amt) >> 6);
+            timbre += ModOf(d, MD_TIMBRE) >> 1;     /* +-half the range */
             if (timbre < 0)     timbre = 0;
             if (timbre > 32767) timbre = 32767;
 
-            d.osc.set_parameters((int16_t)timbre,
-                                 (int16_t)((int32_t)d.p[P_COLOR] << 8));
+            int32_t colour = (int32_t)d.p[P_COLOR] << 8;
+            colour += ModOf(d, MD_COLOR) >> 1;
+            if (colour < 0)     colour = 0;
+            if (colour > 32767) colour = 32767;
+
+            d.osc.set_parameters((int16_t)timbre, (int16_t)colour);
+
+            /* The four filter destinations are the expensive ones: unlike a
+             * level or a pitch, which are read straight out of a variable,
+             * a cutoff has to be pushed back through the setter so the
+             * coefficient (and, in COMB mode, the delay tuning) is
+             * recomputed. So they are gated on actually being routed --
+             * ModOf returns 0 after one compare when they are not, and an
+             * unmodulated patch pays nothing at all. */
+            {
+                static const uint8_t FDEST[FM1_FILTERS * 2] = {
+                    MD_F1CUT, MD_F1RES, MD_F2CUT, MD_F2RES
+                };
+                static const uint8_t FPARAM[FM1_FILTERS * 2] = {
+                    P_F1_CUT, P_F1_RES, P_F2_CUT, P_F2_RES
+                };
+                int repitch = 0;
+                for (uint8_t k = 0; k < FM1_FILTERS * 2; k++) {
+                    int32_t m = ModOf(d, FDEST[k]);
+                    int32_t x;
+                    if (m == 0) continue;
+                    x = (int32_t)d.p[FPARAM[k]] + ((m * 64) >> 15);
+                    if (x < 0)   x = 0;
+                    if (x > 127) x = 127;
+                    if (k & 1) fm1_filter_set_res(&d.f[k >> 1], (uint8_t)x);
+                    else     { fm1_filter_set_cut(&d.f[k >> 1], (uint8_t)x);
+                               repitch = 1; }
+                }
+                /* A comb tunes from the voice's phase increment, so a
+                 * modulated CUT has to go back through ApplyPitch -- once,
+                 * however many of the four moved. */
+                if (repitch) ApplyPitch(vi);
+            }
 
             d.osc.Render(d.scratch, chunk);
 
             /* --- per-sample: F1, VCA, F2, pan ---------------------------- */
             int32_t lvl = d.p[P_LEVEL];                 /* 0..127 */
             int32_t pan = d.p[P_PAN];                   /* 0..127, 64 centre */
+
+            /* Level and pan take the matrix in their own 0..127 units, then
+             * clamp: a tremolo must not wrap to silence at the top of its
+             * swing, and an auto-panner must not jump sides at the edge. */
+            lvl += (ModOf(d, MD_LEVEL) * 64) >> 15;
+            pan += (ModOf(d, MD_PAN)   * 64) >> 15;
+            if (lvl < 0)   lvl = 0;
+            if (lvl > 127) lvl = 127;
+            if (pan < 0)   pan = 0;
+            if (pan > 127) pan = 127;
 
             /* Voice gain is level x pan and NOTHING else.
              *
