@@ -52,41 +52,18 @@
 #include "../mi/braids/svf.h"
 #include "../shared/fm1_fixed.h"
 
-/* Effect types. Deliberately NOT here: reverb and delay. The output goes to a
- * DAW over USB audio, where both are better and free; the RAM buys things a
- * DAW does not hand you for nothing (SIGNAL_PATH.md section 6). */
-enum {
-    FX_NONE = 0,    /* no effect -- the channel is a wire, and still routes */
-    FX_CHORUS,      /* modulated short delay, stereo by construction */
-    FX_FOLD,        /* wavefolder: drive, then reflect */
-    FX_WIDTH,       /* mid/side width */
-    FX_LP,          /* state-variable low pass, stereo */
-    FX_HP,
-    FX_NTYPES
-};
+/* The effect types and the routing targets, with their names. They live in
+ * their own header because this one embeds braids::Svf and is therefore C++
+ * only, while the firmware's UI is C and has to put an effect name and a
+ * destination on the screen.
+ *
+ * Deliberately NOT among them: reverb and delay. The output goes to a DAW
+ * over USB audio, where both are better and free; the RAM buys things a DAW
+ * does not hand you for nothing (SIGNAL_PATH.md section 6). */
+#include "fm1_route.h"
 
-static const char *const FM1_FXNAME[FX_NTYPES] = {
-    "OFF", "CHORUS", "FOLD", "WIDTH", "LOWPASS", "HIGHPASS"
-};
-
-#define FM1_FX_CHANS   4
 #define FM1_FX_DELAY   1024u            /* 23 ms at 44.1 kHz */
 #define FM1_FX_DMASK   (FM1_FX_DELAY - 1u)
-
-/* Where a node's output goes. One value, one cable. Shared by voices and
- * effect channels -- a voice routes exactly the way an effect does, which is
- * what makes the mental model one thing instead of two. */
-enum {
-    DEST_OFF = 0,   /* unplugged: this node is not heard, nor is anything
-                     * whose only path to the output runs through it */
-    DEST_FX1, DEST_FX2, DEST_FX3, DEST_FX4,
-    DEST_OUT,
-    DEST_NDEST
-};
-
-static const char *const FM1_DESTNAME[DEST_NDEST] = {
-    "---", "FX1", "FX2", "FX3", "FX4", "OUT"
-};
 
 /* Accumulator clamp. The bus legitimately reaches about 4.0 with four voices
  * at full level; 8.0 is double that, so normal playing never touches this and

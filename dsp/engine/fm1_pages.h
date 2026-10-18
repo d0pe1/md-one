@@ -297,4 +297,53 @@ static inline int fm1_menu_has_more(uint8_t menu)
     return menu < M_NMENU && FM1_MENU[menu].npages > 1;
 }
 
+/* --- fitting a label into a knob column ----------------------------------
+ *
+ * A column is 60 px and the small font runs about 9 px a character, so a
+ * label has FM1_LABEL_MAX to work with. The screen's text box does not clip
+ * -- a seventh character runs into the neighbouring column, which is exactly
+ * what "EQ2 FRQEQ2 GAINEQ2 RES" looked like the first time this was built.
+ *
+ * Two rules, in order:
+ *
+ * 1. Drop everything up to the last space. The names in fm1_params.h are
+ *    qualified -- "EQ2 FRQ", "F1 CUT", "FX1 P1" -- because they must be
+ *    unique across 42 parameters and legible in a CC map. On screen the
+ *    qualifier is already in the subject row ("BAND 2 MID", "FX 3"), so
+ *    repeating it costs exactly the space the actual name needs.
+ * 2. Abbreviate the handful still too long.
+ *
+ * This lives here rather than in the firmware so the fit can be TESTED. The
+ * overlap above was found by taking a photograph of an emulated screen,
+ * which is not a way to find things.
+ */
+#define FM1_LABEL_MAX 6
+
+static const struct { const char *full; const char *brief; } FM1_ABBREV[] = {
+    { "DRIFTRT", "DRIFT" },
+    { "SUSTAIN", "SUS"   },
+    { "RELEASE", "REL"   },
+    { "BINAURL", "BINAU" },
+    { "DRFTSYN", "SYNC"  },
+};
+#define FM1_NABBREV (sizeof FM1_ABBREV / sizeof FM1_ABBREV[0])
+
+static inline int fm1_streq(const char *a, const char *b)
+{
+    while (*a && *a == *b) { a++; b++; }
+    return *a == *b;
+}
+
+static inline const char *fm1_label_fit(const char *name)
+{
+    const char *p = name, *last = name;
+    uint32_t i;
+
+    for (i = 0; i < FM1_NABBREV; i++)
+        if (fm1_streq(name, FM1_ABBREV[i].full)) return FM1_ABBREV[i].brief;
+
+    while (*p) { if (*p == ' ') last = p + 1; p++; }
+    return last;
+}
+
 #endif /* FM1_PAGES_H */

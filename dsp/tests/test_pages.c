@@ -159,15 +159,16 @@ static void test_ids_in_range(void)
 
                     if (id == PG_NONE) continue;
                     if (!d || !d->name) { bad++; continue; }
-                    /* 8 characters is what the label row allows. A longer
-                     * name does not wrap, it overlaps its neighbour. */
-                    if (strlen(d->name) > 8) named++;
+                    /* The knob column does not wrap and does not clip: a
+                     * label one character too long overlaps its neighbour,
+                     * and the screen reads "EQ2 FRQEQ2 GAINEQ2 RES". */
+                    if (strlen(fm1_label_fit(d->name)) > FM1_LABEL_MAX) named++;
                 }
             }
         }
     }
     check(bad == 0, "every knob id resolves to a real parameter", 0);
-    check(named == 0, "every reachable label fits the 8-character slot", 0);
+    check(named == 0, "every reachable label fits the knob column", 0);
 }
 
 /* Invariant 5: a menu button enters its menu at page 1, pressing it again
