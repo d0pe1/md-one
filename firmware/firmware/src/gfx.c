@@ -177,6 +177,17 @@ static void draw_text_box(uint32_t x, uint32_t y, uint32_t w, const felucca_font
         tx = ((int32_t)w - tw) / 2;
     else if (align == 2)
         tx = (int32_t)w - tw;
+    /* Text wider than its box used to centre at a NEGATIVE x, and the canvas
+     * clips at both edges -- so it lost its first AND its last characters and
+     * came out as a different word. "SUSTAIN" in a 40 px cell rendered as
+     * "USTAI".
+     *
+     * Clamping to the left edge makes the same overflow truncate from the
+     * right, which reads as a name cut short rather than as nonsense. It
+     * cannot fix a label that is too long -- only shortening it does that --
+     * but it makes being too long LOOK like being too long. */
+    if (tx < 0)
+        tx = 0;
     cv_text(tx, 0, f, s, c);
     cv_blit(x, y);
     lcd_sync();                     /* one-shots (boot, crash, UBOOT, update) finish here */
