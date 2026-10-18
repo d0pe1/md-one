@@ -148,8 +148,17 @@ void Drone::ApplyPitch(uint8_t v)
         hz_q16 = (q16_t)f;
     }
     uint32_t inc = fm1_phase_inc(hz_q16, FM1_K_44100);
-    fm1_filter_set_key(&d.f[0], (int16_t)pitch, inc, comb_ratio_q12(d.p[P_F1_CUT]));
-    fm1_filter_set_key(&d.f[1], (int16_t)pitch, inc, comb_ratio_q12(d.p[P_F2_CUT]));
+    /* The comb ratio comes from the MODULATED cut, not the knob. Both this
+     * and the per-block filter update write the same filter, so if they
+     * disagreed about what the cutoff is, whichever ran last would win --
+     * and ApplyPitch runs last. That is exactly what happened: a modulated
+     * comb tune was being recomputed from the raw knob a few lines after the
+     * modulation had set it, so routing an LFO into COMB TUNE did nothing at
+     * all. Caught by a test, not by listening. */
+    fm1_filter_set_key(&d.f[0], (int16_t)pitch, inc,
+                       comb_ratio_q12(EffParam(d, P_F1_CUT, MD_F1CUT)));
+    fm1_filter_set_key(&d.f[1], (int16_t)pitch, inc,
+                       comb_ratio_q12(EffParam(d, P_F2_CUT, MD_F2CUT)));
 }
 
 void Drone::NoteOn(uint8_t voice, uint8_t note)
@@ -402,6 +411,14 @@ int32_t Drone::ModOf(const DroneVoice &d, uint8_t n) const
     return ((int32_t)lfo_out_[src - 1] * depth) >> 6;
 }
 
+uint8_t Drone::EffParam(const DroneVoice &d, uint8_t param, uint8_t dest) const
+{
+    int32_t x = (int32_t)d.p[param] + ((ModOf(d, dest) * 64) >> 15);
+    if (x < 0)   x = 0;
+    if (x > 127) x = 127;
+    return (uint8_t)x;
+}
+
 void Drone::Render(int16_t *out, uint32_t n)
 {
     while (n) {
@@ -523,15 +540,15 @@ void Drone::Render(int16_t *out, uint32_t n)
                 };
                 int repitch = 0;
                 for (uint8_t k = 0; k < FM1_FILTERS * 2; k++) {
-                    int32_t m = ModOf(d, FDEST[k]);
-                    int32_t x;
-                    if (m == 0) continue;
-                    x = (int32_t)d.p[FPARAM[k]] + ((m * 64) >> 15);
-                    if (x < 0)   x = 0;
-                    if (x > 127) x = 127;
-                    if (k & 1) fm1_filter_set_res(&d.f[k >> 1], (uint8_t)x);
-                    else     { fm1_filter_set_cut(&d.f[k >> 1], (uint8_t)x);
-                               repitch = 1; }
+                    if (ModOf(d, FDEST[k]) == 0) continue;
+                    if (k & 1)
+                        fm1_filter_set_res(&d.f[k >> 1],
+                                           EffParam(d, FPARAM[k], FDEST[k]));
+                    else {
+                        fm1_filter_set_cut(&d.f[k >> 1],
+                                           EffParam(d, FPARAM[k], FDEST[k]));
+                        repitch = 1;
+                    }
                 }
                 /* A comb tunes from the voice's phase increment, so a
                  * modulated CUT has to go back through ApplyPitch -- once,

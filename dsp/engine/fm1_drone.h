@@ -169,6 +169,11 @@ class Drone {
      * steps on a level, and nothing sensible can average the two. */
     int32_t ModOf(const DroneVoice &d, uint8_t n) const;
 
+    /* A 0..127 parameter with its modulation already folded in and clamped.
+     * ApplyPitch and the per-block filter update must agree on what a
+     * modulated cutoff IS, or whichever runs last silently wins. */
+    uint8_t EffParam(const DroneVoice &d, uint8_t param, uint8_t dest) const;
+
     DroneVoice v_[FM1_VOICES];
     uint8_t    g_[NGPARAM];         /* in force now, as DroneVoice::p */
     uint8_t    gtgt_[NGPARAM];

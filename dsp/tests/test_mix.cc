@@ -1037,6 +1037,67 @@ static void test_mod_matrix(void)
     crossing_range(d, 60, &lo, &hi);
     printf("    unrouted again:            crossings %d..%d\n", lo, hi);
     ok(hi - lo <= 2, "unrouting stops it", "the modulation is stuck on");
+
+    /* --- the filter destinations ------------------------------------------
+     *
+     * These take a different path from everything else: a cutoff cannot be
+     * read out of a variable at render time, it has to be pushed back
+     * through its setter so the coefficient is recomputed -- and in COMB
+     * mode the delay tuning with it. So they are worth their own assertion
+     * rather than being assumed to work because pitch does.
+     *
+     * This is also docs/ROADMAP.md's own done-condition for Phase 2, stated
+     * as "a slow LFO into comb tune audibly evolves a drone over a minute
+     * without touching anything". Measured in amplitude rather than
+     * crossings: a comb sweeping its tuning moves peaks and notches across
+     * the harmonics, which changes how much gets through. */
+    {
+        static int16_t buf[FM1_BLOCK * 2];
+        int32_t plo = 1 << 30, phi = 0;
+        int32_t base_lo, base_hi;
+
+        d.SetParam(0, P_F1_TYPE, F_COMB);
+        d.SetParam(0, P_F1_MIX, 127);
+        d.SetParam(0, P_F1_RES, 100);           /* resonant enough to matter */
+        d.SetParam(0, P_F1_CUT, 64);
+        d.SnapParams();
+        for (int b = 0; b < 16; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+        }
+        for (int b = 0; b < 60; b++) {
+            int32_t p;
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+            p = peak_of(buf, FM1_BLOCK);
+            if (p < plo) plo = p;
+            if (p > phi) phi = p;
+        }
+        base_lo = plo;
+        base_hi = phi;
+        printf("    comb, unrouted:            peak %d..%d\n", base_lo, base_hi);
+
+        d.SetGlobal(G_LFO(1, G_LFO_MODE), LFO_TRI);
+        d.SetGlobal(G_LFO(1, G_LFO_RATE), 70);
+        d.SetGlobal(G_LFO(1, G_LFO_AMT), 127);
+        d.SetParam(0, P_MD(MD_F1CUT, P_MD_SRC), 2);     /* LFO2 */
+        d.SetParam(0, P_MD(MD_F1CUT, P_MD_DEPTH), 127);
+        d.SnapParams();
+
+        plo = 1 << 30; phi = 0;
+        for (int b = 0; b < 300; b++) {
+            int32_t p;
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            d.Render(buf, FM1_BLOCK);
+            p = peak_of(buf, FM1_BLOCK);
+            if (p < plo) plo = p;
+            if (p > phi) phi = p;
+        }
+        printf("    LFO2 -> COMB TUNE:         peak %d..%d\n", plo, phi);
+        ok(phi - plo > (base_hi - base_lo) * 2,
+           "a modulated comb tune changes the sound",
+           "the filter destinations are not wired through their setters");
+    }
 }
 
 int main(void)

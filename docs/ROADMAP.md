@@ -32,20 +32,21 @@ Feasibility is settled. Everything below was measured, not assumed.
 | C++ on the target | **proven** | Braids compiles, 99 KB of 526 KB |
 | Braids port correctness | **proven** | matches a 96 kHz reference, 0.0 cents / 0.0 dB |
 | Tables at 44.1 kHz | **proven** | regenerated; reproduces upstream at 96 kHz, all 45 tables identical |
-| Engine on the chip | **proven** | 4 voices = 20.6% of the audio budget |
+| Engine on the chip | **proven** | 4 voices = 20.7% of the audio budget |
 | Signal path complete | **built** | two filters, EQ, drive, AHDSR, patchbay, mixer — `SIGNAL_PATH.md` §8 |
 | Firmware boots and sounds | **proven** | runs in `fm1-live`, all brick checks pass |
 | FM feasibility | **measured** | 7,553 cycles/operator; 12 voices × 6 ops = 37.7% — `BRAIDS_PORT.md` |
-| Playable UX | **built** | seven menus, every parameter on a page, slewed so CC does not zipper |
+| Playable UX | **built** | nine menus, every parameter on a page, slewed so CC does not zipper |
+| Modulation | **built** | four LFOs into nine destinations per voice; 0.2% of budget idle |
 | Hardware | **none** | two units ordered, not arrived |
 
-The 20.6% is the engine as it stands: four voices, two filters, metering, an
-AHDSR and parameter slewing. A loaded patch — three EQ bands and drive on
+The 20.7% is the engine as it stands: four voices, two filters, metering, an
+AHDSR, parameter slewing and the modulation matrix. A loaded patch — three EQ bands and drive on
 every channel — is **32%**.
 
 The headroom is real but optimistic: the emulator models 1 instruction per
 cycle and every Braids table lives in XIP flash. **At a pessimistic 3× for
-stalls, 20.6% becomes 62% and the 32% patch becomes 96%.** That no longer
+stalls, 20.7% becomes 62% and the 32% patch becomes 96%.** That no longer
 clears the "stay under half" rule, and it is the first number in this project
 that hardware could plausibly refute. It does not change what to build next —
 the UX costs nothing at audio rate — but it does mean the block list is now
@@ -93,7 +94,7 @@ Built and measured, in order along the chain:
 7. ✅ **Page framework** — seven menus, fifteen pages, each exposing exactly
    four parameters. The map is `dsp/engine/fm1_pages.h` (MIT, host-tested);
    only the drawing is in the firmware.
-8. ✅ **Every parameter is reachable.** All 42 per-voice and 25 global
+8. ✅ **Every parameter is reachable.** All 60 per-voice and 41 global
    parameters sit on a page, and `dsp/tests/test_pages.c` fails if one stops
    being reachable — the phase's own done-condition, as a test.
 9. ✅ **Parameter smoothing** — a one-pole slew at block rate, 0.16% of
@@ -107,35 +108,35 @@ Built and measured, in order along the chain:
 *Still open in Phase 1:* the EQ curve drawing, which is decoration over
 controls that already work.
 
-The point was to make it operable by someone who did not build it. The
-remaining gaps are Phase 2's: LFO and MOD have buttons but no menus, because
-their parameters do not exist yet.
-
-Build the Menu/Page framework from `docs/UX_DESIGN.md` before adding features,
-so every later feature has an obvious home.
-
-1. Page framework: menu state, page scrolling on OCT±, SHIFT on SEL.
-2. Screen layout: the fixed zones, four labels over four values.
-3. Parameter table drives label, range, default, CC and patch byte — one
-   declaration each.
-4. Port the existing parameters onto pages: EDIT/BRAIDS, EDIT/PITCH, FX/COMB.
-5. HOME overview page.
-6. **Parameter smoothing** — a one-pole slew at block rate. 7-bit CC is 128
-   steps and will zipper on a sustained drone.
-
 *Done when:* every existing parameter is reachable through a page, nothing is
-reachable any other way, and the whole surface can be explained in a paragraph.
+reachable any other way, and the whole surface can be explained in a
+paragraph. The first of those is a test rather than a promise, and it has
+caught two parameters already — DRIFT RATE, which the UX document left
+homeless, and the nine modulation sources, which were reachable only through
+a layer the test did not yet walk.
 
-### Phase 2 — Modulation
+### Phase 2 — Modulation ✅ complete
 
-1. Multimode LFO: triangle, saw, ramp, square, S&H, smooth random.
-2. Four global LFOs; LFO menu, one per page (RATE, AMOUNT, PHASE, MODE).
-3. Eight modulation destinations per voice, four per ENV page; knob = depth,
-   SHIFT + knob = source.
-4. Drift stays as the per-voice free-running source, independent of the LFOs.
+1. ✅ **Multimode LFO** — triangle, saw, ramp, square, S&H, smooth random.
+   Block rate, exponential 0.01–20 Hz, no measurable cost.
+2. ✅ **Four global LFOs** and the LFO menu (RATE, AMOUNT, PHASE, MODE),
+   drawn as live bars because a 100-second modulator you cannot see is one
+   you have to guess at.
+3. ✅ **Nine modulation destinations** per voice — pitch, timbre, colour,
+   level, both filters' cut and res, pan. Knob = depth, SHIFT + knob =
+   source. Nine rather than eight because folding the comb into the filter
+   turned three comb destinations into two filter ones.
+4. ✅ **Drift stays per-voice** and free-running, independent of the LFOs.
+   That is the point of the split: the drift gives each voice its own
+   wander, the LFOs give all four a shared one.
 
 *Done when:* a slow LFO into comb tune audibly evolves a drone over a minute
-without touching anything.
+without touching anything. **It does, and it is a test** — routing an LFO
+into COMB TUNE moves the output peak from 10669–11164 to 1971–8195 as the
+comb sweeps across the harmonics (`dsp/tests/test_mix.cc`).
+
+The matrix costs **0.2% of budget** idle, because an unrouted destination
+returns after one compare.
 
 ### Phase 3 — Mixer and global
 
