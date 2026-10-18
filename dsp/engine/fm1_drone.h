@@ -121,6 +121,13 @@ class Drone {
      * so the buffer must be zeroed or carry something to mix into. */
     void Render(int16_t *out, uint32_t n);
 
+    /* Which envelope segment a voice is in, ENV_* from fm1_env.h. The ENV
+     * page marks it on the curve: on a drone machine the envelope is often
+     * minutes long, so "where am I" is a real question rather than a
+     * decoration. */
+    uint8_t EnvStage(uint8_t voice) const
+    { return voice < FM1_VOICES ? v_[voice].env.stage : (uint8_t)ENV_IDLE; }
+
     /* The value actually IN FORCE this block, which during a slew is behind
      * the target. Not what the screen should show -- that is GetParam -- but
      * a test cannot otherwise see whether a slew arrived, and "it stalled one

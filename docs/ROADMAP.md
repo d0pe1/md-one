@@ -99,8 +99,13 @@ Built and measured, in order along the chain:
 9. ✅ **Parameter smoothing** — a one-pole slew at block rate, 0.16% of
    budget (`SIGNAL_PATH.md` §8).
 
-*Still open in Phase 1:* the ENV and EQ curve drawings, which are decoration
-over controls that already work.
+10. ✅ **The envelope curve**, drawn live with the current segment marked.
+    The one parameter group where the picture *is* the parameter: four
+    numbers do not tell you that a long attack running straight into a decay
+    never arrives anywhere, but the shape does.
+
+*Still open in Phase 1:* the EQ curve drawing, which is decoration over
+controls that already work.
 
 The point was to make it operable by someone who did not build it. The
 remaining gaps are Phase 2's: LFO and MOD have buttons but no menus, because

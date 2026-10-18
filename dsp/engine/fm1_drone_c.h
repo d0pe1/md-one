@@ -144,6 +144,20 @@ uint8_t fm1_drone_get_global(uint8_t param);
  * a glitch rather than a feature. */
 void fm1_drone_snap_params(void);
 
+/* Which envelope segment voice v is in: FD_ENV_*. The ENV page marks it on
+ * the curve -- on a drone machine an envelope is often minutes long, so
+ * "where am I" is a real question. */
+uint8_t fm1_drone_env_stage(uint8_t voice);
+
+/* Mirrors of the ENV_* enum in fm1_env.h, in the order the curve draws. */
+#define FD_ENV_IDLE     0
+#define FD_ENV_ATTACK   1
+#define FD_ENV_HOLD     2
+#define FD_ENV_DECAY    3
+#define FD_ENV_SUSTAIN  4
+#define FD_ENV_RELEASE  5
+#define FD_ENV_STAGES   6
+
 /* Post-fader peak for voice v, 0..127, with a slow fall. For the mixer
  * meters. */
 uint8_t fm1_drone_meter(uint8_t voice);

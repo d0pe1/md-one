@@ -25,6 +25,7 @@
 #include "fm1_fmode.h"
 #include "fm1_eq.h"
 #include "fm1_route.h"
+#include "fm1_env.h"
 
 /* The latched note of a voice. Owned by drone.c, which is the instrument;
  * this file only draws it. Declared here because a unity build compiles
@@ -492,6 +493,73 @@ static void ui_body_mixer(void)
     }
 }
 
+/* --- the envelope ---------------------------------------------------------
+ *
+ * The one parameter group where the picture IS the parameter. Four numbers
+ * do not tell you that a long attack running straight into a decay never
+ * arrives anywhere -- the two curves meet and the peak is a corner you
+ * cannot hear -- but the shape does, immediately.
+ *
+ * The widths are proportional to the raw 0..127 values rather than to the
+ * times they mean. The times are exponential across 1.9 ms to 32.4 s, so a
+ * truthful x-axis would render every short segment as nothing at all and the
+ * picture would stop being a picture. This axis answers "which segment
+ * dominates", which is the question the shape is being read for.
+ */
+#define ENV_CV_H  64
+#define ENV_SUS_W 40        /* sustain holds, so its width means nothing */
+
+static void ui_body_env(void)
+{
+    uint8_t v = ui_voice();
+    uint8_t a = fm1_drone_get_param(v, P_ATTACK);
+    uint8_t h = fm1_drone_get_param(v, P_HOLD);
+    uint8_t dc = fm1_drone_get_param(v, P_DECAY);
+    uint8_t s = fm1_drone_get_param(v, P_SUSTAIN);
+    uint8_t r = fm1_drone_get_param(v, P_RELEASE);
+    uint8_t stage = fm1_drone_env_stage(v);
+
+    int32_t span = 224 - ENV_SUS_W;
+    int32_t tot = (int32_t)a + h + dc + r;
+    int32_t wa, wh, wd, wr, x = 8;
+    int32_t top = 4, bot = ENV_CV_H - 6;
+    int32_t sy = bot - ((int32_t)s * (bot - top)) / 127;
+    uint16_t line = C_ACC;
+
+    /* Every segment gets a minimum, so a zero-length one is still visible as
+     * a corner. Without it an AD patch with no hold looks like a different
+     * envelope rather than the same one with a segment closed. */
+    wa = 6 + (tot ? ((int32_t)a  * (span - 24)) / tot : 0);
+    wh = 6 + (tot ? ((int32_t)h  * (span - 24)) / tot : 0);
+    wd = 6 + (tot ? ((int32_t)dc * (span - 24)) / tot : 0);
+    wr = 6 + (tot ? ((int32_t)r  * (span - 24)) / tot : 0);
+
+    cv_begin(240, ENV_CV_H, C_BLACK);
+    cv_line(0, bot, 239, bot, C_TRACK);                 /* the floor */
+
+    cv_line(x, bot, x + wa, top, line);          x += wa;    /* attack  */
+    cv_line(x, top, x + wh, top, line);          x += wh;    /* hold    */
+    cv_line(x, top, x + wd, sy,  line);          x += wd;    /* decay   */
+    cv_line(x, sy,  x + ENV_SUS_W, sy, line);    x += ENV_SUS_W;
+    cv_line(x, sy,  x + wr, bot, line);                      /* release */
+    cv_blit(0, Y_BODY);
+
+    /* Which segment the voice is in now. On a drone an envelope is often
+     * minutes long, so this is a real question rather than a decoration. */
+    {
+        /* Six cells across 240 px is 40 each, which is four characters.
+         * Spelling them out gave "USTAI ELEAS" on screen -- the same
+         * overlap as the knob labels, for the same reason: nothing clips. */
+        static const char *const NAME[FD_ENV_STAGES] = {
+            "IDLE", "ATK", "HOLD", "DEC", "SUS", "REL"
+        };
+        uint8_t k;
+        for (k = 0; k < FD_ENV_STAGES; k++)
+            draw_text_box((int32_t)k * 40, Y_BODY + ENV_CV_H + 6, 40, &FONT_S,
+                          NAME[k], k == stage ? C_ACC : C_TRACK, 1);
+    }
+}
+
 /* All four voices at once: the page you return to to see the whole
  * instrument. Not editable -- that is what the other menus are for. */
 static void ui_body_home(void)
@@ -530,6 +598,7 @@ static void ui_draw_body(void)
 
     if (ui_nav.menu == M_MIX)  { ui_body_mixer(); return; }
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
+    if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
 
     if (p->alg == P_SHAPE && FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE) {
         ui_body_shapes();

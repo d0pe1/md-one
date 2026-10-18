@@ -54,6 +54,10 @@ static_assert(FD_DEST_NDEST   == DEST_NDEST,    "dest mirror drifted");
 static_assert(FD_FX_CHORUS    == FX_CHORUS,     "effect type mirror drifted");
 static_assert(FD_FX_NTYPES    == FX_NTYPES,     "effect type mirror drifted");
 static_assert(FD_VOICES       == FM1_VOICES,    "voice count mirror drifted");
+static_assert(FD_ENV_ATTACK   == ENV_ATTACK,    "envelope stage mirror drifted");
+static_assert(FD_ENV_HOLD     == ENV_HOLD,      "envelope stage mirror drifted");
+static_assert(FD_ENV_RELEASE  == ENV_RELEASE,   "envelope stage mirror drifted");
+static_assert(FD_ENV_STAGES   == ENV_STAGES,    "envelope stage mirror drifted");
 
 /* The engine's state is about 87 KB -- four MacroOscillators at 17 KB each
  * plus the combs. The device's .data/.bss region is 96 KiB and the platform
@@ -90,6 +94,7 @@ uint8_t fm1_drone_get_param(uint8_t v, uint8_t p)           { return g_drone.Get
 void fm1_drone_set_global(uint8_t p, uint8_t val)           { g_drone.SetGlobal(p, val); }
 uint8_t fm1_drone_get_global(uint8_t p)                     { return g_drone.GetGlobal(p); }
 void fm1_drone_snap_params(void)                            { g_drone.SnapParams(); }
+uint8_t fm1_drone_env_stage(uint8_t v)                      { return g_drone.EnvStage(v); }
 
 uint8_t fm1_drone_meter(uint8_t v)    { return g_drone.Meter(v); }
 uint8_t fm1_drone_clipping(uint8_t v) { return g_drone.Clipping(v) ? 1u : 0u; }
