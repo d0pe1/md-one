@@ -432,7 +432,9 @@ Measured on the emulated pi32v2, one voice, per 256-frame block:
 | HARMONICS | 45,139 | 188.1 | 3.2% | 30 |
 
 **Four voices of the most expensive shape is 12.9% of the budget.** Even
-assuming the 1 insn/cycle model is 3× optimistic, four HARMONICS voices land
+assuming the 1 insn/cycle model is 3x optimistic FOR THE OSCILLATOR -- which
+is the only part reading flash, and a worst case even for it -- four
+HARMONICS voices land
 near 39% — still inside RULES.md's "stay under half" advice.
 
 The spread is only 3× across the whole catalogue, so shape choice is a sound

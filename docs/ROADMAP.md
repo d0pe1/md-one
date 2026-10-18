@@ -44,14 +44,41 @@ The 20.7% is the engine as it stands: four voices, two filters, metering, an
 AHDSR, parameter slewing and the modulation matrix. A loaded patch — three EQ bands and drive on
 every channel — is **32%**.
 
-The headroom is real but optimistic: the emulator models 1 instruction per
-cycle and every Braids table lives in XIP flash. **At a pessimistic 3× for
-stalls, 20.7% becomes 62% and the 32% patch becomes 96%.** That no longer
-clears the "stay under half" rule, and it is the first number in this project
-that hardware could plausibly refute. It does not change what to build next —
-the UX costs nothing at audio rate — but it does mean the block list is now
-bounded by measurement rather than by taste, and the 3× figure itself is a
-guess that only a real device can settle.
+### How optimistic is that number?
+
+The emulator has no per-instruction cost model: it counts instructions and
+calls them cycles. Real silicon stalls on XIP flash reads, and the Braids
+wavetables live in flash.
+
+An earlier version of this section applied a blanket 3× to everything and
+concluded the engine would land at 62%. That was wrong in kind, not merely
+in degree — it charged stall costs to code that never touches flash. Only
+the oscillator reads tables; the filters, comb, envelope, pan, mix bus,
+limiter, meters, LFOs, slew and modulation matrix are register arithmetic:
+
+| | cycles/block | share |
+| --- | ---: | ---: |
+| Braids oscillators (4 × 35,341) — **flash** | 141,364 | 49% |
+| everything else per voice (4 × 32,446) | 129,784 | 45% |
+| shared per block | 16,926 | 6% |
+| **total** | **288,074** | 20.7% of budget |
+
+So at most **half the engine can stall at all**, and what happens to the
+other half is arithmetic:
+
+| Oscillator stalls at | Engine total | % budget |
+| --- | ---: | ---: |
+| 1× (what the emulator reports) | 288,074 | 20.7% |
+| 1.5× | 358,756 | 25.8% |
+| 2× | 429,438 | 30.8% |
+| 3× | 575,802 | 41.3% |
+
+Even if every wavetable read missed cache — which it will not, since
+interpolation reads adjacent entries — the engine stays under half.
+
+None of this is measured. `fm1_ticks()` around `app_audio()` on real
+hardware settles it in one reading (Phase 5), and that reading is worth more
+than the whole table above.
 
 ---
 
