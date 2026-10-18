@@ -25,6 +25,7 @@
 #include "fm1_eq.h"
 #include "fm1_filter.h"
 #include "fm1_params.h"
+#include "fm1_lfo.h"
 #include "fm1_rack.h"
 
 #define FM1_VOICES 4
@@ -121,6 +122,12 @@ class Drone {
      * so the buffer must be zeroed or carry something to mix into. */
     void Render(int16_t *out, uint32_t n);
 
+    /* An LFO's output right now, Q15 bipolar and already scaled by AMOUNT.
+     * The LFO page draws it moving: a modulator you cannot see is one you
+     * have to guess at, and at 0.1 Hz guessing takes ten seconds a go. */
+    q15_t LfoValue(uint8_t n) const
+    { return n < FM1_LFOS ? lfo_out_[n] : 0; }
+
     /* Which envelope segment a voice is in, ENV_* from fm1_env.h. The ENV
      * page marks it on the curve: on a drone machine the envelope is often
      * minutes long, so "where am I" is a real question rather than a
@@ -159,6 +166,12 @@ class Drone {
     uint8_t    g_[NGPARAM];         /* in force now, as DroneVoice::p */
     uint8_t    gtgt_[NGPARAM];
     int16_t    gacc_[NGPARAM];
+
+    /* Four shared modulators, stepped once per block. Shared is the point:
+     * the per-voice wander is already what fm1_drift.h does, and these give
+     * the opposite -- all four voices moving together. */
+    fm1_lfo_t  lfo_[FM1_LFOS];
+    q15_t      lfo_out_[FM1_LFOS];  /* this block's value, for the screen */
     uint8_t    meter_[FM1_VOICES];      /* see Meter() */
     uint8_t    clip_[FM1_VOICES];       /* blocks of red remaining */
     uint32_t   blocks_;        /* blocks rendered, for drift scheduling */

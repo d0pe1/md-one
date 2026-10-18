@@ -94,9 +94,10 @@ typedef struct {
 } patch_t;
 
 /* Bumped from 0xD1 when the globals were added and the per-voice octave moved
- * into P_OCTAVE: an old patch has a different layout, and loading it would
- * scatter its bytes across the wrong parameters. */
-#define PATCH_MAGIC 0xD2
+ * into P_OCTAVE, and again at 0xD3 when the four LFOs added 16 globals. An
+ * old patch has a different layout, and loading it would scatter its bytes
+ * across the wrong parameters. */
+#define PATCH_MAGIC 0xD3
 
 static void patch_store(patch_t *q)
 {
@@ -234,6 +235,7 @@ static void app_main(void)
 
         if (b & (1u << UI_B_EDIT)) { fm1_nav_press(&ui_nav, M_EDIT, (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_ENV))  { fm1_nav_press(&ui_nav, M_ENV,  (int)ui_shift); redraw = 1; }
+        if (b & (1u << UI_B_LFO))  { fm1_nav_press(&ui_nav, M_LFO,  (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_FX))   { fm1_nav_press(&ui_nav, M_FX,   (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_MIX))  { fm1_nav_press(&ui_nav, M_MIX,  (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_GLO))  { fm1_nav_press(&ui_nav, M_GLO,  (int)ui_shift); redraw = 1; }
@@ -343,7 +345,8 @@ static void app_main(void)
         /* The meters have to move on their own -- nothing presses a button to
          * make a drone get louder. 20 Hz is fast enough to read a peak and
          * slow enough to leave the audio alone. */
-        if (ui_nav.menu == M_MIX && fm1_ms - t_meter > 50u) {
+        if ((ui_nav.menu == M_MIX || ui_nav.menu == M_LFO)
+            && fm1_ms - t_meter > 50u) {
             t_meter = fm1_ms;
             ui_draw_body();
         }

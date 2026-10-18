@@ -839,6 +839,124 @@ static void test_slew(void)
        "SnapParams lands everything at once", "a snapped value was still moving");
 }
 
+/* The LFOs.
+ *
+ * What is worth pinning is not the shapes -- four lines of arithmetic each --
+ * but the two things that would stay invisible until a patch sounded wrong:
+ *
+ *   - the SLOW end has to actually move. At 0.01 Hz the per-block increment
+ *     is a small integer, and a generator that rounded it to zero would give
+ *     an LFO sitting perfectly still while claiming a hundred-second cycle.
+ *   - the continuous shapes must not JUMP. A triangle that wraps badly is a
+ *     click in everything it modulates, and at these rates you would wait a
+ *     minute between occurrences while hunting it.
+ */
+static void test_lfo(void)
+{
+    printf("\nLFOs\n");
+
+    static fm1_lfo_t l;
+    int bounded = 1, i;
+
+    /* Every mode stays inside Q15 at full amount, including the random ones
+     * whose endpoints come from a 32-bit generator. */
+    for (uint8_t m = 0; m < LFO_NMODES; m++) {
+        fm1_lfo_init(&l, 12345u + m);
+        fm1_lfo_set_mode(&l, m);
+        fm1_lfo_set_amount(&l, 127);
+        fm1_lfo_set_rate(&l, 100);
+        for (i = 0; i < 20000; i++) {
+            int32_t v = fm1_lfo_block(&l);
+            if (v > Q15_ONE || v < Q15_MIN) { bounded = 0; break; }
+        }
+    }
+    ok(bounded, "every mode stays inside Q15 at full amount", "wrapped");
+
+    /* Amount 0 is silence, in every mode: an LFO reaching nothing must reach
+     * nothing, not almost nothing. */
+    {
+        int silent = 1;
+        for (uint8_t m = 0; m < LFO_NMODES; m++) {
+            fm1_lfo_init(&l, 999u + m);
+            fm1_lfo_set_mode(&l, m);
+            fm1_lfo_set_amount(&l, 0);
+            fm1_lfo_set_rate(&l, 90);
+            for (i = 0; i < 2000; i++)
+                if (fm1_lfo_block(&l) != 0) { silent = 0; break; }
+        }
+        ok(silent, "amount 0 is exactly zero in every mode", "it leaked");
+    }
+
+    /* The slowest rate must still arrive. One block is 5.805 ms, so a 100 s
+     * cycle is about 17,000 blocks -- run two cycles' worth and require the
+     * thing to have visited both ends of its travel. */
+    {
+        int32_t lo = 32767, hi = -32768;
+        fm1_lfo_init(&l, 7u);
+        fm1_lfo_set_mode(&l, LFO_TRI);
+        fm1_lfo_set_amount(&l, 127);
+        fm1_lfo_set_rate(&l, 0);
+        for (i = 0; i < 40000; i++) {
+            int32_t v = fm1_lfo_block(&l);
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+        }
+        printf("    slowest rate over 40000 blocks (232 s): %d .. %d\n", lo, hi);
+        ok(hi > 20000 && lo < -20000,
+           "the slowest rate still traverses its range",
+           "the increment rounded to zero: the LFO never moves");
+    }
+
+    /* The continuous shapes step smoothly: no block may move more than a
+     * fraction of the range, or it is a click in whatever it reaches. */
+    {
+        static const uint8_t SMOOTH_MODES[] = { LFO_TRI, LFO_SMOOTH };
+        int ok_all = 1;
+        for (uint32_t k = 0; k < sizeof SMOOTH_MODES; k++) {
+            int32_t prev;
+            int jumps = 0;
+            fm1_lfo_init(&l, 4242u + k);
+            fm1_lfo_set_mode(&l, SMOOTH_MODES[k]);
+            fm1_lfo_set_amount(&l, 127);
+            fm1_lfo_set_rate(&l, 60);
+            prev = fm1_lfo_block(&l);
+            for (i = 0; i < 20000; i++) {
+                int32_t v = fm1_lfo_block(&l);
+                int32_t d = v > prev ? v - prev : prev - v;
+                if (d > 4000) jumps++;
+                prev = v;
+            }
+            if (jumps) {
+                ok_all = 0;
+                printf("    mode %u: %d jumps\n", SMOOTH_MODES[k], jumps);
+            }
+        }
+        ok(ok_all, "TRI and SMOOTH never step more than 1/8 of range",
+           "a discontinuity -- that is a click in everything it modulates");
+    }
+
+    /* S&H holds: within a cycle the value must not change at all. That is the
+     * entire difference between it and SMOOTH. */
+    {
+        int32_t prev;
+        int changes = 0;
+        fm1_lfo_init(&l, 31337u);
+        fm1_lfo_set_mode(&l, LFO_SH);
+        fm1_lfo_set_amount(&l, 127);
+        fm1_lfo_set_rate(&l, 40);
+        prev = fm1_lfo_block(&l);
+        for (i = 0; i < 4000; i++) {
+            int32_t v = fm1_lfo_block(&l);
+            if (v != prev) changes++;
+            prev = v;
+        }
+        printf("    S&H changed %d times in 4000 blocks\n", changes);
+        ok(changes > 0 && changes < 400,
+           "S&H holds between cycles rather than moving every block",
+           "it is not holding, or it never steps at all");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -849,6 +967,7 @@ int main(void)
     test_saturator();
     test_env();
     test_slew();
+    test_lfo();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

@@ -28,7 +28,7 @@
  * creates them), and a menu that navigates to nothing is worse than a menu
  * that is not there. They get added the same day their parameters do.
  */
-enum { M_EDIT, M_ENV, M_FX, M_MIX, M_GLO, M_HOME, M_SAVE, M_NMENU };
+enum { M_EDIT, M_ENV, M_LFO, M_FX, M_MIX, M_GLO, M_HOME, M_SAVE, M_NMENU };
 
 /* Which table a page's parameter ids index. */
 enum { SCOPE_VOICE, SCOPE_GLOBAL };
@@ -46,10 +46,12 @@ enum { SCOPE_VOICE, SCOPE_GLOBAL };
  * band, every other EDIT page selects a voice, and both are still on screen
  * because both counters survive the page change.
  */
-enum { SUBJ_NONE, SUBJ_VOICE, SUBJ_FX, SUBJ_BAND, SUBJ_NKIND };
+enum { SUBJ_NONE, SUBJ_VOICE, SUBJ_FX, SUBJ_BAND, SUBJ_LFO, SUBJ_NKIND };
 
-static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3 };
-static const char *const FM1_SUBJ_NAME[SUBJ_NKIND] = { "", "VOICE", "FX", "BAND" };
+static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4 };
+static const char *const FM1_SUBJ_NAME[SUBJ_NKIND] = {
+    "", "VOICE", "FX", "BAND", "LFO"
+};
 
 #define FM1_KNOBS  4
 #define PG_NONE    (-1)   /* this knob is inactive on this page: show `--` */
@@ -136,6 +138,17 @@ static const fm1_page_t FM1_PG_FX[] = {
       PG_NONE, SUBJ_FX, G_FX_STRIDE },
 };
 
+/* --- LFO: four shaped modulators -----------------------------------------
+ *
+ * One LFO per page, chosen with SELECT -- the same Subject rule as a voice
+ * or an FX channel, so there is nothing new to learn about navigating them.
+ */
+static const fm1_page_t FM1_PG_LFO[] = {
+    { "SHAPE",  { G_LFO(0, G_LFO_RATE), G_LFO(0, G_LFO_AMT),
+                  G_LFO(0, G_LFO_PHASE), PG_NONE },
+      G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE },
+};
+
 /* --- MIX: one page, all four channels visible ----------------------------
  *
  * A mixer spread across four pages is not a mixer. The four knobs follow the
@@ -183,6 +196,7 @@ static const fm1_page_t FM1_PG_SAVE[] = {
 static const fm1_menu_t FM1_MENU[M_NMENU] = {
     [M_EDIT] = { "EDIT", SCOPE_VOICE,  FM1_NPG(FM1_PG_EDIT), FM1_PG_EDIT },
     [M_ENV]  = { "ENV",  SCOPE_VOICE,  FM1_NPG(FM1_PG_ENV),  FM1_PG_ENV  },
+    [M_LFO]  = { "LFO",  SCOPE_GLOBAL, FM1_NPG(FM1_PG_LFO),  FM1_PG_LFO  },
     [M_FX]   = { "FX",   SCOPE_GLOBAL, FM1_NPG(FM1_PG_FX),   FM1_PG_FX   },
     [M_MIX]  = { "MIX",  SCOPE_VOICE,  FM1_NPG(FM1_PG_MIX),  FM1_PG_MIX  },
     [M_GLO]  = { "GLO",  SCOPE_GLOBAL, FM1_NPG(FM1_PG_GLO),  FM1_PG_GLO  },

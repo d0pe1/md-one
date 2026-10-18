@@ -99,7 +99,26 @@ extern "C" {
 #define FD_G_FX_P2        2
 #define FD_G_FX_MIX       3
 #define FD_G_FX_DEST      4
-#define FD_NGPARAM       25
+
+/* Four LFOs, four controls each. FD_G_LFO(n, j) addresses LFO n, control j. */
+#define FD_G_LFO_BASE    25
+#define FD_G_LFO_STRIDE   4
+#define FD_G_LFO(n, j)   (FD_G_LFO_BASE + (n) * FD_G_LFO_STRIDE + (j))
+#define FD_G_LFO_RATE     0
+#define FD_G_LFO_AMT      1
+#define FD_G_LFO_PHASE    2
+#define FD_G_LFO_MODE     3
+#define FD_LFOS           4
+#define FD_NGPARAM       41
+
+/* LFO shapes, mirroring the LFO_* enum in fm1_lfo.h. */
+#define FD_LFO_TRI        0
+#define FD_LFO_SAW        1
+#define FD_LFO_RAMP       2
+#define FD_LFO_SQR        3
+#define FD_LFO_SH         4
+#define FD_LFO_SMOOTH     5
+#define FD_LFO_NMODES     6
 
 /* Routing targets, mirroring the DEST_* enum in fm1_rack.h. One value, one
  * cable. Used by both FD_P_DEST and FD_G_FX(n, FD_G_FX_DEST). */
@@ -148,6 +167,11 @@ void fm1_drone_snap_params(void);
  * the curve -- on a drone machine an envelope is often minutes long, so
  * "where am I" is a real question. */
 uint8_t fm1_drone_env_stage(uint8_t voice);
+
+/* LFO n's output right now, -32768..32767, already scaled by AMOUNT. The LFO
+ * page draws it moving: a modulator you cannot see is one you have to guess
+ * at, and at 0.1 Hz guessing takes ten seconds a go. */
+int16_t fm1_drone_lfo_value(uint8_t n);
 
 /* Mirrors of the ENV_* enum in fm1_env.h, in the order the curve draws. */
 #define FD_ENV_IDLE     0

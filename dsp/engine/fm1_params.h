@@ -88,8 +88,25 @@ enum {
     G_FX2_TYPE, G_FX2_P1, G_FX2_P2, G_FX2_MIX, G_FX2_DEST,
     G_FX3_TYPE, G_FX3_P1, G_FX3_P2, G_FX3_MIX, G_FX3_DEST,
     G_FX4_TYPE, G_FX4_P1, G_FX4_P2, G_FX4_MIX, G_FX4_DEST,
+    /* Four LFOs, four controls each -- exactly one Page. Global rather than
+     * per-voice on purpose: per-voice independence is already what the drift
+     * gives, and what these add is the opposite, all four voices moving
+     * together (fm1_lfo.h). */
+    G_LFO1_RATE, G_LFO1_AMT, G_LFO1_PHASE, G_LFO1_MODE,
+    G_LFO2_RATE, G_LFO2_AMT, G_LFO2_PHASE, G_LFO2_MODE,
+    G_LFO3_RATE, G_LFO3_AMT, G_LFO3_PHASE, G_LFO3_MODE,
+    G_LFO4_RATE, G_LFO4_AMT, G_LFO4_PHASE, G_LFO4_MODE,
     NGPARAM
 };
+
+/* LFO n (0-based), control j. Same shape as G_FX(). */
+#define G_LFO_BASE   G_LFO1_RATE
+#define G_LFO_STRIDE 4
+#define G_LFO(n, j)  (G_LFO_BASE + (n) * G_LFO_STRIDE + (j))
+#define G_LFO_RATE   0
+#define G_LFO_AMT    1
+#define G_LFO_PHASE  2
+#define G_LFO_MODE   3
 
 /* Channel n (0-based) parameter j. The five-per-channel stride is relied on
  * by the engine's SetGlobal and by any UI that walks the patchbay. */
@@ -138,7 +155,8 @@ enum {
     K_FTYPE,    /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
     K_FXTYPE,   /* an effect name,     FM1_FXNAME   in fm1_rack.h */
     K_DEST,     /* a routing target,  FM1_DESTNAME in fm1_rack.h */
-    K_EQMODE    /* an EQ band mode, FM1_EQ_MODE_NAME in fm1_eq.h */
+    K_EQMODE,   /* an EQ band mode, FM1_EQ_MODE_NAME in fm1_eq.h */
+    K_LFOMODE   /* an LFO shape, FM1_LFO_MODE_NAME in fm1_lfo.h */
 };
 
 typedef struct {
@@ -258,6 +276,29 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_FX4_P2]     = {"FX4 P2", 127,  64, K_NUM,     0},
     [G_FX4_MIX]    = {"FX4 MIX",127, 127, K_PCT,     0},
     [G_FX4_DEST]   = {"FX4 OUT",  5,   0, K_DEST,    0},
+
+    /* AMOUNT defaults to 0: an LFO that is running but reaching nothing is
+     * the right state to switch on in. RATE defaults slow -- 24 of 127 on an
+     * exponential 0.01..20 Hz scale is about 0.1 Hz, a ten-second cycle,
+     * which is what this instrument is for. PHASE spreads the four apart so
+     * that two of them assigned to the same destination do not simply sum
+     * into one deeper modulation. */
+    [G_LFO1_RATE]  = {"LFO1 RT",127,  24, K_NUM,     0},
+    [G_LFO1_AMT]   = {"LFO1 AM",127,   0, K_NUM,     0},
+    [G_LFO1_PHASE] = {"LFO1 PH",127,   0, K_NUM,     0},
+    [G_LFO1_MODE]  = {"LFO1 MD",  5,   0, K_LFOMODE, 0},
+    [G_LFO2_RATE]  = {"LFO2 RT",127,  30, K_NUM,     0},
+    [G_LFO2_AMT]   = {"LFO2 AM",127,   0, K_NUM,     0},
+    [G_LFO2_PHASE] = {"LFO2 PH",127,  32, K_NUM,     0},
+    [G_LFO2_MODE]  = {"LFO2 MD",  5,   0, K_LFOMODE, 0},
+    [G_LFO3_RATE]  = {"LFO3 RT",127,  18, K_NUM,     0},
+    [G_LFO3_AMT]   = {"LFO3 AM",127,   0, K_NUM,     0},
+    [G_LFO3_PHASE] = {"LFO3 PH",127,  64, K_NUM,     0},
+    [G_LFO3_MODE]  = {"LFO3 MD",  5,   5, K_LFOMODE, 0},   /* SMOOTH */
+    [G_LFO4_RATE]  = {"LFO4 RT",127,  36, K_NUM,     0},
+    [G_LFO4_AMT]   = {"LFO4 AM",127,   0, K_NUM,     0},
+    [G_LFO4_PHASE] = {"LFO4 PH",127,  96, K_NUM,     0},
+    [G_LFO4_MODE]  = {"LFO4 MD",  5,   0, K_LFOMODE, 0},
 };
 
 /* --- which parameters are slewed -----------------------------------------
@@ -303,9 +344,22 @@ static inline int fm1_param_is_smoothed(uint8_t p)
 static inline int fm1_gparam_is_smoothed(uint8_t p)
 {
     if (p >= NGPARAM) return 0;
+    /* An LFO's RATE and PHASE move its oscillator, not the audio: slewing
+     * them would make the knob feel laggy to no purpose, since the thing
+     * they steer is already smooth. AMOUNT does scale a signal, so it is
+     * slewed like any other gain. */
+    switch (p) {
+    case G_LFO1_RATE: case G_LFO1_PHASE:
+    case G_LFO2_RATE: case G_LFO2_PHASE:
+    case G_LFO3_RATE: case G_LFO3_PHASE:
+    case G_LFO4_RATE: case G_LFO4_PHASE:
+        return 0;
+    default:
+        break;
+    }
     switch (FM1_GDEF[p].kind) {
     case K_SHAPE: case K_ONOFF: case K_FTYPE:
-    case K_FXTYPE: case K_DEST: case K_EQMODE:
+    case K_FXTYPE: case K_DEST: case K_EQMODE: case K_LFOMODE:
         return 0;
     default:
         return 1;

@@ -135,6 +135,17 @@ static void ota_commit(const uint8_t *parm)
 /* ---- settings: [magic][length][crc32] then the bytes; settings_save erases the sector (~50 ms with
  * the interrupts off: the sound drops out), so save when nothing plays, not on every knob step */
 #define SETTINGS_MAGIC 0x59474E44u              /* "DNGY" */
+
+/* The sector is 4 KiB and is erased in full on every save, so the only thing
+ * that ever bounded a saved blob to 256 bytes was this staging buffer. MD-One
+ * ran into it: a patch is 4 x 42 voice parameters plus 25 globals, and the
+ * modulation matrix adds 18 more per voice -- 274 bytes, past the old cap for
+ * the sake of a buffer size.
+ *
+ * 2 KiB leaves room for the patch to keep growing and for more than one of
+ * them later (UX_DESIGN section 10.4), while staying well inside the sector:
+ * the 12-byte header puts the hard ceiling at 4084. */
+#define SETTINGS_MAX 2048u
 static uint32_t crc32(const uint8_t *p, uint32_t n)
 {
     uint32_t c = 0xFFFFFFFFu, k;
@@ -147,7 +158,7 @@ static uint32_t crc32(const uint8_t *p, uint32_t n)
 }
 static int settings_load(void *p, uint32_t n)   /* 0: loaded; else p is untouched */
 {
-    static uint8_t buf[256];
+    static uint8_t buf[SETTINGS_MAX];
     uint32_t h[3];
     if (!flash_ok || n > sizeof buf || st_read(SETTINGS_AT, h, sizeof h) || h[0] != SETTINGS_MAGIC || h[1] != n)
         return -1;
@@ -156,11 +167,11 @@ static int settings_load(void *p, uint32_t n)   /* 0: loaded; else p is untouche
     memcpy(p, buf, n);
     return 0;
 }
-static int settings_save(const void *p, uint32_t n)   /* p in RAM, n <= 256 */
+static int settings_save(const void *p, uint32_t n)   /* p in RAM, n <= SETTINGS_MAX */
 {
     uint32_t h[3] = {SETTINGS_MAGIC, n, 0}, took;
     int rc;
-    if (!flash_ok || n > 256u)
+    if (!flash_ok || n > SETTINGS_MAX)
         return -1;
     h[2] = crc32(p, n);
     if ((rc = fl_erase4k(SETTINGS_AT, &took)) != 0)

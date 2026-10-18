@@ -22,8 +22,16 @@ static_assert(DEST_NDEST - 1 == 5,
 static_assert(DEST_FX1 + FM1_FX_CHANS == DEST_OUT,
               "DEST_* is no longer DEST_FX1..FX4 then DEST_OUT -- the engine "
               "indexes channels by (dest - DEST_FX1)");
-static_assert(G_FX(3, G_FX_DEST) == NGPARAM - 1,
-              "the patchbay parameters are not the tail of the global table");
+/* The LFO block now sits after the patchbay, so the patchbay is no longer the
+ * tail. What still has to hold is that each block is CONTIGUOUS and that
+ * ApplyGlobal's arithmetic dispatch can tell them apart: it tests
+ * `>= G_LFO_BASE` before `>= G_FX_BASE`, so the order matters. */
+static_assert(G_FX(3, G_FX_DEST) + 1 == G_LFO_BASE,
+              "the patchbay and LFO parameter blocks are no longer adjacent");
+static_assert(G_LFO(3, G_LFO_MODE) == NGPARAM - 1,
+              "the LFO parameters are not the tail of the global table");
+static_assert(LFO_NMODES - 1 == 5,
+              "LFO mode count changed -- update G_LFO*_MODE max in fm1_params.h");
 
 /* Detune and drift are applied in 1/128-semitone units, Braids' pitch unit.
  * DETUNE is 0..127 around a centre of 64, spanning +-50 cents. */
@@ -65,6 +73,13 @@ void Drone::Init(uint32_t seed)
         gacc_[i] = (int16_t)(FM1_GDEF[i].def << 8);
     }
     fx_rack_init(&rack_);
+
+    /* A different seed each, or four S&H modes would step in lockstep and
+     * read as one modulator wired four ways. */
+    for (uint8_t n = 0; n < FM1_LFOS; n++) {
+        fm1_lfo_init(&lfo_[n], 0x2545F491u + n * 0x9E3779B9u);
+        lfo_out_[n] = 0;
+    }
 
     for (uint8_t v = 0; v < FM1_VOICES; v++) {
         DroneVoice &d = v_[v];
@@ -259,6 +274,22 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
     if (param == G_SPREAD)
         for (uint8_t v = 0; v < FM1_VOICES; v++) ApplyPitch(v);
 
+    /* Tested before the patchbay, because the LFO block sits above it and
+     * `>= G_FX_BASE` is true for both. */
+    if (param >= G_LFO_BASE) {
+        uint8_t n    = (uint8_t)((param - G_LFO_BASE) / G_LFO_STRIDE);
+        uint8_t what = (uint8_t)((param - G_LFO_BASE) % G_LFO_STRIDE);
+        fm1_lfo_t *l = &lfo_[n];
+        switch (what) {
+        case G_LFO_RATE:  fm1_lfo_set_rate(l, value);   break;
+        case G_LFO_AMT:   fm1_lfo_set_amount(l, value); break;
+        case G_LFO_PHASE: fm1_lfo_set_phase(l, value);  break;
+        case G_LFO_MODE:  fm1_lfo_set_mode(l, value);   break;
+        default: break;
+        }
+        return;
+    }
+
     if (param >= G_FX_BASE) {
         uint8_t slot = (uint8_t)((param - G_FX_BASE) / G_FX_STRIDE);
         uint8_t what = (uint8_t)((param - G_FX_BASE) % G_FX_STRIDE);
@@ -363,6 +394,12 @@ void Drone::Render(int16_t *out, uint32_t n)
          * jump is a click -- and because deciding this per sample would cost
          * 256 times as much for nothing. */
         SlewBlock();
+
+        /* The modulators, once a block, before anything reads them. Four of
+         * them is a few dozen cycles: they are shared, so unlike almost
+         * everything else here the cost is paid once rather than per voice. */
+        for (uint8_t n = 0; n < FM1_LFOS; n++)
+            lfo_out_[n] = fm1_lfo_block(&lfo_[n]);
 
         for (uint32_t i = 0; i < chunk * 2u; i++) bus_[i] = 0;
 

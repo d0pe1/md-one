@@ -26,6 +26,7 @@
 #include "fm1_eq.h"
 #include "fm1_route.h"
 #include "fm1_env.h"
+#include "fm1_lfo.h"
 
 /* The latched note of a voice. Owned by drone.c, which is the instrument;
  * this file only draws it. Declared here because a unity build compiles
@@ -217,6 +218,10 @@ static void ui_fmt(int id, char *out)
         break;
     case K_DEST:
         ui_str(out, &i, FM1_DESTNAME[v % DEST_NDEST]);
+        out[i] = 0;
+        break;
+    case K_LFOMODE:
+        ui_str(out, &i, FM1_LFO_MODE_NAME[v % LFO_NMODES]);
         out[i] = 0;
         break;
     case K_EQMODE:
@@ -568,6 +573,49 @@ static void ui_body_env(void)
     }
 }
 
+/* --- the LFOs -------------------------------------------------------------
+ *
+ * All four as live bipolar bars, because a modulator you cannot see is one
+ * you have to guess at -- and at the slow end of this range a full cycle
+ * takes a hundred seconds, so guessing is not a thing anyone does twice.
+ *
+ * Showing all four at once also surfaces what the numbers hide: whether two
+ * of them happen to be moving together. Four LFOs on similar rates drift in
+ * and out of phase, and that is either the effect you wanted or the reason
+ * the patch sounds like it is pulsing.
+ */
+#define LFO_BAR_X   24
+#define LFO_BAR_W   184
+#define LFO_BAR_MID (LFO_BAR_X + LFO_BAR_W / 2)
+
+static void ui_body_lfo(void)
+{
+    uint8_t n;
+
+    for (n = 0; n < FD_LFOS; n++) {
+        int32_t y = Y_BODY + 6 + (int32_t)n * 26;
+        int32_t v = fm1_drone_lfo_value(n);     /* -32768..32767 */
+        int32_t w = (v * (LFO_BAR_W / 2)) / 32768;
+        char lab[8];
+        uint16_t col = (n == ui_nav.sel[SUBJ_LFO]) ? C_ACC : C_ON;
+
+        lab[0] = 'L';
+        lab[1] = (char)('1' + n);
+        lab[2] = 0;
+        draw_text_box(0, y, 22, &FONT_S, lab,
+                      n == ui_nav.sel[SUBJ_LFO] ? C_ACC : C_GREY, 1);
+
+        /* The track and its centre, so zero is a place rather than an
+         * absence: an LFO at amount 0 and an LFO passing through the middle
+         * of its travel must not look the same. */
+        lcd_fill(LFO_BAR_X, y + 8, LFO_BAR_W, 1, C_TRACK);
+        lcd_fill(LFO_BAR_MID, y + 4, 1, 9, C_GREY);
+
+        if (w > 0)      lcd_fill(LFO_BAR_MID, y + 4, w, 9, col);
+        else if (w < 0) lcd_fill(LFO_BAR_MID + w, y + 4, -w, 9, col);
+    }
+}
+
 /* All four voices at once: the page you return to to see the whole
  * instrument. Not editable -- that is what the other menus are for. */
 static void ui_body_home(void)
@@ -607,6 +655,7 @@ static void ui_draw_body(void)
     if (ui_nav.menu == M_MIX)  { ui_body_mixer(); return; }
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
     if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
+    if (ui_nav.menu == M_LFO)  { ui_body_lfo();   return; }
 
     if (p->alg == P_SHAPE && FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE) {
         ui_body_shapes();
@@ -652,7 +701,8 @@ static void ui_draw(void)
 static void ui_leds(void)
 {
     static const uint8_t BTN[M_NMENU] = {
-        UI_B_EDIT, UI_B_ENV, UI_B_FX, UI_B_MIX, UI_B_GLO, UI_B_HOME, UI_B_SAVE
+        UI_B_EDIT, UI_B_ENV, UI_B_LFO, UI_B_FX, UI_B_MIX, UI_B_GLO,
+        UI_B_HOME, UI_B_SAVE
     };
     uint8_t m;
     uint32_t blink = (fm1_ms / 400u) & 1u;
@@ -663,9 +713,8 @@ static void ui_leds(void)
         fm1_led_key(BTN[m], on);
     }
     fm1_led_key(UI_B_SHIFT, ui_shift ? 1u : 0u);
-    /* LFO and MOD have no menus yet. Dark rather than lit-and-inert: a lit
-     * button that does nothing is worse than an unlit one. */
-    fm1_led_key(UI_B_LFO, 0);
+    /* MOD still has no menu. Dark rather than lit-and-inert: a lit button
+     * that does nothing is worse than an unlit one. */
     fm1_led_key(UI_B_MOD, 0);
 }
 
