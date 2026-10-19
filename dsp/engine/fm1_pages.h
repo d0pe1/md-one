@@ -422,6 +422,52 @@ static inline int fm1_streq(const char *a, const char *b)
     return *a == *b;
 }
 
+/* --- how far one detent goes ---------------------------------------------
+ *
+ * ONE DETENT IS ONE STEP. That is the rule, and it was not the rule before:
+ * anything with a range over 16 moved by SIX per detent, so walking the 48
+ * oscillator shapes skipped five at a time and a value on screen went 008,
+ * 014, 020 while the knob clicked once, once, once. A control that does not
+ * do what the click says is a control you cannot aim.
+ *
+ * The reason that multiplier existed is real, though: at one step per detent
+ * a 0..127 parameter wants 127 clicks, which is six turns of the encoder. So
+ * the range comes from ACCELERATION instead -- keep turning and the steps
+ * grow, stop and the next click is worth exactly one again.
+ *
+ * Takes `now` rather than reading a clock, so it is pure and the firmware's
+ * feel can be asserted on a host instead of photographed.
+ */
+#define FM1_ACC_MS   100u   /* below ten detents a second you are placing a
+                             * value; above it you are travelling */
+#define FM1_ACC_MAX  9u
+
+typedef struct {
+    uint32_t last_ms;
+    uint8_t  run;
+} fm1_accel_t;
+
+static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
+                                    int32_t detents, uint8_t max)
+{
+    uint32_t dt = now - a->last_ms;
+
+    a->last_ms = now;
+
+    /* Small ranges never accelerate: a six-entry mode list has nowhere to go
+     * and absolutely must not overshoot. */
+    if (max <= 16u) { a->run = 0; return detents; }
+
+    if (dt < FM1_ACC_MS) {
+        if (a->run < FM1_ACC_MAX) a->run++;
+    } else {
+        a->run = 0;
+    }
+    /* run 1 is the FIRST fast detent and still counts as one step, so a
+     * quick two-tap to nudge a value by two does not land on four. */
+    return detents * (int32_t)(a->run ? a->run : 1u);
+}
+
 static inline const char *fm1_label_fit(const char *name)
 {
     const char *p = name, *last = name;

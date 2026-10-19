@@ -163,11 +163,15 @@ static void ui_set(int id, uint8_t val)
         fm1_drone_set_param(ui_voice(), (uint8_t)id, val);
 }
 
-/* STEP is per detent, inherited from the first firmware: 6 crosses 0..127 in
- * about one turn, which is what a knob should do. Enums step by ONE -- a
- * filter mode that jumps six positions per detent is unusable, and the whole
- * mode list is six long. */
-#define UI_STEP 6
+/* The rule and the arithmetic live in fm1_pages.h so they can be tested;
+ * this is only the clock and the per-encoder state. */
+static fm1_accel_t ui_acc[8];
+
+static int32_t ui_accel(uint8_t enc, int32_t e, const fm1_pdef_t *d)
+{
+    if (enc >= 8u) return e;
+    return fm1_enc_accel(&ui_acc[enc], fm1_ms, e, d ? d->max : 127u);
+}
 
 static void ui_nudge(int id, int32_t delta)
 {
@@ -175,7 +179,7 @@ static void ui_nudge(int id, int32_t delta)
     int32_t x;
 
     if (!d) return;
-    x = (int32_t)ui_get(id) + delta * (d->max > 16 ? UI_STEP : 1);
+    x = (int32_t)ui_get(id) + delta;
     if (x < 0) x = 0;
     if (x > (int32_t)d->max) x = (int32_t)d->max;
     ui_set(id, (uint8_t)x);
@@ -889,7 +893,8 @@ static int ui_encoders(void)
                 fm1_drone_set_param(ui_voice(), P_SHAPE,
                                     FM1_SHAPE_CAT[c].first);
             } else {
-                ui_nudge(alg, e);
+                ui_nudge(alg, ui_accel(ENC_ALGORITHM, e,
+                                       fm1_page_def(&ui_nav, alg)));
             }
             changed = 1;
         }
@@ -903,7 +908,11 @@ static int ui_encoders(void)
              * layer it changes nothing. */
             int id = ui_shift ? fm1_page_shift_knob(&ui_nav, k) : PG_NONE;
             if (id == PG_NONE) id = fm1_page_knob(&ui_nav, k);
-            if (id != PG_NONE) { ui_nudge(id, e); changed = 1; }
+            if (id != PG_NONE) {
+                ui_nudge(id, ui_accel((uint8_t)(ENC_KNOB1 + k), e,
+                                      fm1_page_def(&ui_nav, id)));
+                changed = 1;
+            }
         }
     }
 

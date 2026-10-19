@@ -312,10 +312,69 @@ static void test_shapes(void)
     check(covers, "every shape lands in exactly one category", 0);
 }
 
+/* Encoder feel.
+ *
+ * This exists because the firmware shipped with every wide-range parameter
+ * moving SIX steps per detent: the 48 oscillator shapes were walked five at
+ * a time, and a value went 008, 014, 020 while the knob clicked once, once,
+ * once. It was found by a human turning a knob in an emulator, which is a
+ * slow way to find something a test can hold still.
+ */
+static void test_encoder_feel(void)
+{
+    fm1_accel_t a;
+    uint32_t t = 10000;
+    int32_t total;
+    int i;
+
+    /* One click, in isolation, is one step. Nothing else here matters as
+     * much: this is the property that makes a control aimable. */
+    memset(&a, 0, sizeof a);
+    check(fm1_enc_accel(&a, t, 1, 127) == 1,
+          "a single detent moves exactly one step", 0);
+    check(fm1_enc_accel(&a, t + 500, 1, 127) == 1,
+          "and so does the next one, after a pause", 0);
+
+    /* A quick two-tap is two, not four: nudging a value by two is a thing
+     * people do, and it must not overshoot. */
+    memset(&a, 0, sizeof a);
+    total  = fm1_enc_accel(&a, t, 1, 127);
+    total += fm1_enc_accel(&a, t + 60, 1, 127);
+    check(total == 2, "a quick two-tap moves exactly two", 0);
+
+    /* Keep turning and it travels. Twenty detents at 50 ms -- one second of
+     * deliberate turning -- must cross a 0..127 range rather than covering
+     * a sixth of it. */
+    memset(&a, 0, sizeof a);
+    total = 0;
+    for (i = 0; i < 20; i++)
+        total += fm1_enc_accel(&a, t + (uint32_t)i * 50u, 1, 127);
+    printf("    twenty detents at 50 ms: %d steps\n", total);
+    check(total >= 127, "a sustained turn crosses the full range", 0);
+
+    /* Enums never accelerate. Six filter modes spun quickly must still land
+     * where the clicks say, or the mode list becomes a slot machine. */
+    memset(&a, 0, sizeof a);
+    total = 0;
+    for (i = 0; i < 6; i++)
+        total += fm1_enc_accel(&a, t + (uint32_t)i * 10u, 1, 5);
+    check(total == 6, "a short enum never accelerates", 0);
+
+    /* Direction survives, and so does a multi-detent report: the panel can
+     * deliver two or three detents in one poll when the loop is busy. */
+    memset(&a, 0, sizeof a);
+    check(fm1_enc_accel(&a, t, -1, 127) == -1,
+          "turning the other way moves one step the other way", 0);
+    memset(&a, 0, sizeof a);
+    check(fm1_enc_accel(&a, t, 3, 127) == 3,
+          "three detents in one poll are three steps", 0);
+}
+
 int main(void)
 {
     printf("menu and page map\n");
     test_reachable();
+    test_encoder_feel();
     test_shapes();
     test_no_duplicate_on_page();
     test_ids_in_range();

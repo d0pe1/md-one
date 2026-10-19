@@ -85,6 +85,13 @@ done
 
 # --- 5. the firmware -------------------------------------------------------
 stage "firmware"
+PKG=$R/firmware/build/dinghy.fwsc
+# Delete the package FIRST. Without this a failed compile leaves the previous
+# run's .fwsc in place, the emulator stage happily boots it, and a broken
+# build reports "1 FAILED, 11 passed" -- where the 11 includes "the firmware
+# boots and makes a sound", which was true of a binary that no longer exists.
+# Seen exactly once, which was enough.
+rm -f "$PKG"
 if [ ! -d "$SDK" ]; then
     bad "AC79 SDK not found at $SDK (set AC79_SDK)"
 else
@@ -93,7 +100,6 @@ else
             python3 "$R/firmware/tools/build.py"
 fi
 
-PKG=$R/firmware/build/dinghy.fwsc
 
 # --- 6. does it actually run? ----------------------------------------------
 stage "emulator"
