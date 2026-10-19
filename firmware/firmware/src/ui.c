@@ -33,6 +33,9 @@
  * ui.c first. */
 static uint8_t ui_note_of(uint8_t voice);
 
+/* Measured in the audio ISR by drone.c, displayed here. */
+extern volatile uint32_t load_ticks, load_peak, load_frames;
+
 /* --- the overlay ---------------------------------------------------------
  *
  * MD-One's button map is NOT the stock silkscreen. This firmware replaces
@@ -689,6 +692,45 @@ static void ui_body_mod(void)
     (void)p;
 }
 
+/* --- what the engine actually costs --------------------------------------
+ *
+ * Measured on the device. Every performance figure in this project so far
+ * comes from an emulator that counts instructions and calls them cycles;
+ * this is the one that does not.
+ *
+ * fm1_ticks() runs at 24 MHz, a tenth of the CPU clock, and the time
+ * available for n frames is n/44100 seconds. So
+ *
+ *     percent = 100 * (ticks / 24e6) / (n / 44100)
+ *             = ticks * 441 / (2400 * n)
+ *
+ * which stays inside int32 at any load the chip can produce.
+ *
+ * PEAK is what is shown next to it, because an average is the statistic
+ * that hides the problem: an engine that fits on average and overruns one
+ * block in fifty is an engine that clicks once a second.
+ */
+static void ui_draw_load(int32_t y)
+{
+    uint32_t n = load_frames ? load_frames : 1u;
+    uint32_t now = (load_ticks * 441u) / (2400u * n);
+    uint32_t pk  = (load_peak  * 441u) / (2400u * n);
+    char line[40];
+    uint32_t i = 0;
+
+    ui_str(line, &i, "CPU ");
+    ui_u8((uint8_t)(now > 255u ? 255u : now), line + i);
+    i += 3;
+    ui_str(line, &i, "%  PEAK ");
+    ui_u8((uint8_t)(pk > 255u ? 255u : pk), line + i);
+    i += 3;
+    ui_str(line, &i, "%");
+    line[i] = 0;
+
+    draw_text_box(6, y, 234, &FONT_S, line,
+                  pk >= 90u ? C_RED : (pk >= 60u ? C_ACC : C_GREY), 0);
+}
+
 /* All four voices at once: the page you return to to see the whole
  * instrument. Not editable -- that is what the other menus are for. */
 static void ui_body_home(void)
@@ -716,6 +758,10 @@ static void ui_body_home(void)
                       v == ui_voice() ? C_ACC
                                       : (dest == DEST_OFF ? C_GREY : C_ON), 0);
     }
+
+    /* HOME is "what is the instrument doing", and on a device with a fixed
+     * audio budget that includes how much of it is left. */
+    ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 + 6);
 }
 
 static void ui_draw_body(void)
@@ -766,6 +812,30 @@ static void ui_draw(void)
     ui_draw_header();
     ui_draw_knobs();
     ui_draw_body();
+}
+
+/* The part of the current page that moves on its own, redrawn on a timer.
+ *
+ * Deliberately NOT the whole body. HOME's four voice rows change only when
+ * something is pressed, so repainting them twenty times a second to update
+ * one load line wastes the draw and leaves the page visibly torn -- half the
+ * rows missing in any snapshot taken mid-repaint, which is exactly how this
+ * was noticed. The mixer and the LFO page are different: their whole bodies
+ * are live. */
+static void ui_tick(void)
+{
+    switch (ui_nav.menu) {
+    case M_HOME:
+        ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 + 6);
+        break;
+    case M_MIX:
+    case M_LFO:
+    case M_MOD:
+        ui_draw_body();
+        break;
+    default:
+        break;
+    }
 }
 
 /* --- LEDs -----------------------------------------------------------------

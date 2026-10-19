@@ -40,9 +40,34 @@
 
 /* ---- the sound (the audio ISR: short, no flash, no screen) */
 
+/* What the render actually costs, measured on the device rather than in an
+ * emulator that counts instructions and calls them cycles.
+ *
+ * Every performance claim in this repository comes from that instruction
+ * count, including the argument that flash stalls can only reach half the
+ * engine. fm1_ticks() is a free-running 24 MHz counter -- a tenth of the CPU
+ * clock -- so this is the number that settles it.
+ *
+ * Both are volatile and written only here, read only from the main loop. No
+ * lock: a torn read of a 32-bit word on this chip is not a thing, and a
+ * display that is one block stale does not matter. */
+static volatile uint32_t load_ticks;    /* the last block */
+static volatile uint32_t load_peak;     /* the worst since it was cleared */
+static volatile uint32_t load_frames;   /* how many frames that block was */
+
 static void app_audio(int32_t *out, uint32_t n)
 {
+    uint32_t t0 = fm1_ticks(), dt;
+
     fm1_drone_render_add(out, n);
+
+    dt = fm1_ticks() - t0;
+    load_ticks = dt;
+    load_frames = n;
+    /* Peak, not average. An engine that fits on average and overruns one
+     * block in fifty is an engine that clicks once a second, and an average
+     * is exactly the statistic that hides it. */
+    if (dt > load_peak) load_peak = dt;
 }
 
 /* ---- state (main loop) */
@@ -246,7 +271,15 @@ static void app_main(void)
         if (b & (1u << UI_B_FX))   { fm1_nav_press(&ui_nav, M_FX,   (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_MIX))  { fm1_nav_press(&ui_nav, M_MIX,  (int)ui_shift); redraw = 1; }
         if (b & (1u << UI_B_GLO))  { fm1_nav_press(&ui_nav, M_GLO,  (int)ui_shift); redraw = 1; }
-        if (b & (1u << UI_B_HOME)) { fm1_nav_press(&ui_nav, M_HOME, (int)ui_shift); redraw = 1; }
+        if (b & (1u << UI_B_HOME)) {
+            /* SHIFT clears the peak as well as returning to page 1. A peak
+             * that can only ever be the worst since power-on stops meaning
+             * anything the moment you touch a knob -- you need to be able to
+             * set a patch up and then ask what IT costs. */
+            if (ui_shift) load_peak = 0;
+            fm1_nav_press(&ui_nav, M_HOME, (int)ui_shift);
+            redraw = 1;
+        }
 
         /* SAVE enters the patch menu; SHIFT + SAVE writes immediately rather
          * than waiting out the idle timer below. */
@@ -352,10 +385,14 @@ static void app_main(void)
         /* The meters have to move on their own -- nothing presses a button to
          * make a drone get louder. 20 Hz is fast enough to read a peak and
          * slow enough to leave the audio alone. */
-        if ((ui_nav.menu == M_MIX || ui_nav.menu == M_LFO
-             || ui_nav.menu == M_MOD) && fm1_ms - t_meter > 50u) {
+        /* Meters, LFO bars and the load readout move without anyone
+         * touching the panel, so the page has to repaint itself. 20 Hz is
+         * fast enough to read a peak and slow enough to leave the audio
+         * alone. ui_tick redraws only the live part of whichever page is
+         * open. */
+        if (fm1_ms - t_meter > 50u) {
             t_meter = fm1_ms;
-            ui_draw_body();
+            ui_tick();
         }
 
         /* A flash erase stalls everything including the audio, so only save
