@@ -521,6 +521,65 @@ static void ui_body_mixer(void)
     }
 }
 
+/* --- response curves ------------------------------------------------------
+ *
+ * These are CARTOONS, not transfer functions, and that is deliberate.
+ *
+ * A real biquad magnitude response needs a square root and a logarithm per
+ * pixel. What a player reads off a curve is "which way does this bend and
+ * how hard" -- the shape, not the decibels -- so the curve is drawn
+ * piecewise-linear in dB from the knob values directly. Five comparisons and
+ * three multiplies per pixel, no tables, no libm.
+ *
+ * The idea is taken from DEADACTIVE's hortator (flt_resp_db in
+ * firmware/src/ui_draw.c), which is GPL-3.0 like this file. The arithmetic
+ * here is written for our own band shapes rather than copied, but the
+ * insight -- that a convincing cartoon beats an honest computation nobody
+ * can afford -- is theirs.
+ *
+ * X is 15 px to the octave, which is what makes the slopes look like slopes.
+ */
+#define CRV_OCT     15      /* pixels per octave */
+#define CRV_DB_MAX  18
+#define CRV_DB_MIN  (-36)
+
+static int32_t ui_clampi(int32_t v, int32_t lo, int32_t hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+/* dB at `dx` pixels from the band's centre. `gain` is -64..+63, `res`
+ * 0..127, `mode` the band's own 0/1. */
+static int32_t ui_band_db(uint8_t band, uint8_t mode, int32_t dx,
+                          int32_t gain, int32_t res)
+{
+    int32_t ad = dx < 0 ? -dx : dx;
+    int32_t g  = gain * CRV_DB_MAX / 64;        /* +-18 dB at the extremes */
+    int32_t w  = 4 + (127 - res) / 8;           /* resonance narrows it */
+
+    if (mode == EQB_PASS) {
+        /* LOW band passes HIGH and vice versa -- the band owns the end of
+         * the spectrum its pass mode takes away. The resonance bump at the
+         * corner is what makes a pass filter read as a filter. */
+        int32_t pk = res * 12 / 127;
+        if (band == 2) dx = -dx;                /* HIGH band: lowpass */
+        if (dx <= -CRV_OCT) return 0;
+        if (dx <= 0)        return pk * (CRV_OCT + dx) / CRV_OCT;
+        return pk - dx * 12 / CRV_OCT;
+    }
+    if (band == 1) {
+        /* MID: a peak, or a notch when the gain is cut. */
+        if (g >= 0) return ad >= w * 2 ? 0 : g * (w * 2 - ad) / (w * 2);
+        return ad >= w ? 0 : g * (w - ad) / w;
+    }
+    /* LOW and HIGH shelves: flat past the corner, flat at the gain before
+     * it, and a straight run between. */
+    if (band == 2) dx = -dx;
+    if (dx <= -CRV_OCT) return g;
+    if (dx >= CRV_OCT)  return 0;
+    return g * (CRV_OCT - dx) / (2 * CRV_OCT);
+}
+
 /* --- the envelope ---------------------------------------------------------
  *
  * The one parameter group where the picture IS the parameter. Four numbers
@@ -742,6 +801,71 @@ static void ui_draw_load(int32_t y)
                   pk >= 90u ? C_RED : (pk >= 60u ? C_ACC : C_GREY), 0);
 }
 
+/* The EQ, drawn.
+ *
+ * This page was unusable without it. Four knobs serve three bands and SELECT
+ * chooses which -- a selector with nothing on screen to point at, so the page
+ * looked like it had one band and a mystery. The curve IS the fix: it shows
+ * all three, marks the one the knobs are holding, and makes the selector
+ * visible the moment you turn it.
+ */
+#define EQ_CV_H  70
+
+static void ui_body_eq(void)
+{
+    uint8_t v = ui_voice();
+    uint8_t sel = ui_nav.sel[SUBJ_BAND] % EQ_BANDS;
+    int32_t mid = EQ_CV_H / 2;
+    int32_t x, py = mid;
+    uint8_t b;
+    int32_t cx[EQ_BANDS];
+
+    cv_begin(240, EQ_CV_H, C_BLACK);
+    cv_line(0, mid, 239, mid, C_TRACK);                 /* 0 dB */
+
+    for (b = 0; b < EQ_BANDS; b++)
+        cx[b] = (int32_t)fm1_drone_get_param(v, (uint8_t)P_EQ(b, P_EQ_FRQ))
+              * 239 / 127;
+
+    for (x = 0; x < 240; x++) {
+        int32_t db = 0, y;
+        for (b = 0; b < EQ_BANDS; b++) {
+            uint8_t mode = fm1_drone_get_param(v, (uint8_t)P_EQ(b, P_EQ_MODE));
+            int32_t gain = (int32_t)fm1_drone_get_param(v, (uint8_t)P_EQ(b, P_EQ_GAIN)) - 64;
+            int32_t res  = fm1_drone_get_param(v, (uint8_t)P_EQ(b, P_EQ_RES));
+            int32_t mix  = fm1_drone_get_param(v, (uint8_t)P_EQ(b, P_EQ_MIX));
+            /* MIX scales what the band contributes, so a band blended to
+             * half really is half a band on the curve. */
+            db += ui_band_db(b, mode, x - cx[b], gain, res) * mix / 127;
+        }
+        db = ui_clampi(db, CRV_DB_MIN, CRV_DB_MAX);
+        y = mid - db * mid / CRV_DB_MAX;
+        if (x) cv_line(x - 1, py, x, y, C_ACC);
+        py = y;
+    }
+
+    /* Each band's centre, the selected one picked out. This is the part that
+     * makes SELECT discoverable: turn it and a marker moves. */
+    for (b = 0; b < EQ_BANDS; b++) {
+        uint16_t col = (b == sel) ? C_ACC : C_TRACK;
+        cv_rect(cx[b], b == sel ? 0 : mid - 4, 1, b == sel ? EQ_CV_H : 8, col);
+    }
+    cv_blit(0, Y_BODY);
+
+    {
+        static const char *const BAND[EQ_BANDS] = { "LOW", "MID", "HIGH" };
+        uint8_t mode = fm1_drone_get_param(v, (uint8_t)P_EQ(sel, P_EQ_MODE));
+        char line[40];
+        uint32_t i = 0;
+        for (b = 0; b < EQ_BANDS; b++)
+            draw_text_box((int32_t)b * 60 + 10, Y_BODY + EQ_CV_H + 6, 60,
+                          &FONT_S, BAND[b], b == sel ? C_ACC : C_TRACK, 1);
+        ui_str(line, &i, FM1_EQ_MODE_NAME[sel][mode & 1u]);
+        line[i] = 0;
+        draw_text_box(190, Y_BODY + EQ_CV_H + 6, 48, &FONT_S, line, C_ON, 1);
+    }
+}
+
 /* All four voices at once: the page you return to to see the whole
  * instrument. Not editable -- that is what the other menus are for. */
 static void ui_body_home(void)
@@ -787,6 +911,10 @@ static void ui_draw_body(void)
     if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
     if (ui_nav.menu == M_LFO)  { ui_body_lfo();   return; }
     if (ui_nav.menu == M_MOD)  { ui_body_mod();   return; }
+
+    /* The EQ page, asked of the table rather than hardcoded by page number:
+     * its first knob is a band frequency. */
+    if (p->subject == SUBJ_BAND) { ui_body_eq(); return; }
 
     if (p->alg == P_SHAPE && FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE) {
         ui_body_shapes();
