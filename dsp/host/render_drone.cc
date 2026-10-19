@@ -98,10 +98,11 @@ static void apply(fm1::Drone &d, const Preset &p)
         /* The comb is a filter mode now. F1 in COMB mode with these three
          * parameters is exactly the old osc -> comb -> level -> pan chain, so
          * the presets are unchanged in sound. */
-        d.SetParam(i, P_F1_TYPE,     F_COMB);
+        /* The comb is an insert slot now, not a filter mode. */
+        d.SetParam(i, P_SL(0, P_SL_TYPE), SL_COMB);
         d.SetParam(i, P_F1_CUT,      s.comb_tune);
-        d.SetParam(i, P_F1_RES,      s.comb_fb);
-        d.SetParam(i, P_F1_MIX,      s.comb_mix);
+        d.SetParam(i, P_SL(0, P_SL_P2),   s.comb_fb);
+        d.SetParam(i, P_SL(0, P_SL_MIX),  s.comb_mix);
         d.SetParam(i, P_LEVEL,       s.level);
         d.SetParam(i, P_PAN,         s.pan);
         d.NoteOn(i, s.note);

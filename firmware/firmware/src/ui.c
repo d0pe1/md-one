@@ -27,6 +27,7 @@
 #include "fm1_route.h"
 #include "fm1_env.h"
 #include "fm1_lfo.h"
+#include "fm1_slot.h"
 
 /* The latched note of a voice. Owned by drone.c, which is the instrument;
  * this file only draws it. Declared here because a unity build compiles
@@ -231,6 +232,10 @@ static void ui_fmt(int id, char *out)
         ui_str(out, &i, FM1_LFO_MODE_NAME[v % LFO_NMODES]);
         out[i] = 0;
         break;
+    case K_SLOT:
+        ui_str(out, &i, FM1_SLOT_NAME[v % SL_NTYPES]);
+        out[i] = 0;
+        break;
     case K_MODSRC:
         ui_str(out, &i, FM1_MODSRC_NAME[v < 5u ? v : 0]);
         out[i] = 0;
@@ -260,20 +265,22 @@ static void ui_fmt(int id, char *out)
 static const char *ui_label(int id)
 {
     const fm1_pdef_t *d = fm1_page_def(&ui_nav, id);
-    uint8_t mode;
 
     if (!d) return "----";
 
-    if (id == P_F1_CUT || id == P_F2_CUT) {
-        mode = fm1_drone_get_param(ui_voice(),
-                   (uint8_t)(id == P_F1_CUT ? P_F1_TYPE : P_F2_TYPE));
-        return FM1_FMODE_CUT_LABEL[mode % F_NMODES];
+    /* A slot's P1 and P2 are a tune, an offset, a drive or a bias depending
+     * on its type. "P1" on a screen is a knob nobody trusts, which is the
+     * same reason the filter used to relabel CUT. */
+    {
+        uint8_t sn;
+        for (sn = 0; sn < FM1_SLOTS; sn++) {
+            uint8_t t = fm1_drone_get_param(ui_voice(),
+                                            (uint8_t)P_SL(sn, P_SL_TYPE));
+            if (id == P_SL(sn, P_SL_P1)) return FM1_SLOT_P1[t % SL_NTYPES];
+            if (id == P_SL(sn, P_SL_P2)) return FM1_SLOT_P2[t % SL_NTYPES];
+        }
     }
-    if (id == P_F1_RES || id == P_F2_RES) {
-        mode = fm1_drone_get_param(ui_voice(),
-                   (uint8_t)(id == P_F1_RES ? P_F1_TYPE : P_F2_TYPE));
-        return FM1_FMODE_RES_LABEL[mode % F_NMODES];
-    }
+
     return fm1_label_fit(d->name);
 }
 

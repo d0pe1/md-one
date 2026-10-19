@@ -827,8 +827,8 @@ static void test_slew(void)
 
     /* An enum must not slide: there is nothing between COMB and RESO, and a
      * filter easing through BANDPASS on the way would be audible nonsense. */
-    d.SetParam(0, P_F1_TYPE, F_COMB);
-    ok(d.CurrentParam(0, P_F1_TYPE) == F_COMB,
+    d.SetParam(0, P_F1_TYPE, F_NOTCH);
+    ok(d.CurrentParam(0, P_F1_TYPE) == F_NOTCH,
        "an enum lands immediately, without a block of lag",
        "a mode change was slewed");
 
@@ -1056,10 +1056,10 @@ static void test_mod_matrix(void)
         int32_t plo = 1 << 30, phi = 0;
         int32_t base_lo, base_hi;
 
-        d.SetParam(0, P_F1_TYPE, F_COMB);
-        d.SetParam(0, P_F1_MIX, 127);
-        d.SetParam(0, P_F1_RES, 100);           /* resonant enough to matter */
-        d.SetParam(0, P_F1_CUT, 64);
+        d.SetParam(0, P_SL(0, P_SL_TYPE), SL_COMB);
+        d.SetParam(0, P_SL(0, P_SL_MIX),  127);
+        d.SetParam(0, P_SL(0, P_SL_P2),   100);  /* resonant enough to matter */
+        d.SetParam(0, P_SL(0, P_SL_P1),   64);
         d.SnapParams();
         for (int b = 0; b < 16; b++) {
             for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
@@ -1080,8 +1080,8 @@ static void test_mod_matrix(void)
         d.SetGlobal(G_LFO(1, G_LFO_MODE), LFO_TRI);
         d.SetGlobal(G_LFO(1, G_LFO_RATE), 70);
         d.SetGlobal(G_LFO(1, G_LFO_AMT), 127);
-        d.SetParam(0, P_MD(MD_F1CUT, P_MD_SRC), 2);     /* LFO2 */
-        d.SetParam(0, P_MD(MD_F1CUT, P_MD_DEPTH), 127);
+        d.SetParam(0, P_MD(MD_SL1, P_MD_SRC), 2);       /* LFO2 */
+        d.SetParam(0, P_MD(MD_SL1, P_MD_DEPTH), 127);
         d.SnapParams();
 
         plo = 1 << 30; phi = 0;

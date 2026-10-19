@@ -24,6 +24,7 @@
 #include "fm1_env.h"
 #include "fm1_eq.h"
 #include "fm1_filter.h"
+#include "fm1_slot.h"
 #include "fm1_params.h"
 #include "fm1_lfo.h"
 #include "fm1_rack.h"
@@ -38,6 +39,10 @@ namespace fm1 {
 struct DroneVoice {
     BraidsVoice  osc;
     fm1_filter_t f[FM1_FILTERS];
+    /* Two insert slots, between the filters. This is where COMB and RESO
+     * went when they stopped being filter modes -- stackable now, and each
+     * carries the delay line the filter gave up. */
+    fm1_slot_t   sl[FM1_SLOTS];
     fm1_eq_t     eq;            /* three multimode bands, after F2 */
     int32_t      drive_q12;     /* Q12_ONE = clean, bypasses the saturator */
     fm1_drift_t  drift;

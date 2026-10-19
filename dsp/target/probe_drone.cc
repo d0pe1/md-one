@@ -117,9 +117,9 @@ extern "C" int main(void)
         /* The comb is a filter mode now; F1 in COMB mode is the chain this
          * probe has always measured. COMB_MIX keeps its name as the build
          * knob that selects it. */
-        drone.SetParam(v, P_F1_TYPE,     F_COMB);
-        drone.SetParam(v, P_F1_MIX,      COMB_MIX);
-        drone.SetParam(v, P_F1_RES,      90);
+        drone.SetParam(v, P_SL(0, P_SL_TYPE), SL_COMB);
+        drone.SetParam(v, P_SL(0, P_SL_MIX),  COMB_MIX);
+        drone.SetParam(v, P_SL(0, P_SL_P2),   90);
         /* F2 defaults to bypass, so the headline figure stays comparable with
          * every earlier measurement. Build with -DF2_MODE=F_LP to price the
          * second filter. */

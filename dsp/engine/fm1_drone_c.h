@@ -81,6 +81,30 @@ extern "C" {
 #define FD_P_MD(n, j)    (FD_P_MD_BASE + (n) * FD_P_MD_STRIDE + (j))
 #define FD_P_MD_DEPTH     0
 #define FD_P_MD_SRC       1
+
+/* Two insert slots per voice, between the filters: TYPE, P1, P2, MIX.
+ * FD_P_SL(n, j) addresses slot n (0..1), control j. This is where the comb
+ * and the resonator went when they stopped being filter modes. */
+#define FD_P_SL_BASE     62
+#define FD_P_SL_STRIDE    4
+#define FD_P_SL(n, j)    (FD_P_SL_BASE + (n) * FD_P_SL_STRIDE + (j))
+#define FD_P_SL_TYPE      0
+#define FD_P_SL_P1        1
+#define FD_P_SL_P2        2
+#define FD_P_SL_MIX       3
+#define FD_SLOTS          2
+
+/* Slot types, mirroring the SL_* enum in fm1_slot.h. */
+#define FD_SL_OFF         0
+#define FD_SL_DRIVE       1
+#define FD_SL_RESO        2
+#define FD_SL_COMB        3
+#define FD_SL_FOLD        4
+#define FD_SL_NTYPES      5
+
+/* KEYTRACK, one per filter. */
+#define FD_P_F1_TRK      60
+#define FD_P_F2_TRK      61
 #define FD_MD_SRC_NONE    0
 #define FD_MD_SRC_DRIFT   5
 
@@ -90,22 +114,21 @@ extern "C" {
 #define FD_MD_COLOR       2
 #define FD_MD_LEVEL       3
 #define FD_MD_F1CUT       4
-#define FD_MD_F1RES       5
-#define FD_MD_F2CUT       6
-#define FD_MD_F2RES       7
+#define FD_MD_F2CUT       5
+#define FD_MD_SL1         6
+#define FD_MD_SL2         7
 #define FD_MD_PAN         8
 #define FD_MD_NDEST       9
 
-#define FD_NPARAM        60
+#define FD_NPARAM        70
 
 /* Filter modes, mirroring the F_* enum in fm1_filter.h. */
 #define FD_F_OFF          0
 #define FD_F_LP           1
 #define FD_F_BP           2
 #define FD_F_HP           3
-#define FD_F_COMB         4
-#define FD_F_RESO         5
-#define FD_F_NMODES       6
+#define FD_F_NOTCH        4
+#define FD_F_NMODES       5
 
 #define FD_G_MASTER       0
 #define FD_G_SPREAD       1

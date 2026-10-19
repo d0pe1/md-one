@@ -77,13 +77,38 @@ enum {
     P_MD1_DEPTH, P_MD1_SRC,     /* timbre  */
     P_MD2_DEPTH, P_MD2_SRC,     /* colour  */
     P_MD3_DEPTH, P_MD3_SRC,     /* level   */
-    P_MD4_DEPTH, P_MD4_SRC,     /* F1 cut  */
-    P_MD5_DEPTH, P_MD5_SRC,     /* F1 res  */
-    P_MD6_DEPTH, P_MD6_SRC,     /* F2 cut  */
-    P_MD7_DEPTH, P_MD7_SRC,     /* F2 res  */
+    P_MD4_DEPTH, P_MD4_SRC,     /* F1 cut   */
+    P_MD5_DEPTH, P_MD5_SRC,     /* F2 cut   */
+    P_MD6_DEPTH, P_MD6_SRC,     /* slot 1 P1 */
+    P_MD7_DEPTH, P_MD7_SRC,     /* slot 2 P1 */
     P_MD8_DEPTH, P_MD8_SRC,     /* pan     */
+
+    /* Appended rather than slotted in beside the filters where they belong
+     * logically, because every index below is mirrored as a literal in
+     * fm1_drone_c.h and inserting would renumber thirty of them for a
+     * tidiness nobody can see. The pages decide the order on screen. */
+
+    /* KEYTRACK, one per filter: 0 fixed, 127 follows the note. The fourth
+     * knob the filter pages never had. */
+    P_F1_TRK, P_F2_TRK,
+
+    /* Two insert slots per voice, between the filters (fm1_slot.h). This is
+     * where the comb and the resonator went when they stopped being filter
+     * modes -- they can be stacked now, and driven into each other. */
+    P_SL1_TYPE, P_SL1_P1, P_SL1_P2, P_SL1_MIX,
+    P_SL2_TYPE, P_SL2_P1, P_SL2_P2, P_SL2_MIX,
     NPARAM
 };
+
+/* Slot n (0..1), control j. Same shape as P_EQ() and G_FX(). */
+#define P_SL_BASE    P_SL1_TYPE
+#define P_SL_STRIDE  4
+#define P_SL(n, j)   (P_SL_BASE + (n) * P_SL_STRIDE + (j))
+#define P_SL_TYPE    0
+#define P_SL_P1      1
+#define P_SL_P2      2
+#define P_SL_MIX     3
+#define FM1_SLOTS    2
 
 /* Destination n (0-based), control j. Same shape as P_EQ() and G_FX(). */
 #define P_MD_BASE    P_MD0_DEPTH
@@ -94,9 +119,16 @@ enum {
 
 /* What each destination reaches. The order is the order the MOD pages walk
  * them, so a page is a contiguous run of four. */
+/* The two filter RESONANCE destinations became the two SLOT destinations
+ * when the comb and the resonator moved out of the filter. They had to: the
+ * thing worth modulating on a comb is its TUNE, and after the move that
+ * parameter was no longer reachable from the matrix at all -- which would
+ * have silently broken the one scenario Phase 2 was declared done on, a slow
+ * LFO sweeping a comb. Resonance is a character setting you place once;
+ * tune is the one that wants to move. */
 enum {
     MD_PITCH = 0, MD_TIMBRE, MD_COLOR, MD_LEVEL,
-    MD_F1CUT, MD_F1RES, MD_F2CUT, MD_F2RES,
+    MD_F1CUT, MD_F2CUT, MD_SL1, MD_SL2,
     MD_PAN,
     MD_NDEST
 };
@@ -212,7 +244,8 @@ enum {
     K_DEST,     /* a routing target,  FM1_DESTNAME in fm1_rack.h */
     K_EQMODE,   /* an EQ band mode, FM1_EQ_MODE_NAME in fm1_eq.h */
     K_LFOMODE,  /* an LFO shape, FM1_LFO_MODE_NAME in fm1_lfo.h */
-    K_MODSRC    /* a modulation source, FM1_MODSRC_NAME above */
+    K_MODSRC,   /* a modulation source, FM1_MODSRC_NAME above */
+    K_SLOT      /* an insert slot type, FM1_SLOT_NAME in fm1_slot.h */
 };
 
 typedef struct {
@@ -252,11 +285,11 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     /* max is F_NMODES-1 and def is F_OFF, written as literals so this header
      * stays free of fm1_filter.h -- which would drag braids::Svf in and make
      * it C++ only. fm1_drone.cc static_asserts that they still agree. */
-    [P_F1_TYPE]    = {"F1 TYPE",  5,   0, K_FTYPE,   0},
+    [P_F1_TYPE]    = {"F1 TYPE",  4,   0, K_FTYPE,   0},
     [P_F1_CUT]     = {"F1 CUT", 127,  64, K_NUM,     74},  /* GM brightness */
     [P_F1_RES]     = {"F1 RES", 127,   0, K_NUM,     71},  /* GM harmonic content */
     [P_F1_MIX]     = {"F1 MIX", 127, 127, K_PCT,     0},
-    [P_F2_TYPE]    = {"F2 TYPE",  5,   0, K_FTYPE,   0},
+    [P_F2_TYPE]    = {"F2 TYPE",  4,   0, K_FTYPE,   0},
     [P_F2_CUT]     = {"F2 CUT", 127,  64, K_NUM,     0},
     [P_F2_RES]     = {"F2 RES", 127,   0, K_NUM,     0},
     [P_F2_MIX]     = {"F2 MIX", 127, 127, K_PCT,     0},
@@ -312,14 +345,31 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_MD3_SRC]   = {"SRCLVL",   5,   0, K_MODSRC,  0},
     [P_MD4_DEPTH] = {"F1CUT",  127,  64, K_BIP,     0},
     [P_MD4_SRC]   = {"SRCF1C",   5,   0, K_MODSRC,  0},
-    [P_MD5_DEPTH] = {"F1RES",  127,  64, K_BIP,     0},
-    [P_MD5_SRC]   = {"SRCF1R",   5,   0, K_MODSRC,  0},
-    [P_MD6_DEPTH] = {"F2CUT",  127,  64, K_BIP,     0},
-    [P_MD6_SRC]   = {"SRCF2C",   5,   0, K_MODSRC,  0},
-    [P_MD7_DEPTH] = {"F2RES",  127,  64, K_BIP,     0},
-    [P_MD7_SRC]   = {"SRCF2R",   5,   0, K_MODSRC,  0},
+    [P_MD5_DEPTH] = {"F2CUT",  127,  64, K_BIP,     0},
+    [P_MD5_SRC]   = {"SRCF2C",   5,   0, K_MODSRC,  0},
+    [P_MD6_DEPTH] = {"SLOT1",  127,  64, K_BIP,     0},
+    [P_MD6_SRC]   = {"SRCSL1",   5,   0, K_MODSRC,  0},
+    [P_MD7_DEPTH] = {"SLOT2",  127,  64, K_BIP,     0},
+    [P_MD7_SRC]   = {"SRCSL2",   5,   0, K_MODSRC,  0},
     [P_MD8_DEPTH] = {"PAN",    127,  64, K_BIP,     0},
     [P_MD8_SRC]   = {"SRCPAN",   5,   0, K_MODSRC,  0},
+
+    /* KEYTRACK defaults to 0: a filter that followed the note before anyone
+     * asked would change what every existing patch sounds like. */
+    [P_F1_TRK]     = {"F1 TRK", 127,   0, K_NUM,     0},
+    [P_F2_TRK]     = {"F2 TRK", 127,   0, K_NUM,     0},
+
+    /* Both slots start OFF, which is a true bypass rather than a wet/dry at
+     * zero -- the same silence, reached without the arithmetic. P1 centres
+     * because it is a tune or an offset on half the types. */
+    [P_SL1_TYPE]   = {"SL1 TYP",  4,   0, K_SLOT,    0},
+    [P_SL1_P1]     = {"SL1 P1", 127,  64, K_NUM,     0},
+    [P_SL1_P2]     = {"SL1 P2", 127,   0, K_NUM,     0},
+    [P_SL1_MIX]    = {"SL1 MIX",127, 127, K_PCT,     0},
+    [P_SL2_TYPE]   = {"SL2 TYP",  4,   0, K_SLOT,    0},
+    [P_SL2_P1]     = {"SL2 P1", 127,  64, K_NUM,     0},
+    [P_SL2_P2]     = {"SL2 P2", 127,   0, K_NUM,     0},
+    [P_SL2_MIX]    = {"SL2 MIX",127, 127, K_PCT,     0},
 };
 
 static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
@@ -414,7 +464,7 @@ static inline int fm1_param_is_smoothed(uint8_t p)
     }
     switch (FM1_PDEF[p].kind) {
     case K_SHAPE: case K_ONOFF: case K_FTYPE:
-    case K_FXTYPE: case K_DEST: case K_EQMODE: case K_MODSRC:
+    case K_FXTYPE: case K_DEST: case K_EQMODE: case K_MODSRC: case K_SLOT:
         return 0;
     default:
         return 1;

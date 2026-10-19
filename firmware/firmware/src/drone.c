@@ -122,7 +122,7 @@ typedef struct {
  * into P_OCTAVE, and again at 0xD3 when the four LFOs added 16 globals. An
  * old patch has a different layout, and loading it would scatter its bytes
  * across the wrong parameters. */
-#define PATCH_MAGIC 0xD6
+#define PATCH_MAGIC 0xD7
 
 static void patch_store(patch_t *q)
 {
@@ -198,11 +198,12 @@ static void app_main(void)
         fm1_drone_set_param(v, FD_P_DETUNE,      (uint8_t)(64 + (v & 1 ? 3 : -3)));
         fm1_drone_set_param(v, FD_P_DRIFT_RATE,  (uint8_t)(10 + v * 4));
         fm1_drone_set_param(v, FD_P_FM,          (uint8_t)(40 + v * 6));
-        /* F1 in comb mode is the chain this boot patch has always used; the
-         * comb became a filter mode rather than a block of its own. */
-        fm1_drone_set_param(v, FD_P_F1_TYPE,     FD_F_COMB);
-        fm1_drone_set_param(v, FD_P_F1_RES,      (uint8_t)(40 + v * 14));
-        fm1_drone_set_param(v, FD_P_F1_MIX,      (uint8_t)(28 + v * 10));
+        /* A comb in the first insert slot: the chain this boot patch has
+         * always used, now that the comb is a block of its own again rather
+         * than a mode of the filter. */
+        fm1_drone_set_param(v, FD_P_SL(0, FD_P_SL_TYPE), FD_SL_COMB);
+        fm1_drone_set_param(v, FD_P_SL(0, FD_P_SL_P2),   (uint8_t)(40 + v * 14));
+        fm1_drone_set_param(v, FD_P_SL(0, FD_P_SL_MIX),  (uint8_t)(28 + v * 10));
         fm1_drone_set_param(v, FD_P_LEVEL,       (uint8_t)(104 - v * 12));
         fm1_drone_set_param(v, FD_P_PAN,         (uint8_t)(26 + v * 26));
         fm1_drone_note_on(v, st.note[v]);

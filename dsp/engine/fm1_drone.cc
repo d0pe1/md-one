@@ -11,8 +11,10 @@ namespace fm1 {
  * table is `static const`, not constexpr, and C++ will not read it in a
  * constant expression. Adding a mode without widening the parameter's max
  * still fails here, which is the mistake worth catching. */
-static_assert(F_NMODES - 1 == 5,
+static_assert(F_NMODES - 1 == 4,
               "filter mode count changed -- update P_F1_TYPE/P_F2_TYPE max in fm1_params.h");
+static_assert(SL_NTYPES - 1 == 4,
+              "slot type count changed -- update P_SL*_TYPE max in fm1_params.h");
 static_assert(F_OFF == 0,
               "F_OFF moved -- update P_F1_TYPE/P_F2_TYPE def in fm1_params.h");
 static_assert(FX_NTYPES - 1 == 5,
@@ -39,20 +41,6 @@ static const int32_t kDetuneSpan = 64;      /* 50 cents = 64 units of 1/128 */
 
 /* ~0.5 s of red at 256 frames per block, 44.1 kHz. */
 static const uint8_t kClipHoldBlocks = 86;
-
-/* Comb tune: parameter 0..127 maps to a delay ratio in Q12, 4096 being the
- * note itself. 64 -> unison, 0 -> two octaves up, 127 -> two octaves down. */
-static inline int32_t comb_ratio_q12(uint8_t v)
-{
-    /* 1024 (two octaves up) .. 4096 (unison) .. 16384 (two octaves down),
-     * geometric in feel but computed with shifts and a linear blend. */
-    if (v <= 64) {
-        /* 0..64  ->  1024..4096 */
-        return 1024 + ((int32_t)v * (4096 - 1024)) / 64;
-    }
-    /* 65..127 -> 4096..16384 */
-    return 4096 + ((int32_t)(v - 64) * (16384 - 4096)) / 63;
-}
 
 void Drone::Init(uint32_t seed)
 {
@@ -85,6 +73,7 @@ void Drone::Init(uint32_t seed)
         DroneVoice &d = v_[v];
         d.osc.Init();
         for (uint8_t fi = 0; fi < FM1_FILTERS; fi++) fm1_filter_init(&d.f[fi]);
+        for (uint8_t si = 0; si < FM1_SLOTS; si++)    fm1_slot_init(&d.sl[si]);
         fm1_eq_init(&d.eq);
         fm1_env_init(&d.env);
         d.drive_q12 = Q12_ONE;
@@ -151,17 +140,13 @@ void Drone::ApplyPitch(uint8_t v)
         hz_q16 = (q16_t)f;
     }
     uint32_t inc = fm1_phase_inc(hz_q16, FM1_K_44100);
-    /* The comb ratio comes from the MODULATED cut, not the knob. Both this
-     * and the per-block filter update write the same filter, so if they
-     * disagreed about what the cutoff is, whichever ran last would win --
-     * and ApplyPitch runs last. That is exactly what happened: a modulated
-     * comb tune was being recomputed from the raw knob a few lines after the
-     * modulation had set it, so routing an LFO into COMB TUNE did nothing at
-     * all. Caught by a test, not by listening. */
-    fm1_filter_set_key(&d.f[0], (int16_t)pitch, inc,
-                       comb_ratio_q12(EffParam(d, P_F1_CUT, MD_F1CUT)));
-    fm1_filter_set_key(&d.f[1], (int16_t)pitch, inc,
-                       comb_ratio_q12(EffParam(d, P_F2_CUT, MD_F2CUT)));
+    /* The filters only need the key while KEYTRACK is up. The SLOTS need it
+     * always: a comb tunes from the phase increment and a resonator tracks
+     * the note, and both of those moved out of the filter. */
+    fm1_filter_set_key(&d.f[0], (int16_t)pitch);
+    fm1_filter_set_key(&d.f[1], (int16_t)pitch);
+    for (uint8_t si = 0; si < FM1_SLOTS; si++)
+        fm1_slot_set_key(&d.sl[si], (int16_t)pitch, inc);
 }
 
 void Drone::NoteOn(uint8_t voice, uint8_t note)
@@ -229,15 +214,16 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
         ApplyPitch(voice);
         break;
 
-    /* CUT drives the comb's delay, so it has to go through ApplyPitch, which
-     * is where the phase increment the comb tunes from is computed. For the
-     * SVF modes set_cut alone would do; doing both is a few cycles on a knob
-     * turn and keeps one path instead of two. */
-    case P_F1_CUT: fm1_filter_set_cut(&d.f[0], value); ApplyPitch(voice); break;
-    case P_F2_CUT: fm1_filter_set_cut(&d.f[1], value); ApplyPitch(voice); break;
+    /* CUT is just a cutoff now. It used to drive the comb's delay too, which
+     * is why it went through ApplyPitch; the comb left with the resonators. */
+    case P_F1_CUT: fm1_filter_set_cut(&d.f[0], value); break;
+    case P_F2_CUT: fm1_filter_set_cut(&d.f[1], value); break;
 
-    case P_F1_TYPE: fm1_filter_set_mode(&d.f[0], value); ApplyPitch(voice); break;
-    case P_F2_TYPE: fm1_filter_set_mode(&d.f[1], value); ApplyPitch(voice); break;
+    case P_F1_TYPE: fm1_filter_set_mode(&d.f[0], value); break;
+    case P_F2_TYPE: fm1_filter_set_mode(&d.f[1], value); break;
+
+    case P_F1_TRK: fm1_filter_set_track(&d.f[0], value); break;
+    case P_F2_TRK: fm1_filter_set_track(&d.f[1], value); break;
 
     case P_F1_RES:  fm1_filter_set_res(&d.f[0], value); break;
     case P_F2_RES:  fm1_filter_set_res(&d.f[1], value); break;
@@ -252,6 +238,21 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
     case P_RELEASE: fm1_env_set_release(&d.env, value); break;
 
     default:
+        /* The insert slots, dispatched arithmetically like the EQ below. A
+         * type change needs the key reapplied: a comb that has just become a
+         * comb has no delay yet. */
+        if (param >= P_SL_BASE && param < P_SL_BASE + FM1_SLOTS * P_SL_STRIDE) {
+            uint8_t n = (uint8_t)((param - P_SL_BASE) / P_SL_STRIDE);
+            fm1_slot_t *sl = &d.sl[n];
+            switch ((param - P_SL_BASE) % P_SL_STRIDE) {
+            case P_SL_TYPE: fm1_slot_set_type(sl, value); ApplyPitch(voice); break;
+            case P_SL_P1:   fm1_slot_set_p1(sl, value);   ApplyPitch(voice); break;
+            case P_SL_P2:   fm1_slot_set_p2(sl, value);   break;
+            case P_SL_MIX:  fm1_slot_set_mix(sl, value);  break;
+            default: break;
+            }
+            break;
+        }
         /* The EQ is a regular block of five-per-band, like the patchbay's
          * channels, so it is dispatched arithmetically rather than with
          * fifteen case labels. */
@@ -565,28 +566,34 @@ void Drone::Render(int16_t *out, uint32_t n)
              * ModOf returns 0 after one compare when they are not, and an
              * unmodulated patch pays nothing at all. */
             {
-                static const uint8_t FDEST[FM1_FILTERS * 2] = {
-                    MD_F1CUT, MD_F1RES, MD_F2CUT, MD_F2RES
-                };
-                static const uint8_t FPARAM[FM1_FILTERS * 2] = {
-                    P_F1_CUT, P_F1_RES, P_F2_CUT, P_F2_RES
-                };
-                int repitch = 0;
-                for (uint8_t k = 0; k < FM1_FILTERS * 2; k++) {
-                    if (ModOf(d, FDEST[k]) == 0) continue;
-                    if (k & 1)
-                        fm1_filter_set_res(&d.f[k >> 1],
-                                           EffParam(d, FPARAM[k], FDEST[k]));
-                    else {
-                        fm1_filter_set_cut(&d.f[k >> 1],
-                                           EffParam(d, FPARAM[k], FDEST[k]));
-                        repitch = 1;
+                /* Both filter cutoffs and both slot P1s. These are the
+                 * expensive destinations: unlike a level or a pitch, which
+                 * are read straight out of a variable, each of these has to
+                 * be pushed back through a setter so a coefficient -- or a
+                 * comb's delay -- is recomputed. So they are gated on being
+                 * routed at all, and ModOf returns after one compare when
+                 * they are not. */
+                if (ModOf(d, MD_F1CUT))
+                    fm1_filter_set_cut(&d.f[0], EffParam(d, P_F1_CUT, MD_F1CUT));
+                if (ModOf(d, MD_F2CUT))
+                    fm1_filter_set_cut(&d.f[1], EffParam(d, P_F2_CUT, MD_F2CUT));
+
+                {
+                    static const uint8_t SDEST[FM1_SLOTS] = { MD_SL1, MD_SL2 };
+                    int retune = 0;
+                    for (uint8_t k = 0; k < FM1_SLOTS; k++) {
+                        if (ModOf(d, SDEST[k]) == 0) continue;
+                        fm1_slot_set_p1(&d.sl[k],
+                                        EffParam(d, (uint8_t)P_SL(k, P_SL_P1),
+                                                 SDEST[k]));
+                        retune = 1;
                     }
+                    /* A comb tunes from the voice's phase increment, so a
+                     * modulated P1 has to go back through ApplyPitch -- once,
+                     * however many slots moved. This is the path that makes
+                     * "a slow LFO into comb tune" work. */
+                    if (retune) ApplyPitch(vi);
                 }
-                /* A comb tunes from the voice's phase increment, so a
-                 * modulated CUT has to go back through ApplyPitch -- once,
-                 * however many of the four moved. */
-                if (repitch) ApplyPitch(vi);
             }
 
             d.osc.Render(d.scratch, chunk);
@@ -651,6 +658,12 @@ void Drone::Render(int16_t *out, uint32_t n)
             const bool eq_on    = !fm1_eq_idle(&d.eq);
             const bool drive_on = d.drive_q12 > Q12_ONE;
 
+            /* Block-rate, like eq_on and drive_on: whether a slot does
+             * anything only changes when a knob moves. */
+            int sl_on[FM1_SLOTS];
+            for (uint8_t si = 0; si < FM1_SLOTS; si++)
+                sl_on[si] = !fm1_slot_idle(&d.sl[si]);
+
             int32_t pk = 0;                             /* post-fader peak */
             for (uint32_t i = 0; i < chunk; i++) {
                 /* OSC -> F1 -> VCA -> F2. The VCA sits BETWEEN the filters by
@@ -666,6 +679,15 @@ void Drone::Render(int16_t *out, uint32_t n)
                  * at a different frequency. */
                 s = (int32_t)(((int64_t)s * fm1_env_tick(&d.env)) >> FM1_ENV_BITS);
                 s = (s * lvl) >> 7;
+
+                /* The insert slots, after the VCA so a resonator rings on
+                 * when the voice closes -- the same reason F2 is here rather
+                 * than before it. Gated on being in use: an OFF slot is not a
+                 * branch inside this loop, it is a flag decided once a
+                 * block. */
+                if (sl_on[0]) s = fm1_slot_tick(&d.sl[0], (q15_t)s);
+                if (sl_on[1]) s = fm1_slot_tick(&d.sl[1], (q15_t)s);
+
                 s = fm1_filter_tick(&d.f[1], (q15_t)s);
 
                 /* Tone, then colour. EQ before DRIVE so you choose what gets

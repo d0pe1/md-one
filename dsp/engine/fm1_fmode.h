@@ -15,31 +15,32 @@
 
 /* Order is the order the knob steps through, so the three cheap
  * state-variable modes come first and the two pitch-tracking ones last. */
+/* COMB and RESO are NOT here any more. They were modes of the filter because
+ * the comb measured cheaper than the SVF (8,468 against 10,004), so folding
+ * them in cost nothing -- a correct cost argument and the wrong structure. A
+ * comb is a resonator, not a filter type, and having it in this list meant
+ * you could have a lowpass OR a comb and never a lowpass THROUGH a comb.
+ * They live in the voice's insert slots now (fm1_slot.h), where they can be
+ * stacked and driven into each other.
+ *
+ * NOTCH takes the vacated space and is nearly free: the Chamberlin SVF
+ * already computes it as (in - bp). */
 enum {
     F_OFF = 0,      /* true bypass: costs nothing, not even a multiply */
     F_LP,           /* state-variable low pass */
     F_BP,           /* band pass */
     F_HP,           /* high pass */
-    F_COMB,         /* tuned feedback comb; CUT is tune, RES is feedback */
-    F_RESO,         /* keytracked resonant peak; CUT is an offset in semitones */
+    F_NOTCH,
     F_NMODES
 };
 
 /* Eight characters at most, to match fm1_params.h's screen labels. */
 static const char *const FM1_FMODE_NAME[F_NMODES] = {
-    "OFF", "LOWPASS", "BANDPASS", "HIGHPASS", "COMB", "RESO"
+    "OFF", "LOWPASS", "BANDPASS", "HIGHPASS", "NOTCH"
 };
 
-/* What CUT means depends on the mode, and the screen must say so -- a knob
- * called CUTOFF that sets a delay ratio is a knob nobody trusts. */
-static const char *const FM1_FMODE_CUT_LABEL[F_NMODES] = {
-    "CUTOFF", "CUTOFF", "CUTOFF", "CUTOFF", "TUNE", "OFFSET"
-};
-
-/* Likewise RES: feedback in a comb is not resonance in a filter, even though
- * both sharpen the peak. */
-static const char *const FM1_FMODE_RES_LABEL[F_NMODES] = {
-    "RES", "RES", "RES", "RES", "FEEDBK", "RES"
-};
+/* CUT and RES mean the same thing in every mode now that the resonators have
+ * moved out, so the per-mode relabelling the filter needed is gone with
+ * them. The slots carry their own labels (FM1_SLOT_P1 / P2). */
 
 #endif /* FM1_FMODE_H */

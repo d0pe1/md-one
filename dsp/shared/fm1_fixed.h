@@ -132,4 +132,44 @@ static inline uint32_t fm1_phase_inc(q16_t freq_q16, uint32_t k_samplerate)
 /* Hz as an integer -> Q16, for callers that do not need fractional pitch. */
 static inline q16_t fm1_hz(uint32_t hz) { return hz << 16; }
 
+/* --- drive ----------------------------------------------------------------
+ *
+ * A cubic soft saturator, normalised so full scale in is full scale out:
+ *
+ *     y = 1.5u - 0.5u^3        for |u| <= 1
+ *     y = sign(u)              beyond
+ *
+ * Chosen over the quadratic knee the master limiter uses, because the two
+ * jobs are opposite. A limiter must be transparent until it is needed, so it
+ * is flat below 0.5 and only bends near the rail. A drive stage should be
+ * doing something at every level, and this curve is gently nonlinear from
+ * zero -- which is what makes it read as gain rather than as a gate opening
+ * onto distortion.
+ *
+ * Odd symmetric, so it generates odd harmonics only: third, fifth, no second.
+ * That is the warm direction rather than the fuzzy one, and it keeps the
+ * signal DC-free, which matters going straight into a DAW.
+ *
+ * Two multiplies and a shift.
+ */
+static inline q15_t fm1_saturate(int32_t x)
+{
+    /* Computed on the magnitude, with the sign reapplied at the end.
+     *
+     * Doing it directly on a signed value breaks the odd symmetry this curve
+     * exists to have: an arithmetic right shift rounds toward negative
+     * infinity, so the negative half comes out one LSB different from the
+     * positive one. That is a DC offset and a second harmonic -- precisely
+     * the two things an odd-symmetric saturator is chosen to avoid. */
+    int32_t a = x < 0 ? -x : x;
+    if (a >= Q15_ONE) return (q15_t)(x < 0 ? -Q15_ONE : Q15_ONE);
+
+    int32_t a2 = (a * a) >> Q15_BITS;
+    int32_t a3 = (a2 * a) >> Q15_BITS;
+    int32_t y  = (3 * a - a3) >> 1;
+    if (y > Q15_ONE) y = Q15_ONE;
+
+    return (q15_t)(x < 0 ? -y : y);
+}
+
 #endif /* FM1_FIXED_H */

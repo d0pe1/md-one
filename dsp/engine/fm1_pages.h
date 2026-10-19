@@ -44,11 +44,12 @@ enum { SCOPE_VOICE, SCOPE_GLOBAL };
  * band, every other EDIT page selects a voice, and both are still on screen
  * because both counters survive the page change.
  */
-enum { SUBJ_NONE, SUBJ_VOICE, SUBJ_FX, SUBJ_BAND, SUBJ_LFO, SUBJ_NKIND };
+enum { SUBJ_NONE, SUBJ_VOICE, SUBJ_FX, SUBJ_BAND, SUBJ_LFO,
+       SUBJ_SLOT, SUBJ_NKIND };
 
-static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4 };
+static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4, 2 };
 static const char *const FM1_SUBJ_NAME[SUBJ_NKIND] = {
-    "", "VOICE", "FX", "BAND", "LFO"
+    "", "VOICE", "FX", "BAND", "LFO", "SLOT"
 };
 
 #define FM1_KNOBS  4
@@ -102,10 +103,20 @@ static const fm1_page_t FM1_PG_EDIT[] = {
      * cutoff for LP/BP/HP, a semitone offset for RESO, a delay ratio for
      * COMB -- and the screen relabels it, because a knob called CUTOFF that
      * sets a delay ratio is a knob nobody trusts. */
-    { "F1",     { P_F1_CUT, P_F1_RES, P_F1_MIX, PG_NONE },
+    { "F1",     { P_F1_CUT, P_F1_RES, P_F1_MIX, P_F1_TRK },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_F1_TYPE, SUBJ_VOICE, 0 },
-    { "F2",     { P_F2_CUT, P_F2_RES, P_F2_MIX, PG_NONE },
+
+    /* The insert slots, between the filters. SELECT picks which one, so two
+     * stages share one page the way the three EQ bands do -- and the body
+     * draws the chain with the selected stage marked, which is the part the
+     * EQ page was missing. */
+    { "SLOT",   { P_SL(0, P_SL_P1), P_SL(0, P_SL_P2),
+                  P_SL(0, P_SL_MIX), PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      P_SL(0, P_SL_TYPE), SUBJ_SLOT, P_SL_STRIDE },
+
+    { "F2",     { P_F2_CUT, P_F2_RES, P_F2_MIX, P_F2_TRK },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_F2_TYPE, SUBJ_VOICE, 0 },
 
@@ -185,10 +196,10 @@ static const fm1_page_t FM1_PG_MOD[] = {
                 { P_MD(MD_PITCH, P_MD_SRC),   P_MD(MD_TIMBRE, P_MD_SRC),
                   P_MD(MD_COLOR, P_MD_SRC),   P_MD(MD_LEVEL,  P_MD_SRC)   },
       PG_NONE, SUBJ_VOICE, 0 },
-    { "MOD B",  { P_MD(MD_F1CUT, P_MD_DEPTH), P_MD(MD_F1RES, P_MD_DEPTH),
-                  P_MD(MD_F2CUT, P_MD_DEPTH), P_MD(MD_F2RES, P_MD_DEPTH) },
-                { P_MD(MD_F1CUT, P_MD_SRC),   P_MD(MD_F1RES, P_MD_SRC),
-                  P_MD(MD_F2CUT, P_MD_SRC),   P_MD(MD_F2RES, P_MD_SRC)   },
+    { "MOD B",  { P_MD(MD_F1CUT, P_MD_DEPTH), P_MD(MD_F2CUT, P_MD_DEPTH),
+                  P_MD(MD_SL1,   P_MD_DEPTH), P_MD(MD_SL2,   P_MD_DEPTH) },
+                { P_MD(MD_F1CUT, P_MD_SRC),   P_MD(MD_F2CUT, P_MD_SRC),
+                  P_MD(MD_SL1,   P_MD_SRC),   P_MD(MD_SL2,   P_MD_SRC)   },
       PG_NONE, SUBJ_VOICE, 0 },
     { "MOD C",  { P_MD(MD_PAN, P_MD_DEPTH), PG_NONE, PG_NONE, PG_NONE },
                 { P_MD(MD_PAN, P_MD_SRC),   PG_NONE, PG_NONE, PG_NONE },
