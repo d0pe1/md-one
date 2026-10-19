@@ -103,7 +103,7 @@ static const fm1_page_t FM1_PG_EDIT[] = {
      * cutoff for LP/BP/HP, a semitone offset for RESO, a delay ratio for
      * COMB -- and the screen relabels it, because a knob called CUTOFF that
      * sets a delay ratio is a knob nobody trusts. */
-    { "F1",     { P_F1_CUT, P_F1_RES, P_F1_MIX, P_F1_TRK },
+    { "F1",     { P_F1_CUT, P_F1_RES, P_F1_MIX, P_F1_POLE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_F1_TYPE, SUBJ_VOICE, 0 },
 
@@ -116,7 +116,7 @@ static const fm1_page_t FM1_PG_EDIT[] = {
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_SL(0, P_SL_TYPE), SUBJ_SLOT, P_SL_STRIDE },
 
-    { "F2",     { P_F2_CUT, P_F2_RES, P_F2_MIX, P_F2_TRK },
+    { "F2",     { P_F2_CUT, P_F2_RES, P_F2_MIX, P_F2_POLE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_F2_TYPE, SUBJ_VOICE, 0 },
 

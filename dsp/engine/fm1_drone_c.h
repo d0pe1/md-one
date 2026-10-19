@@ -102,9 +102,12 @@ extern "C" {
 #define FD_SL_FOLD        4
 #define FD_SL_NTYPES      5
 
-/* KEYTRACK, one per filter. */
-#define FD_P_F1_TRK      60
-#define FD_P_F2_TRK      61
+/* SLOPE, one per filter: 0 = 6 dB, 1 = 12 dB, 2 = 24 dB per octave. */
+#define FD_P_F1_POLE     60
+#define FD_P_F2_POLE     61
+#define FD_FP_6           0
+#define FD_FP_12          1
+#define FD_FP_24          2
 #define FD_MD_SRC_NONE    0
 #define FD_MD_SRC_DRIFT   5
 

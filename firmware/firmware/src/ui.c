@@ -28,6 +28,7 @@
 #include "fm1_env.h"
 #include "fm1_lfo.h"
 #include "fm1_slot.h"
+#include "fm1_fpole.h"
 
 /* The latched note of a voice. Owned by drone.c, which is the instrument;
  * this file only draws it. Declared here because a unity build compiles
@@ -230,6 +231,10 @@ static void ui_fmt(int id, char *out)
         break;
     case K_LFOMODE:
         ui_str(out, &i, FM1_LFO_MODE_NAME[v % LFO_NMODES]);
+        out[i] = 0;
+        break;
+    case K_POLES:
+        ui_str(out, &i, FM1_FPOLE_NAME[v % FP_NPOLES]);
         out[i] = 0;
         break;
     case K_SLOT:

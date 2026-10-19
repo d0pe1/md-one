@@ -222,8 +222,8 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
     case P_F1_TYPE: fm1_filter_set_mode(&d.f[0], value); break;
     case P_F2_TYPE: fm1_filter_set_mode(&d.f[1], value); break;
 
-    case P_F1_TRK: fm1_filter_set_track(&d.f[0], value); break;
-    case P_F2_TRK: fm1_filter_set_track(&d.f[1], value); break;
+    case P_F1_POLE: fm1_filter_set_poles(&d.f[0], value); break;
+    case P_F2_POLE: fm1_filter_set_poles(&d.f[1], value); break;
 
     case P_F1_RES:  fm1_filter_set_res(&d.f[0], value); break;
     case P_F2_RES:  fm1_filter_set_res(&d.f[1], value); break;

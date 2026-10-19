@@ -29,8 +29,9 @@ static_assert(FD_P_SL(1, FD_P_SL_MIX) == P_SL(1, P_SL_MIX), "slot index mirror d
 static_assert(FD_SLOTS        == FM1_SLOTS,     "slot count mirror drifted");
 static_assert(FD_SL_COMB      == SL_COMB,       "slot type mirror drifted");
 static_assert(FD_SL_NTYPES    == SL_NTYPES,     "slot type mirror drifted");
-static_assert(FD_P_F1_TRK     == P_F1_TRK,      "param mirror drifted");
-static_assert(FD_P_F2_TRK     == P_F2_TRK,      "param mirror drifted");
+static_assert(FD_P_F1_POLE    == P_F1_POLE,     "param mirror drifted");
+static_assert(FD_P_F2_POLE    == P_F2_POLE,     "param mirror drifted");
+static_assert(FD_FP_24        == FP_24,         "filter slope mirror drifted");
 static_assert(FD_MD_SL2       == MD_SL2,        "mod destination mirror drifted");
 static_assert(FD_F_NMODES     == F_NMODES,      "filter mode mirror drifted");
 static_assert(FD_P_EQ_BASE    == P_EQ_BASE,     "EQ base mirror drifted");

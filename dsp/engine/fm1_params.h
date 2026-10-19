@@ -88,9 +88,14 @@ enum {
      * fm1_drone_c.h and inserting would renumber thirty of them for a
      * tidiness nobody can see. The pages decide the order on screen. */
 
-    /* KEYTRACK, one per filter: 0 fixed, 127 follows the note. The fourth
-     * knob the filter pages never had. */
-    P_F1_TRK, P_F2_TRK,
+    /* SLOPE, one per filter: 6, 12 or 24 dB per octave. The fourth knob
+     * these pages never had.
+     *
+     * Chosen over KEYTRACK, which was the first answer and the worse one: on
+     * an instrument whose notes are LATCHED you set a pitch and leave it, so
+     * a cutoff that follows the note earns very little -- while the step from
+     * a gentle tilt to a wall is most of what a filter is for. */
+    P_F1_POLE, P_F2_POLE,
 
     /* Two insert slots per voice, between the filters (fm1_slot.h). This is
      * where the comb and the resonator went when they stopped being filter
@@ -245,7 +250,8 @@ enum {
     K_EQMODE,   /* an EQ band mode, FM1_EQ_MODE_NAME in fm1_eq.h */
     K_LFOMODE,  /* an LFO shape, FM1_LFO_MODE_NAME in fm1_lfo.h */
     K_MODSRC,   /* a modulation source, FM1_MODSRC_NAME above */
-    K_SLOT      /* an insert slot type, FM1_SLOT_NAME in fm1_slot.h */
+    K_SLOT,     /* an insert slot type, FM1_SLOT_NAME in fm1_slot.h */
+    K_POLES     /* a filter slope, FM1_FPOLE_NAME in fm1_filter.h */
 };
 
 typedef struct {
@@ -354,10 +360,10 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_MD8_DEPTH] = {"PAN",    127,  64, K_BIP,     0},
     [P_MD8_SRC]   = {"SRCPAN",   5,   0, K_MODSRC,  0},
 
-    /* KEYTRACK defaults to 0: a filter that followed the note before anyone
-     * asked would change what every existing patch sounds like. */
-    [P_F1_TRK]     = {"F1 TRK", 127,   0, K_NUM,     0},
-    [P_F2_TRK]     = {"F2 TRK", 127,   0, K_NUM,     0},
+    /* 12 dB is the default because it is what the filter was before the
+     * knob existed -- no patch changes character by gaining a control. */
+    [P_F1_POLE]    = {"F1 SLP",   2,   1, K_POLES,   0},
+    [P_F2_POLE]    = {"F2 SLP",   2,   1, K_POLES,   0},
 
     /* Both slots start OFF, which is a true bypass rather than a wet/dry at
      * zero -- the same silence, reached without the arithmetic. P1 centres
@@ -465,6 +471,7 @@ static inline int fm1_param_is_smoothed(uint8_t p)
     switch (FM1_PDEF[p].kind) {
     case K_SHAPE: case K_ONOFF: case K_FTYPE:
     case K_FXTYPE: case K_DEST: case K_EQMODE: case K_MODSRC: case K_SLOT:
+    case K_POLES:
         return 0;
     default:
         return 1;
