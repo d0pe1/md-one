@@ -79,6 +79,27 @@ rule is to keep those **byte-identical to stock**. Dinghy's build already reads
 them from the AC79 SDK rather than generating them, which is part of why
 building on Dinghy is safer than rolling our own packager.
 
+## Telling the modes apart over USB
+
+Observed on a stock unit, 2026-10-20 — the first hardware this project has
+seen:
+
+| Mode | USB ID | Enumerates as |
+| --- | --- | --- |
+| **Normal** | `4C4A:C755` | `FM-1 Audio` + `FM-1 Midi`, class-compliant, driver `usbaudio` |
+| Mask-ROM recovery | `4C4A:8057` | `WL80UBOOT` |
+
+Same vendor — `4C4A` is `"LJ"`, JieLi — different product. Only the recovery
+ID was written down before, which left no way to tell from these documents
+whether an attached device was running normally or already in trouble.
+
+A normal-mode unit presents **both** a capture endpoint and a render
+endpoint. The capture one, `Microphone (FM-1 Audio)` on Windows, is the
+entire delivery path for this instrument: it is how the engine's samples
+reach a DAW without a D/A → A/D round trip. Seeing it confirms the
+assumption the whole design rests on, on real hardware, with nothing
+flashed.
+
 ## Recovery paths — documented, unproven
 
 Three layers are described upstream. Their validation status differs, and none
