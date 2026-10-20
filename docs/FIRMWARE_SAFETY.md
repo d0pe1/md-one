@@ -100,6 +100,35 @@ reach a DAW without a D/A → A/D round trip. Seeing it confirms the
 assumption the whole design rests on, on real hardware, with nothing
 flashed.
 
+## The stock image is in hand
+
+M-VAVE ship their own firmware inside their open SDK
+(<https://github.com/m-vave/fm1_open>), at
+`x/sdk/firmware/FM-1_015.fwsc` — 699,956 bytes, V15.
+
+It is copied to `artifacts/firmwares/mvave-stock-015.fwsc`, verified
+identical. That directory is gitignored: the image is M-VAVE's and is not
+ours to redistribute. The copy exists because `references/` is *reproduced*
+by `scripts/clone-references.ps1` rather than preserved — a re-clone fetches
+it again from GitHub, which is exactly the dependency a recovery image must
+not have.
+
+**This materially changes the risk.** Every recovery path below is
+documented-but-unproven, and upstream's own note is that restoring a whole
+image "remains untested". A vendor-signed stock package plus M-VAVE's own
+M-UPGRADE updater is a route the manufacturer supports and tests, which is
+almost certainly stronger than our dump-and-restore. It does not make
+flashing safe; it makes the most likely failure recoverable by the route
+most likely to work.
+
+What it does **not** cover: damage to the bootloader itself, which no
+application-level update can repair. `firmware/tools/build.py`'s brick
+checks exist for exactly that, and they stay.
+
+The package identities differ and should: ours is `FM-1_971`, M-VAVE's is
+`FM-1_015`. Two firmwares sharing an identity look like one firmware to the
+updater and to the Firmware Hub.
+
 ## Recovery paths — documented, unproven
 
 Three layers are described upstream. Their validation status differs, and none
