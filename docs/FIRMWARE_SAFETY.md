@@ -129,6 +129,50 @@ The package identities differ and should: ours is `FM-1_971`, M-VAVE's is
 `FM-1_015`. Two firmwares sharing an identity look like one firmware to the
 updater and to the Firmware Hub.
 
+## The "verified backup" precondition cannot be met, and that is settled
+
+This document has required a verified stock backup before any write. That
+requirement is **unsatisfiable**, and it took reading
+[aroum/fm1-custom-fw](https://github.com/aroum/fm1-custom-fw)'s
+`REVERSE_ENGINEERING.md` to establish why:
+
+> No documented method exists to dump firmware *from* a connected FM-1 unit.
+
+The flash is a Puya P25Q80H die **co-packaged inside the AC7911B SoC**, so
+there is no external chip to clip onto either. What that repository calls
+firmware extraction carves the image out of M-UPGRADE's own binary — it
+reads the updater, not the device.
+
+So the gate as written could never be passed, and a gate that cannot be
+passed is not caution, it is a way of never deciding. Replaced with what is
+actually achievable:
+
+| Check | Status |
+| --- | --- |
+| A stock image exists locally to roll back TO | ✅ `artifacts/firmwares/mvave-stock-015.fwsc` |
+| The firmware retains a bootloader/OTA entry | ✅ `platform.c:339` — OCT− at power-on enters `recovery_main()` |
+| A crashing build falls back on its own | ✅ boot guard: crash → USB rescue → ROM (`platform.c:5`) |
+| The bootloader is not rebuilt by us | ✅ `uboot.boot` pinned by SHA-256 to the tested SDK (`build.py`) |
+| Restore protocol implemented and understood | ✅ device-pull OTA; `fm1_ota.py` in `references/FM-1-RE` |
+| Mask-ROM recovery exists if all that fails | ⚠️ verified by others on hardware, not by us; needs an RP2040 dongle |
+
+**The requirement that actually matters** is the one that repository states
+plainly, and it is about our own build rather than about backups:
+
+> Any custom firmware MUST retain or implement a mechanism to enter the
+> bootloader/OTA mode. If custom firmware is flashed without a bootloader
+> entry handler, the device will be **permanently soft-locked** against
+> future MIDI updates or rollback.
+
+Ours does, inherited from Dinghy and checked above. That is the single
+condition separating "recoverable" from "lost", and it is worth more than
+any backup — because a device that can still take an update can always be
+rolled back, and one that cannot is gone whatever you saved.
+
+Still true, and unchanged: **never overwrite the 16 KB region holding the
+partition header and boot vector.** We do not build it; we ship the SDK's,
+hash-checked.
+
 ## Recovery paths — documented, unproven
 
 Three layers are described upstream. Their validation status differs, and none
