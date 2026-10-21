@@ -125,6 +125,16 @@ skipped.
 | 6-op, 1 voice | 45,316 | 45,316 | 7,553 | 3.25% |
 | 6-op, 12 voices | 525,378 | 43,782 | 7,297 | 37.71% |
 
+> **Every figure in this section is from the emulator, and the emulator was
+> 1.92x optimistic about the engine as a whole** when checked against
+> hardware on 2026-10-22 (`ROADMAP.md`). The stall falls entirely on code
+> that reads flash, and FM is almost nothing but sine-table lookup -- so
+> these numbers are the ones most likely to be wrong, in the direction of
+> being too good. At a Braids-like 3x, twelve 6-operator voices would be
+> ~113% of budget rather than 37.7%, and would not fit. It may stall less:
+> one small table with high locality is a kinder access pattern than
+> mip-mapped wavetables. **Nobody has measured it on the device.**
+
 **An operator costs 7,553 cycles per voice per block, and that figure barely
 moves** — 7,427 to 7,811 across every configuration, including the step from
 one voice to twelve. FM scales linearly in operators and in voices, with no

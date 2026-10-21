@@ -32,32 +32,70 @@ Feasibility is settled. Everything below was measured, not assumed.
 | C++ on the target | **proven** | Braids compiles, 99 KB of 526 KB |
 | Braids port correctness | **proven** | matches a 96 kHz reference, 0.0 cents / 0.0 dB |
 | Tables at 44.1 kHz | **proven** | regenerated; reproduces upstream at 96 kHz, all 45 tables identical |
-| Engine on the chip | **proven** | 4 voices = 20.7% of the audio budget |
+| Engine on the chip | **MEASURED ON HARDWARE** | 4 voices = **42%**, peak 45% (emulator said 21.8%) |
 | Signal path complete | **built** | two filters, EQ, drive, AHDSR, patchbay, mixer — `SIGNAL_PATH.md` §8 |
 | Firmware boots and sounds | **proven** | runs in `fm1-live`, all brick checks pass |
 | FM feasibility | **measured** | 7,553 cycles/operator; 12 voices × 6 ops = 37.7% — `BRAIDS_PORT.md` |
 | Playable UX | **built** | nine menus, every parameter on a page, slewed so CC does not zipper |
 | Modulation | **built** | four LFOs into nine destinations per voice; 0.2% of budget idle |
-| Hardware | **none** | two units ordered, not arrived |
+| Hardware | **running MD-One** | flashed 2026-10-22; identity `FM-1_971` confirmed by the installer |
 
 The 20.7% is the engine as it stands: four voices, two filters, metering, an
 AHDSR, parameter slewing and the modulation matrix. A loaded patch — three EQ bands and drive on
 every channel — is **32%**.
 
-### How optimistic is that number?
+### Measured on silicon, 2026-10-22
 
-The emulator has no per-instruction cost model: it counts instructions and
-calls them cycles. Real silicon stalls on XIP flash reads, and the Braids
-wavetables live in flash.
+MD-One runs on hardware. The first reading off the device's own HOME page,
+measured by `fm1_ticks()` around `app_audio()`:
 
-An earlier version of this section applied a blanket 3× to everything and
-concluded the engine would land at 62%. That was wrong in kind, not merely
-in degree — it charged stall costs to code that never touches flash. Only
-the oscillator reads tables; the filters, comb, envelope, pan, mix bus,
-limiter, meters, LFOs, slew and modulation matrix are register arithmetic:
+    CPU 42%   PEAK 45%
+
+Against 21.8% in the emulator, which counts instructions and calls them
+cycles. The whole engine therefore runs **1.92x** slower than modelled -- and
+the composition argument predicted that almost exactly:
 
 | | cycles/block | share |
 | --- | ---: | ---: |
+| Braids oscillators (4 x 35,341) — **the only flash readers** | 141,364 | 46% |
+| everything else per voice | 129,784 | 43% |
+| shared per block | 33,220 | 11% |
+| **emulator total** | **304,368** | 21.8% |
+
+Solving the measurement against that split puts the stall factor on the
+flash half at **2.99x**, and everything else at 1.0x. The table this
+document carried before the flash predicted:
+
+| Oscillator stalls at | Engine total | % budget |
+| --- | ---: | ---: |
+| 2x | 445,732 | 32.0% |
+| **3x** | **587,096** | **42.1%** |
+
+Measured: **42.0%**. Within 0.1 percentage points.
+
+Two things that is worth saying plainly. The flash half stalls at the
+BRUTAL end of the range -- 3x was the worst case considered and it is simply
+what happens. And an earlier version of this section applied that 3x to the
+*whole* engine and predicted 62%, which would have been wrong by twenty
+points and would have had the block list re-priced for no reason. Only the
+code that reads flash stalls; the filters, envelope, mixer, matrix and slew
+are register arithmetic and cost exactly what was modelled.
+
+**Headroom as it actually stands:** 58% free with the boot patch. A loaded
+patch -- three EQ bands and drive on every channel -- adds register work that
+does not stall, so it lands near 52% rather than the 96% the old model
+threatened.
+
+**What this calls into question:** the FM feasibility figures in
+`BRAIDS_PORT.md`. A 6-operator voice was measured at 45,318 emulator cycles
+and the headline was that 12 voices of 6 operators fit in 37.7%. FM is
+almost entirely sine-table lookup -- flash -- so if it stalls like Braids
+does, that becomes ~113% and twelve voices do not fit. It may stall less:
+one small table read with high locality is a kinder access pattern than
+Braids' mip-mapped wavetables. **Unmeasured either way.** The number to
+trust is the one taken on the device, and that one has not been taken yet.
+
+--- | ---: | ---: |
 | Braids oscillators (4 × 35,341) — **flash** | 141,364 | 49% |
 | everything else per voice (4 × 32,446) | 129,784 | 45% |
 | shared per block | 16,926 | 6% |
