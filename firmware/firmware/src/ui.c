@@ -38,6 +38,12 @@ static uint8_t ui_note_of(uint8_t voice);
 /* Measured in the audio ISR by drone.c, displayed here. */
 extern volatile uint32_t load_ticks, load_peak, load_frames;
 
+/* Seconds left before the rescue opens, or 0. Drawn over whatever page is
+ * showing: this is the one message that must not be missed, and it is the
+ * difference between a rescue you can see arriving and one you have to
+ * believe in. */
+static uint8_t rescue_count;
+
 /* --- the overlay ---------------------------------------------------------
  *
  * MD-One's button map is NOT the stock silkscreen. This firmware replaces
@@ -953,6 +959,18 @@ static void ui_draw_body(void)
 
 static void ui_draw(void)
 {
+    if (rescue_count) {
+        char line[24];
+        uint32_t i = 0;
+        lcd_fill(0, 0, 240, Y_KEYS, C_BLACK);
+        draw_text_box(0, 70, 240, &FONT_L, "RESCUE IN", C_RED, 1);
+        line[i++] = (char)('0' + rescue_count);
+        ui_str(line, &i, " S");
+        line[i] = 0;
+        draw_text_box(0, 112, 240, &FONT_L, line, C_RED, 1);
+        draw_text_box(0, 160, 240, &FONT_S, "LET GO TO CANCEL", C_GREY, 1);
+        return;
+    }
     ui_draw_header();
     ui_draw_knobs();
     ui_draw_body();
@@ -968,6 +986,7 @@ static void ui_draw(void)
  * are live. */
 static void ui_tick(void)
 {
+    if (rescue_count) { ui_draw(); return; }
     switch (ui_nav.menu) {
     case M_HOME:
         ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 + 6);

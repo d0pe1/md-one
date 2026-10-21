@@ -362,6 +362,42 @@ static void app_main(void)
             }
         }
 
+        /* --- the rescue, reachable while running --------------------------
+         *
+         * OCT- and OCT+ together for five seconds, counting down from two,
+         * letting go cancels. Taken from Felucca (firmware/src/main.c), the
+         * platform nearly every FM-1 firmware forks -- and taken because
+         * the boot-time trigger we inherited from Dinghy DOES NOT WORK on
+         * this hardware: three cold boots holding OCT-, straight to the home
+         * screen every time.
+         *
+         * The reason is visible in the two implementations. Felucca reads
+         * the matrix only after timer5_start() and fm1_irq_enable_all(),
+         * so the state it tests was produced by the normal 10 kHz scanner
+         * and is properly debounced. recovery_key() runs before the timer
+         * exists and hand-polls the matrix in a tight loop, metres from
+         * power-on, and gets an answer it should not trust.
+         *
+         * This path has none of that problem: it runs in the main loop with
+         * every peripheral up, it cannot be mistimed, and the countdown
+         * means you can SEE it working rather than guessing. */
+        {
+            static uint32_t both_t0;
+            uint32_t both = (1u << BTN_OCT_DOWN) | (1u << BTN_OCT_UP);
+
+            if ((fm1_in.buttons & both) != both) {
+                if (rescue_count) { rescue_count = 0; redraw = 1; }
+                both_t0 = fm1_ms;
+            } else if (fm1_ms - both_t0 > 5000u) {
+                fm1_drone_set_gate(0, 0); fm1_drone_set_gate(1, 0);
+                fm1_drone_set_gate(2, 0); fm1_drone_set_gate(3, 0);
+                recovery_main();            /* never returns */
+            } else if (fm1_ms - both_t0 > 2000u) {
+                uint32_t left = (5000u - (fm1_ms - both_t0) + 999u) / 1000u;
+                if (left != rescue_count) { rescue_count = (uint8_t)left; redraw = 1; }
+            }
+        }
+
         /* --- LEDs and screen ---------------------------------------------- */
         for (v = 0; v < NV; v++) {
             int32_t rel_k = (int32_t)st.note[v] - (int32_t)KEY0;
