@@ -38,15 +38,54 @@ static void recovery_step(void)
     }
 }
 
+/* Is OCT- held at power-on?
+ *
+ * This failed on real hardware three cold boots in a row while passing in
+ * the emulator every time -- which is exactly why it was wrong. The first
+ * version scanned for 50 ms and then trusted a SINGLE reading:
+ *
+ *     return bootguard_manual(fm1_in.buttons);
+ *
+ * At that point in boot the shift register driving the key matrix still
+ * holds whatever it powered up with and the row lines have not settled. The
+ * test wants OCT- held and OCT+ NOT held -- `(buttons & 3) == 1` -- so one
+ * phantom closure on OCT+ reads 3 instead of 1 and the rescue silently does
+ * not fire. The emulator returns clean settled state on the first frame, so
+ * it passes there always and can never show this.
+ *
+ * So: discard the first 50 ms outright, then require the answer to agree
+ * with itself across consecutive frames before believing it. A phantom
+ * closure lasts a frame or two; a finger lasts thousands.
+ */
+#define RECOVERY_SETTLE_MS  50u     /* discarded: the matrix is still waking */
+#define RECOVERY_WATCH_MS  150u     /* sampled after that */
+#define RECOVERY_AGREE       8u     /* consecutive frames that must concur */
+
 static int recovery_key(void)
 {
-    uint32_t start = fm1_ticks();
+    uint32_t start, agree = 0;
+
     fm1_input_init();
-    do {
+
+    start = fm1_ticks();
+    while ((uint32_t)(fm1_ticks() - start)
+           < RECOVERY_SETTLE_MS * 1000u * FM1_TICKS_PER_US) {
+        fm1_wdt_feed();
+        fm1_input_scan();           /* scanned, deliberately not read */
+    }
+
+    start = fm1_ticks();
+    while ((uint32_t)(fm1_ticks() - start)
+           < RECOVERY_WATCH_MS * 1000u * FM1_TICKS_PER_US) {
         fm1_wdt_feed();
         fm1_input_scan();
-    } while ((uint32_t)(fm1_ticks() - start) < 50u * 1000u * FM1_TICKS_PER_US);
-    return bootguard_manual(fm1_in.buttons);
+        if (bootguard_manual(fm1_in.buttons)) {
+            if (++agree >= RECOVERY_AGREE) return 1;
+        } else {
+            agree = 0;              /* held THROUGHOUT, not merely glimpsed */
+        }
+    }
+    return 0;
 }
 
 static void recovery_main(void)
