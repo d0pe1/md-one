@@ -19,10 +19,32 @@ static void lcd_spin(uint32_t n)
         ;
 }
 
+/* Armed only while the main loop is painting (drone.c). A page repaint is
+ * thirty to fifty transfers, and the main loop is also the ONLY thing that
+ * drains the MIDI queue and reads the encoders -- so without this the
+ * instrument stops listening for the length of a repaint, which is what
+ * made turning a knob feel like it interrupted the whole device.
+ *
+ * It is called with a DMA already running, which is what makes it free: the
+ * servicing happens while those pixels go out, in time the CPU otherwise
+ * spends spinning in fm1_lcd_wait.
+ *
+ * This is a stopgap in the shape of the real answer. The vendor SDK
+ * (references/mvave-sdk/x/app/screen.c) paints in 16-row bands, tracks which
+ * are dirty, draws from a snapshot of the engine state, and time-boxes a
+ * flush to 4 ms before returning to the main loop. That is where this is
+ * going; until then, yielding at the one place we block buys most of it.
+ *
+ * The hook must never draw. The bus is mid-transfer here, and lcd_busy
+ * guards the hardware, not reentrancy. */
+static void (*lcd_yield_fn)(void);
+
 static void lcd_sync(void)          /* finish the running transfer (before touching its buffer) */
 {
     if (!lcd_busy)
         return;
+    if (lcd_yield_fn)
+        lcd_yield_fn();
     fm1_lcd_wait();
     fm1_lcd_deselect();
     lcd_busy = 0;

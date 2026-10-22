@@ -205,12 +205,95 @@ static void draw_keys(uint32_t lit)
 
 /* ---- main */
 
+/* --- control servicing, decoupled from painting ---------------------------
+ *
+ * The instrument used to do input, then MIDI, then the engine, then the
+ * screen, in one pass -- and the screen is a blocking SPI transfer. So for
+ * the sixty-odd milliseconds a page repaint takes, nothing read the encoders
+ * and nothing drained the MIDI queue. A knob turn set redraw on every
+ * detent, so a spin spent essentially all of its time painting: the device
+ * appeared to stall mid-edit, and streamed MIDI arrived late, in bursts, and
+ * eventually not at all once the 64-deep queue overflowed.
+ *
+ * Two previous attempts made repaints RARER -- a 150 ms coalescing window,
+ * then a text cache. Both bounded the damage and left the structure intact,
+ * which is why neither fixed the knob.
+ *
+ * These two run from the main loop AND from inside lcd_sync, so control is
+ * serviced between transfers instead of waiting out a whole repaint. Neither
+ * touches a pixel: they move values into the engine and raise flags the main
+ * loop acts on once it has finished drawing.
+ */
+static uint32_t redraw_req = 1;     /* a repaint is owed */
+static uint32_t patch_dirty;        /* the patch differs from what was saved */
+static uint32_t t_change;           /* when it last differed, for the save timer */
+static uint32_t midi_dirty;         /* MIDI moved something the screen shows */
+
+/* One edit: repaint it, remember it, restart the save timer. */
+static void ui_touched(void)
+{
+    redraw_req = 1;
+    patch_dirty = 1;
+    t_change = fm1_ms;
+}
+
+/* USB-MIDI in. Channels 1-4 are the voices, channel 16 is global
+ * (docs/MIDI_SPEC.md). */
+static void midi_service(void)
+{
+    uint8_t stt, d1, d2, v;
+
+    while (midi_get(&stt, &d1, &d2)) {
+        uint8_t ch = stt & 0x0Fu, msg = stt & 0xF0u;
+        if (msg == 0xB0u && d1 == 123u) {
+            for (v = 0; v < NV; v++) st.on[v] = 0;
+            st.solo = SOLO_NONE;
+            apply_gates();
+            redraw_req = 1;
+        } else if (msg == 0xB0u) {
+            fm1_drone_midi_cc(ch, d1, d2);
+            midi_dirty = 1;             /* coalesced below, not drawn here */
+        } else if (msg == 0x90u && d2 && ch < NV) {
+            st.note[ch] = d1;
+            st.on[ch] = 1;
+            fm1_drone_note_on(ch, d1);
+            apply_gates();
+            /* HOME is the only page that shows a note. The keyboard strip
+             * updates itself from `lit != lit_drawn` whatever page is open,
+             * so everywhere else a note costs no repaint. */
+            if (ui_nav.menu == M_HOME) midi_dirty = 1;
+        } else if ((msg == 0x80u || msg == 0x90u) && ch < NV) {
+            /* A note-off does NOT silence a drone voice: holding a key is
+             * not how this instrument is played. Use MUTE or CC 123. */
+        }
+    }
+}
+
+/* Drain MIDI and apply encoder detents. Called from the main loop, and from
+ * lcd_sync while a page is painting. */
+static void ui_pump(void)
+{
+    static uint8_t in_pump;
+
+    if (in_pump) return;                /* a pump must not pump itself */
+    in_pump = 1;
+    midi_service();
+    if (ui_encoders()) ui_touched();
+    in_pump = 0;
+}
+
+/* The pump is armed only around painting. It must stay disarmed during OTA
+ * and the rescue, which own the MIDI port themselves -- servicing there
+ * would eat the installer's own SysEx. */
+static void pump_arm(void)    { lcd_yield_fn = ui_pump; }
+static void pump_disarm(void) { lcd_yield_fn = 0; }
+
 static void app_main(void)
 {
     patch_t saved;
-    uint32_t prev = 0, dirty = 0, t_change = 0, t_meter = 0, shift_drawn = 2;
-    uint32_t lit_drawn = ~0u, redraw = 1;
-    uint32_t midi_dirty = 0, t_midi_draw = 0;
+    uint32_t prev = 0, t_meter = 0, shift_drawn = 2;
+    uint32_t lit_drawn = ~0u;
+    uint32_t t_midi_draw = 0;
     uint8_t v;
 
     fm1_drone_init();
@@ -252,7 +335,6 @@ static void app_main(void)
 
     for (;;) {
         uint32_t keys, down, b, rel, lit = 0;
-        uint8_t stt, d1, d2;
 
         platform_poll();
 
@@ -264,7 +346,7 @@ static void app_main(void)
          * this the MOD page keeps displaying the source layer after SHIFT is
          * let go -- the labels say SRCPIT while the knobs are back on
          * depth. */
-        if (ui_shift != shift_drawn) { shift_drawn = ui_shift; redraw = 1; }
+        if (ui_shift != shift_drawn) { shift_drawn = ui_shift; redraw_req = 1; }
 
         /* --- keys: set the Subject voice's note and latch it on ---------- */
         keys = fm1_in.notes;
@@ -282,7 +364,7 @@ static void app_main(void)
                     fm1_drone_note_on(sv, st.note[sv]);
                     apply_gates();
                     midi_send(0x90u + sv, st.note[sv], 100);
-                    redraw = 1; dirty = 1; t_change = fm1_ms;
+                    ui_touched();
                     break;
                 }
         }
@@ -293,13 +375,13 @@ static void app_main(void)
          * menu, so there is no separate page control to find. */
         b = fm1_input_edges(&rel);
 
-        if (b & (1u << UI_B_EDIT)) { fm1_nav_press(&ui_nav, M_EDIT, (int)ui_shift); redraw = 1; }
-        if (b & (1u << UI_B_ENV))  { fm1_nav_press(&ui_nav, M_ENV,  (int)ui_shift); redraw = 1; }
-        if (b & (1u << UI_B_LFO))  { fm1_nav_press(&ui_nav, M_LFO,  (int)ui_shift); redraw = 1; }
-        if (b & (1u << UI_B_MOD))  { fm1_nav_press(&ui_nav, M_MOD,  (int)ui_shift); redraw = 1; }
-        if (b & (1u << UI_B_FX))   { fm1_nav_press(&ui_nav, M_FX,   (int)ui_shift); redraw = 1; }
-        if (b & (1u << UI_B_MIX))  { fm1_nav_press(&ui_nav, M_MIX,  (int)ui_shift); redraw = 1; }
-        if (b & (1u << UI_B_GLO))  { fm1_nav_press(&ui_nav, M_GLO,  (int)ui_shift); redraw = 1; }
+        if (b & (1u << UI_B_EDIT)) { fm1_nav_press(&ui_nav, M_EDIT, (int)ui_shift); redraw_req = 1; }
+        if (b & (1u << UI_B_ENV))  { fm1_nav_press(&ui_nav, M_ENV,  (int)ui_shift); redraw_req = 1; }
+        if (b & (1u << UI_B_LFO))  { fm1_nav_press(&ui_nav, M_LFO,  (int)ui_shift); redraw_req = 1; }
+        if (b & (1u << UI_B_MOD))  { fm1_nav_press(&ui_nav, M_MOD,  (int)ui_shift); redraw_req = 1; }
+        if (b & (1u << UI_B_FX))   { fm1_nav_press(&ui_nav, M_FX,   (int)ui_shift); redraw_req = 1; }
+        if (b & (1u << UI_B_MIX))  { fm1_nav_press(&ui_nav, M_MIX,  (int)ui_shift); redraw_req = 1; }
+        if (b & (1u << UI_B_GLO))  { fm1_nav_press(&ui_nav, M_GLO,  (int)ui_shift); redraw_req = 1; }
         if (b & (1u << UI_B_HOME)) {
             /* SHIFT clears the peak as well as returning to page 1. A peak
              * that can only ever be the worst since power-on stops meaning
@@ -307,7 +389,7 @@ static void app_main(void)
              * set a patch up and then ask what IT costs. */
             if (ui_shift) load_peak = 0;
             fm1_nav_press(&ui_nav, M_HOME, (int)ui_shift);
-            redraw = 1;
+            redraw_req = 1;
         }
 
         /* SAVE enters the patch menu; SHIFT + SAVE writes immediately rather
@@ -316,11 +398,11 @@ static void app_main(void)
             if (ui_shift) {
                 patch_store(&saved);
                 settings_save(&saved, sizeof saved);
-                dirty = 0;
+                patch_dirty = 0;
             } else {
                 fm1_nav_press(&ui_nav, M_SAVE, 0);
             }
-            redraw = 1;
+            redraw_req = 1;
         }
 
         /* MUTE closes the VCA; SHIFT solos.
@@ -336,7 +418,7 @@ static void app_main(void)
             if (ui_shift) st.solo = (st.solo == sv) ? SOLO_NONE : sv;
             else          st.on[sv] = (uint8_t)!st.on[sv];
             apply_gates();
-            redraw = 1; dirty = 1; t_change = fm1_ms;
+            ui_touched();
         }
 
         /* HIT re-excites: the plucked and struck shapes are silent without
@@ -353,47 +435,19 @@ static void app_main(void)
         if (b & (1u << BTN_OCT_DOWN)) {
             uint8_t o = fm1_drone_get_param(ui_voice(), FD_P_OCTAVE);
             if (o > 0) fm1_drone_set_param(ui_voice(), FD_P_OCTAVE, (uint8_t)(o - 1u));
-            redraw = 1; dirty = 1; t_change = fm1_ms;
+            ui_touched();
         }
         if (b & (1u << BTN_OCT_UP)) {
             uint8_t o = fm1_drone_get_param(ui_voice(), FD_P_OCTAVE);
             if (o < FM1_PDEF[P_OCTAVE].max)
                 fm1_drone_set_param(ui_voice(), FD_P_OCTAVE, (uint8_t)(o + 1u));
-            redraw = 1; dirty = 1; t_change = fm1_ms;
+            ui_touched();
         }
 
-        /* --- encoders ---------------------------------------------------- */
-        if (ui_encoders()) { redraw = 1; dirty = 1; t_change = fm1_ms; }
-
-        /* --- USB-MIDI -----------------------------------------------------
-         * Channels 1-4 are the voices, channel 16 is global
-         * (docs/MIDI_SPEC.md). */
-        while (midi_get(&stt, &d1, &d2)) {
-            uint8_t ch = stt & 0x0Fu, msg = stt & 0xF0u;
-            if (msg == 0xB0u && d1 == 123u) {
-                for (v = 0; v < NV; v++) st.on[v] = 0;
-                st.solo = SOLO_NONE;
-                apply_gates();
-                redraw = 1;
-            } else if (msg == 0xB0u) {
-                fm1_drone_midi_cc(ch, d1, d2);
-                /* NOT an immediate redraw -- see the note below. */
-                midi_dirty = 1;
-            } else if (msg == 0x90u && d2 && ch < NV) {
-                st.note[ch] = d1;
-                st.on[ch] = 1;
-                fm1_drone_note_on(ch, d1);
-                apply_gates();
-                /* HOME is the only page that shows a note. The keyboard strip
-                 * updates itself from `lit != lit_drawn` further down, whatever
-                 * page is open, so everywhere else a note changes nothing on
-                 * screen and must not cost a repaint. */
-                if (ui_nav.menu == M_HOME) midi_dirty = 1;
-            } else if ((msg == 0x80u || msg == 0x90u) && ch < NV) {
-                /* A note-off does NOT silence a drone voice: holding a key is
-                 * not how this instrument is played. Use MUTE or CC 123. */
-            }
-        }
+        /* --- encoders and USB-MIDI ----------------------------------------
+         * Both also run from inside a repaint (ui_pump, armed below), so
+         * painting no longer makes the instrument deaf. */
+        ui_pump();
 
         /* --- the rescue, reachable while running --------------------------
          *
@@ -419,7 +473,7 @@ static void app_main(void)
             uint32_t both = (1u << BTN_OCT_DOWN) | (1u << BTN_OCT_UP);
 
             if ((fm1_in.buttons & both) != both) {
-                if (rescue_count) { rescue_count = 0; redraw = 1; }
+                if (rescue_count) { rescue_count = 0; redraw_req = 1; }
                 both_t0 = fm1_ms;
             } else if (fm1_ms - both_t0 > 5000u) {
                 fm1_drone_set_gate(0, 0); fm1_drone_set_gate(1, 0);
@@ -427,7 +481,7 @@ static void app_main(void)
                 recovery_main();            /* never returns */
             } else if (fm1_ms - both_t0 > 2000u) {
                 uint32_t left = (5000u - (fm1_ms - both_t0) + 999u) / 1000u;
-                if (left != rescue_count) { rescue_count = (uint8_t)left; redraw = 1; }
+                if (left != rescue_count) { rescue_count = (uint8_t)left; redraw_req = 1; }
             }
         }
 
@@ -449,35 +503,36 @@ static void app_main(void)
         fm1_led_key(BTN_OCT_UP,
                     fm1_drone_get_param(ui_voice(), FD_P_OCTAVE) < FM1_PDEF[P_OCTAVE].max);
 
-        /* MIDI REDRAWS ARE COALESCED AND RATE-LIMITED, and this is not a
-         * nicety -- without it, streamed MIDI stalls the instrument.
+        /* A stream of CCs still coalesces into one repaint, but the reason
+         * has changed and so has the window.
          *
-         * ui_draw() is a blocking SPI transfer. A 240x240 frame at 12 MHz and
-         * 16 bpp is 76.8 ms, and a page redraw overdraws past that. Every
-         * note-on and every CC used to set `redraw`, so at 145 BPM in
-         * sixteenths -- one note every 103 ms -- the main loop spent nearly
-         * all of its time painting, and it is the MAIN LOOP that drains the
-         * MIDI queue. The 2 kHz USB poll kept filling that queue from an ISR
-         * while nothing emptied it; at 64 deep it silently drops (usb.c), so
-         * messages arrived late, in bursts, and eventually not at all. Lag,
-         * jitter, and an instrument that looks hung while its audio ISR
-         * carries on perfectly.
+         * It used to be the only thing standing between streamed MIDI and a
+         * stalled instrument: ui_draw() is a blocking SPI transfer, the main
+         * loop is what drains the MIDI queue, and the 2 kHz USB poll kept
+         * filling that queue from an ISR while nothing emptied it. At 64 deep
+         * it silently drops (usb.c), so messages arrived late, in bursts, and
+         * eventually not at all. 150 ms bounded the painting to about 60% of
+         * the loop -- a guard, not a fix, and it did nothing for the encoders
+         * because a knob turn is not MIDI.
          *
-         * 150 ms bounds the painting to about 60% of the loop and leaves the
-         * rest for draining, which is thousands of iterations a second --
-         * far more than the ~20 messages a second this case produces.
-         *
-         * The real fix is to make a redraw cheap rather than rare: repaint
-         * only the strips whose content changed, instead of the whole page.
-         * Until then this is the guard. */
-        if (midi_dirty && fm1_ms - t_midi_draw >= 150u) {
+         * ui_pump now drains the queue from inside the paint, so starvation
+         * is no longer what this prevents. What is left is the plain argument
+         * that nobody can read a value changing faster than this, and every
+         * repaint skipped is bus time the next one does not have to wait for.
+         * 60 ms is one tick period: fast enough to track a fader, slow enough
+         * that a CC sweep does not queue a repaint per message. */
+        if (midi_dirty && fm1_ms - t_midi_draw >= 60u) {
             t_midi_draw = fm1_ms;
             midi_dirty = 0;
-            redraw = 1;
+            redraw_req = 1;
         }
 
+        /* Everything that paints runs with the pump armed. The flag is
+         * cleared BEFORE drawing, so an edit made during the paint queues
+         * the next one instead of being swallowed by it. */
+        pump_arm();
         if (lit != lit_drawn) { lit_drawn = lit; draw_keys(lit); }
-        if (redraw)           { redraw = 0; ui_draw(); }
+        if (redraw_req)       { redraw_req = 0; ui_draw(); }
 
         /* The meters have to move on their own -- nothing presses a button to
          * make a drone get louder. 20 Hz is fast enough to read a peak and
@@ -491,14 +546,20 @@ static void app_main(void)
             t_meter = fm1_ms;
             ui_tick();
         }
+        pump_disarm();
 
         /* A flash erase stalls everything including the audio, so only save
          * when the change has settled. A drone never goes quiet, so unlike
-         * Dinghy we cannot wait for silence -- 4 s of no edits instead. */
-        if (dirty && fm1_ms - t_change > 4000u) {
+         * Dinghy we cannot wait for silence -- 4 s of no edits instead.
+         *
+         * Disarmed above on purpose: settings_save goes through the same
+         * lcd_sync on its way to nothing, and a pump that ran mid-erase
+         * would be servicing MIDI into an engine the flash controller has
+         * stopped. */
+        if (patch_dirty && fm1_ms - t_change > 4000u) {
             patch_store(&saved);
             settings_save(&saved, sizeof saved);
-            dirty = 0;
+            patch_dirty = 0;
         }
     }
 }
