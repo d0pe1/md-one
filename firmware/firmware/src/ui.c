@@ -563,9 +563,44 @@ static void ui_draw_knobs(void)
 
         if (id == PG_NONE) id = fm1_page_knob(&ui_nav, k);
         ui_fmt(id, val);
+
+        /* Fine editing, made visible.
+         *
+         * Without this the gesture is undetectable: the fraction is 1/256 of
+         * a step, so the coarse number does not move, the heat bar does not
+         * move, and the sound barely does. A control with no feedback reads
+         * as a broken one, which is exactly how it was reported.
+         *
+         * The fraction is shown as hundredths of a step -- "064.35" is
+         * sixty-four and a bit over a third. Only where a fraction can exist
+         * at all, and only once it is non-zero or SHIFT is held, so the
+         * ordinary pages are unchanged. */
+        {
+            int finecap = id != PG_NONE &&
+                          FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                          fm1_drone_has_fine((uint8_t)id);
+            uint8_t frac = finecap
+                         ? fm1_drone_get_fine(ui_voice(), (uint8_t)id) : 0u;
+
+            if (finecap && (frac || ui_shift)) {
+                uint32_t i = 0, pct = ((uint32_t)frac * 100u) / 256u;
+                while (val[i]) i++;
+                val[i++] = '.';
+                val[i++] = (char)('0' + (pct / 10u) % 10u);
+                val[i++] = (char)('0' + pct % 10u);
+                val[i] = 0;
+            }
+        }
+
+        /* The label turns accent while SHIFT is held over a knob that HAS a
+         * fine layer -- so the gesture announces itself on the one page it
+         * works, instead of being something you have to know. */
         draw_text_box(x, Y_LABEL, COL_W, &FONT_S,
                       id == PG_NONE ? "----" : ui_label(id),
-                      id == PG_NONE ? C_TRACK : C_GREY, 1);
+                      id == PG_NONE ? C_TRACK
+                      : (ui_shift &&
+                         FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                         fm1_drone_has_fine((uint8_t)id)) ? C_ACC : C_GREY, 1);
 
         /* The value in its own heat, and a bar of the same colour under it.
          *
@@ -1428,11 +1463,21 @@ static int ui_encoders(void)
                        fm1_drone_has_fine((uint8_t)id);
             }
             if (fine) {
-                /* Accelerated like the coarse turn -- 256 sub-steps is a long
-                 * way at one a click -- but against the FINE range, so the
-                 * ceiling scales to the travel that actually exists here. */
+                /* SQUARED acceleration, which the coarse turn does not get.
+                 *
+                 * A slow click stays exactly one sixteenth-bit step -- that is
+                 * the whole point, and on VOWEL it is one position of a 4096
+                 * blend. But 256 of them make a single coarse step, so at the
+                 * coarse law's ceiling of 12 a deliberate turn needed twenty
+                 * clicks to cross one, and the first version of this felt like
+                 * a dead knob because of it.
+                 *
+                 * Squaring keeps the slow end at 1 and lifts the fast end to
+                 * ~144, about half a coarse step a click. Magnitude only: the
+                 * sign has to survive. */
                 int32_t d = ui_accel((uint8_t)(ENC_KNOB1 + k), e, 0);
-                fm1_drone_nudge_param(ui_voice(), (uint8_t)id, d, 0);
+                int32_t m = d < 0 ? -d : d;
+                fm1_drone_nudge_param(ui_voice(), (uint8_t)id, d * m, 0);
                 changed = 1;
                 continue;
             }
