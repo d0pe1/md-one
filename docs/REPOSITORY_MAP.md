@@ -50,6 +50,29 @@ done).
 
 ### Known limits — do not treat the emulator as the device
 
+**Measured against hardware, 2026-10-22.** The emulator earned a great deal
+of trust this day and lost it on exactly two axes. Both are worth knowing
+before relying on a green run.
+
+| | Verdict |
+| --- | --- |
+| Logic, drawing, audio generation, navigation | **trustworthy.** Nine menus, a modulation matrix, an EQ curve and a two-slot voice chain all worked first time on silicon |
+| Timing | **useless.** It counts instructions and calls them cycles. It reported 21.8% where the device reports **42%** — 1.92x out, because it models no XIP flash stall at all |
+| Anything it idealises about hardware state | **actively misleading.** See below |
+
+The second failure is the one that matters, because it was silent and it hit
+the safety path. The OCT− rescue trigger inherited from Dinghy reaches the
+rescue screen in the emulator **every time**, and does not fire on hardware
+**at all** — three cold boots, button held before power, straight to the home
+screen. The cause is that `recovery_key()` hand-polls the key matrix
+milliseconds after power-on, when the shift register driving it still holds
+whatever it powered up with; the emulator returns clean settled state on the
+first frame and so can never reproduce it.
+
+The rule that follows: **a green emulator run proves the logic, never the
+timing, and never anything that depends on hardware settling.** Those need
+the device, and this project now has one.
+
 The author is explicit that the ISA was recovered from firmware images, not
 from a vendor manual. Our own run surfaced one concrete gap:
 
