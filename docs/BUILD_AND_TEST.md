@@ -350,3 +350,79 @@ That last one is worth dwelling on: the first version of
 `scripts/verify-toolchain.sh` reported success for the wrong reason. It now
 tests functionally — compile something, ask the vendor `objdump` what came out,
 and cross-check `e_machine = 0xf1` via `file(1)`.
+
+## Verifying the USB capture path
+
+This is the premise of the instrument — a DAW records the engine digitally,
+with no analogue round trip — and it was believed rather than measured for
+most of the project. Measure it.
+
+**The trap that cost days: hearing the device proves nothing.** The FM-1 has
+an analogue jack *and* a USB capture endpoint, fed from the same buffer two
+lines apart in `platform.c`, and they fail independently. Ours sounded
+perfectly through the jack into a mixer — and into a DAW, via *that mixer's*
+soundcard — while the FM-1's own USB endpoint streamed digital zero. Every
+listening test passed. None of them tested the thing in question.
+
+Windows, with the device running:
+
+```powershell
+Get-PnpDevice -Class AudioEndpoint -PresentOnly |
+  Where-Object { $_.FriendlyName -match 'Felucca' } |
+  ForEach-Object {
+      if ($_.InstanceId -match '\{0\.0\.1\.') { 'CAPTURE' } else { 'RENDER' } }
+```
+
+`{0.0.1.*}` is capture, `{0.0.0.*}` is render. Ours is capture-only — `in=2
+out=0` under every host API, which is the right shape for this instrument.
+
+Then record and look at the samples, because **an endpoint that opens proves
+nothing**: a class-compliant device can enumerate an input and feed it
+silence, which is exactly what ours did. Any recorder will do; what matters is
+reading the numbers rather than the meter.
+
+A measured result, 2026-10-22, after a flash and restart:
+
+| Host API | Peak | Non-zero |
+| --- | --- | --- |
+| MME | −3.2 dBFS | 99.6% |
+| WASAPI | −3.0 dBFS | 99.6% |
+| WDM-KS | −3.3 dBFS | 99.6% |
+
+**Know what one LSB looks like.** The first run of our own check reported
+success at a peak of 0.00003 — which is 1/32768, a single 16-bit LSB, and was
+MME's resampler dither on a silent stream. A silence threshold has to sit well
+above that; four LSBs is far below any real signal and far above anything a
+host API invents.
+
+### The stream can go silent until the device restarts
+
+Observed, not yet explained. The endpoint enumerated, opened and streamed
+44.1 kHz stereo while carrying digital zero, with the analogue jack audible
+throughout. `FELUCCA_UAC` had been enabled since the first commit, so it was
+never a build-configuration problem. Reflashing — and so restarting — fixed
+it, and it has not recurred.
+
+`usb.c` describes the shape of the hazard in its own comments: the host "often
+selects alt 1 long before its first IN token, and a recorder may stop reading
+without going back to alt 0", and `uac_service` drops `uac.flowing` after a
+queued packet waits 20 ms. With `flowing` clear, `uac_render_start` stops
+feeding the ring and the device sends silence. That is a plausible mechanism
+and **not** a diagnosis: nobody has caught it in the act.
+
+The HOME page now shows the state so the next occurrence is readable rather
+than mysterious:
+
+```
+REC 1  FLOW 1  GO 1   PKT 04213
+```
+
+* `REC` — the host selected the streaming interface
+* `FLOW` — it is actually taking packets
+* `GO` — the ring is primed and carrying the render rather than silence
+* `PKT` — packets sent, low five digits
+
+`REC 1 FLOW 0` is a host that asked and then stopped reading. `FLOW 1 GO 0` is
+the device sending packets full of silence. A still `PKT` is a dead endpoint.
+Those three distinguish every case; before them, all of it looked the same
+from outside.

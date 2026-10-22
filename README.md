@@ -8,10 +8,28 @@ a modulation system, delivering into a DAW over USB audio.
 *MD = Mutable Droner. The working directory is still `fm1-laboratory/`; the
 instrument is MD-One.*
 
-**No FM-1 has been connected and no firmware has been flashed** — two units are
-on order, one to stay boxed as a known-good reference. Everything here runs on
-the host and in the [fm1-emu](https://github.com/joakimeriksson/fm1-emu)
-emulator, and every number in `docs/` was measured there rather than estimated.
+**It runs on hardware.** First flashed 2026-10-22 to the development unit; the
+second unit stays boxed as a known-good reference. It boots, sounds, reports
+**42% CPU (peak 45%)** on its own HOME page, and the rescue path has been
+walked end to end on the device — see [docs/FIRMWARE_SAFETY.md](docs/FIRMWARE_SAFETY.md).
+
+That line above about delivering into a DAW is the premise of the whole
+instrument, and it was asserted for most of this project's life without ever
+being tested. It is now measured: the FM-1 presents a **capture** endpoint,
+and 2 s recorded from it reads **−3.2 dBFS peak, 99.6% non-zero, genuinely
+stereo**, identically across MME, WASAPI and WDM-KS. The engine reaches a DAW
+as digital audio with no analogue round trip.
+
+Two things that cost real time and are worth knowing up front. The audio you
+hear through a mixer may be the **analogue jack**, which proves nothing about
+the USB path — they are separate, and ours was silent over USB for days while
+sounding perfectly through the jack. And the capture stream can enter a state
+where it streams digital zero until the device restarts; see
+[docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md).
+
+Host-side numbers in `docs/` come from the [fm1-emu](https://github.com/joakimeriksson/fm1-emu)
+emulator, which is trustworthy for logic and **1.92× optimistic on timing** —
+every timing claim is now checked against the device.
 
 Licensing is **GPL-3.0-only**, inherited from Dinghy, with `dsp/` deliberately
 MIT and free of GPL code so the engine stays reusable — see

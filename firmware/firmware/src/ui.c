@@ -879,6 +879,44 @@ static void ui_draw_load(int32_t y)
 
     draw_text_box(6, y, 234, &FONT_S, line,
                   pk >= 90u ? C_RED : (pk >= 60u ? C_ACC : C_GREY), 0);
+
+    /* The USB capture endpoint, on screen.
+     *
+     * The whole instrument rests on a DAW recording this device digitally,
+     * and that was believed rather than observed for the entire project. It
+     * is now observed, and it does not work: the endpoint enumerates, opens
+     * and streams 44.1 kHz stereo, and carries digital zero, while the
+     * analogue jack is audibly fine. Since uac_tap() reads the same buffer
+     * the DAC does, two lines back, the fault is somewhere between the ring
+     * and the host -- and usb.c already counts every step of that.
+     *
+     * REC is the state: alt (the host selected the streaming interface),
+     * FLOW (it is actually taking packets) and GO (the ring is primed and
+     * carrying the render rather than silence). Those three distinguish
+     * "the host never asked" from "the host asks and we send nothing".
+     * PKT is packets sent, which separates a dead endpoint from a live one
+     * full of zeros. */
+    {
+        char u[40];
+        uint32_t j = 0;
+        uint32_t pkts = uac.pkts;
+
+        ui_str(u, &j, "REC ");
+        u[j++] = (char)('0' + (uac.alt     ? 1 : 0));
+        ui_str(u, &j, " FLOW ");
+        u[j++] = (char)('0' + (uac.flowing ? 1 : 0));
+        ui_str(u, &j, " GO ");
+        u[j++] = (char)('0' + (uac.go      ? 1 : 0));
+        ui_str(u, &j, "  PKT ");
+        /* The low five digits: it is a rate we are reading, not a total. */
+        {
+            uint32_t d = 10000u;
+            while (d) { u[j++] = (char)('0' + (pkts / d) % 10u); d /= 10u; }
+        }
+        u[j] = 0;
+        draw_text_box(6, y + 18, 234, &FONT_S, u,
+                      uac.go ? C_ON : (uac.alt ? C_ACC : C_TRACK), 0);
+    }
 }
 
 /* The EQ, drawn.
