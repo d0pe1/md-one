@@ -448,20 +448,49 @@ static inline int fm1_streq(const char *a, const char *b)
  *
  * Takes `now` rather than reading a clock, so it is pure and the firmware's
  * feel can be asserted on a host instead of photographed.
+ *
+ * HOW FAR it travels is set by SPEED, not by how long you have been turning.
+ * The first version counted consecutive fast detents and multiplied by the
+ * count, which is a different thing wearing the same name: past the 100 ms
+ * threshold a brisk turn and a furious one moved a value at exactly the same
+ * rate, and the only way to go faster was to keep going longer. On the stock
+ * firmware -- and on every hardware encoder worth using -- spinning twice as
+ * fast moves twice as far, immediately. That is what this computes.
+ *
+ * The law is quadratic in speed rather than linear:
+ *
+ *     v    = FM1_ACC_MS - dt        how far above the threshold you are
+ *     mult = 1 + v*v / FM1_ACC_DIV
+ *
+ * which lands at 1 step the moment you cross back under the threshold, and
+ * rises steeply once you are clearly travelling:
+ *
+ *     140 ms/detent   1 step      placing a value
+ *     100 ms          2
+ *      80 ms          4
+ *      50 ms          8           a deliberate sweep: full range in ~16
+ *      20 ms         13
+ *      10 ms         15           flicked
+ *
+ * Linear-in-speed was tried on paper first and is too flat: to reach a useful
+ * top it has to accelerate so early that placing a value gets hard, which is
+ * the failure this whole function exists to avoid.
  */
-#define FM1_ACC_MS   100u   /* below ten detents a second you are placing a
-                             * value; above it you are travelling */
-#define FM1_ACC_MAX  9u
+#define FM1_ACC_MS   140u   /* slower than this and you are placing a value */
+#define FM1_ACC_DIV  1150u  /* picked so 50 ms/detent gives 8 -- see above */
+#define FM1_ACC_MAX  16u    /* no detent is ever worth more than this */
 
 typedef struct {
     uint32_t last_ms;
-    uint8_t  run;
+    uint16_t dt_avg;        /* smoothed interval between detents, ms */
+    uint8_t  run;           /* consecutive fast detents */
 } fm1_accel_t;
 
 static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
                                     int32_t detents, uint8_t max)
 {
     uint32_t dt = now - a->last_ms;
+    uint32_t v, mult, ceil;
 
     a->last_ms = now;
 
@@ -469,14 +498,37 @@ static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
      * and absolutely must not overshoot. */
     if (max <= 16u) { a->run = 0; return detents; }
 
-    if (dt < FM1_ACC_MS) {
-        if (a->run < FM1_ACC_MAX) a->run++;
-    } else {
+    if (dt >= FM1_ACC_MS) {             /* stopped, or never started */
         a->run = 0;
+        a->dt_avg = FM1_ACC_MS;
+        return detents;
     }
-    /* run 1 is the FIRST fast detent and still counts as one step, so a
-     * quick two-tap to nudge a value by two does not land on four. */
-    return detents * (int32_t)(a->run ? a->run : 1u);
+
+    /* Smoothed, because one mistimed detent should not launch the value
+     * across the range. Two-tap IIR: each sample halves the error, so it
+     * tracks a change of speed within three or four clicks and still ignores
+     * a single outlier. */
+    if (a->dt_avg == 0u) a->dt_avg = (uint16_t)FM1_ACC_MS;
+    a->dt_avg = (uint16_t)((a->dt_avg + dt) >> 1);
+
+    /* The FIRST fast detent is still worth one step, so a quick two-tap to
+     * nudge a value by two does not land on four. */
+    if (a->run < 2u) { a->run++; return detents; }
+
+    v = (uint32_t)a->dt_avg >= FM1_ACC_MS ? 0u
+                                          : FM1_ACC_MS - (uint32_t)a->dt_avg;
+    mult = 1u + (v * v) / FM1_ACC_DIV;
+
+    /* A step larger than an eighth of the range makes the ends unreachable
+     * by feel, so a narrow parameter accelerates less than a wide one. On a
+     * 0..127 knob this never bites; on the 48 shapes it caps at 6, which is
+     * fast without turning the list into a slot machine. (Whole categories
+     * are SHIFT + ALGORITHM, which is the right tool for crossing 48.) */
+    ceil = (uint32_t)max / 8u + 1u;
+    if (ceil > FM1_ACC_MAX) ceil = FM1_ACC_MAX;
+    if (mult > ceil) mult = ceil;
+
+    return detents * (int32_t)mult;
 }
 
 static inline const char *fm1_label_fit(const char *name)

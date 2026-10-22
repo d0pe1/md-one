@@ -263,6 +263,57 @@ and WAVE LINE do not step, and WAVE PARAPHONIC — which is a genuine chord
 generator — was not marked as either. The predicates are now per knob, because
 on FM only the ratio steps and the index does not.
 
+### How far one detent goes
+
+**One detent is one step** when you are placing a value, and the range comes
+from acceleration when you are travelling. That part has always been true. What
+changed is *what drives the acceleration*: the first version multiplied by a
+count of consecutive fast detents, so past its threshold a brisk turn and a
+furious one moved at exactly the same rate and the only way to go further was
+to go on longer. The stock firmware's knobs do not behave that way, and neither
+does any encoder worth using.
+
+Speed now sets the step size directly, quadratically
+(`fm1_enc_accel`, `dsp/engine/fm1_pages.h`):
+
+| Turning at | Steps per detent | Feels like |
+| --- | --- | --- |
+| 140 ms/detent or slower | 1 | placing a value |
+| 100 ms | 2 | |
+| 80 ms | 4 | |
+| 50 ms | 8 | a deliberate sweep — 0–127 in about sixteen |
+| 20 ms | 13 | |
+| 10 ms | 15 | flicked |
+
+Three rules hold it in place, all of them tested on a host rather than
+photographed:
+
+* The **first** fast detent is still worth one step, so a quick two-tap to
+  nudge a value by two does not land on four.
+* **Slowing down slows the value down** within three or four clicks — the
+  interval is smoothed by a two-tap IIR, which tracks a real change of speed
+  and ignores one mistimed click.
+* **Enums never accelerate at all**, and a narrow range accelerates less than
+  a wide one: a step bigger than an eighth of the range makes the ends
+  unreachable by feel. On the 48 shapes that caps at 6 per detent. Crossing
+  all 48 is SHIFT + ALGORITHM's job, not the spin's.
+
+Two shape facts the screen must surface, because they are invisible otherwise
+and both have already caused confusion:
+
+* On **TRIPLE**, **HARMONIC/FM** and **WAVETABLE** shapes, TIMBRE and COLOR
+  index a *quantised* table — semitone intervals, frequency ratios, discrete
+  waves. The knob steps rather than glides. The value row shows these as
+  stepped (`INTV +7`) rather than a bare number, so a knob that jumps does
+  not read as a knob that is broken.
+* On the **TRIPLE** shapes the voice is a **chord generator**: TIMBRE and
+  COLOR set the intervals of the second and third oscillators.
+
+Page 1 is Braids' own front panel, minus FINE and COARSE — pitch comes from
+the keys and the PITCH page, so tuning knobs would be redundant. FM and MOD
+are the module's attenuverters: with no CV jacks, they scale the internal
+drift into pitch and timbre. Both bipolar, centre = none.
+
 ### FX — Effect channels *(Subject: FX 1–4)*
 
 Four effect channels. SELECT chooses which one you are looking at, exactly as

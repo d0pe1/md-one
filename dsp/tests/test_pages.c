@@ -396,6 +396,59 @@ static void test_encoder_feel(void)
     printf("    twenty detents at 50 ms: %d steps\n", total);
     check(total >= 127, "a sustained turn crosses the full range", 0);
 
+    /* The property the user actually asked for, and the one the previous
+     * curve did NOT have: turn faster and it moves faster, at the same point
+     * in the gesture. The old version multiplied by a count of consecutive
+     * fast detents, so past its threshold every speed travelled identically
+     * and the only way to go further was to go on longer.
+     *
+     * Measured over the same number of detents, so what is being compared is
+     * steps-per-detent and nothing else. */
+    {
+        static const uint32_t ms[4] = { 110u, 80u, 50u, 20u };
+        int32_t reach[4];
+        int monotonic = 1, slow_is_gentle, fast_is_quick;
+        int j;
+
+        for (j = 0; j < 4; j++) {
+            memset(&a, 0, sizeof a);
+            reach[j] = 0;
+            for (i = 0; i < 12; i++)
+                reach[j] += fm1_enc_accel(&a, t + (uint32_t)i * ms[j], 1, 127);
+            printf("    twelve detents at %3u ms: %3d steps\n",
+                   ms[j], reach[j]);
+        }
+        for (j = 1; j < 4; j++)
+            if (reach[j] <= reach[j - 1]) monotonic = 0;
+
+        /* Not merely monotonic -- the span has to be worth having. A gentle
+         * turn stays aimable and a fast one crosses the range. */
+        slow_is_gentle = reach[0] <= 24;        /* 110 ms: about 2 a click */
+        fast_is_quick  = reach[3] >= 100;       /* 20 ms: most of 0..127   */
+
+        check(monotonic, "every step up in speed moves further per detent", 0);
+        check(slow_is_gentle, "a gentle turn stays aimable", 0);
+        check(fast_is_quick, "a fast spin crosses the range in a dozen", 0);
+    }
+
+    /* Speed is read from the CURRENT turn, not from how long one has been
+     * going: slowing down has to slow the value down again within a few
+     * clicks, or the knob keeps running away after you have stopped pushing.
+     * Twelve fast detents, then twelve slow ones. */
+    {
+        int32_t tail = 0;
+        uint32_t when = t;
+
+        memset(&a, 0, sizeof a);
+        for (i = 0; i < 12; i++) { fm1_enc_accel(&a, when, 1, 127); when += 20u; }
+        for (i = 0; i < 12; i++) {
+            when += 110u;
+            tail += fm1_enc_accel(&a, when, 1, 127);
+        }
+        printf("    twelve slow detents after a fast spin: %d steps\n", tail);
+        check(tail <= 30, "slowing down slows the value down", 0);
+    }
+
     /* Enums never accelerate. Six filter modes spun quickly must still land
      * where the clicks say, or the mode list becomes a slot machine. */
     memset(&a, 0, sizeof a);
