@@ -611,12 +611,21 @@ static void ui_draw_knobs(void)
          * 60% of the way to anything. */
         {
             const fm1_pdef_t *d = fm1_page_def(&ui_nav, id);
-            int graded = d && (d->kind == K_NUM  || d->kind == K_PCT ||
+            /* PAN is INERT while MONO is on -- the gain stage ignores it
+             * entirely and forces centre. A live-looking knob that changes
+             * nothing is the thing this instrument keeps being caught doing,
+             * so it reads as cold and loses its bar, exactly like a control
+             * sitting at its own zero. */
+            int inert = id == P_PAN &&
+                        FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                        fm1_drone_get_param(ui_voice(), P_MONO);
+            int graded = !inert && d &&
+                        (d->kind == K_NUM  || d->kind == K_PCT ||
                                d->kind == K_BIP  || d->kind == K_CENTS ||
                                d->kind == K_OCT  || d->kind == K_HZ ||
                                d->kind == K_MS   || d->kind == K_RATE);
             uint32_t q = graded ? ui_heat_of(d, ui_get(id)) : 0u;
-            uint16_t c = graded ? ui_heat(q) : C_WHITE;
+            uint16_t c = inert ? C_TRACK : (graded ? ui_heat(q) : C_WHITE);
             int32_t  bx = x + 6, bw = COL_W - 12;
             int32_t  by = Y_VALUE + 18;          /* 84: clear of Y_BODY at 90 */
 

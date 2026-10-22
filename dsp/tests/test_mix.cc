@@ -1388,6 +1388,65 @@ static void test_fine(void)
        "and the coarse readout still says what you dialled", "coarse drifted");
 }
 
+/* --- detune is symmetric about its centre -------------------------------
+ *
+ * Reported from the panel: 0 -> -1 cent stepped, 0 -> +1 did not, and
+ * -1 -> -50 was smooth. A jump at the zero crossing and nowhere else.
+ *
+ * `(cents * 164) >> 7` is not a divide by 128. An arithmetic right shift
+ * rounds toward negative infinity, so it truncates above zero and FLOORS
+ * below it: +1 cent gave +1 pitch unit and -1 cent gave -2. The first click
+ * below centre moved twice as far as the first click above.
+ *
+ * The property is simple enough to state exactly, so it is stated exactly.
+ */
+static void test_detune_symmetry(void)
+{
+    fm1::Drone d;
+    int worst = 0, i;
+    int16_t zero;
+
+    printf("\ndetune (symmetric about centre)\n");
+
+    d.Init(1);
+    d.SetParam(0, P_OCTAVE, 4);
+    d.SetGlobal(G_SPREAD, 0);          /* spread would tilt the voices */
+    d.SetParam(0, P_DETUNE, 50);
+    d.SnapParams();
+    zero = d.PitchBase(0);
+
+    for (i = 1; i <= 50; i++) {
+        int up, dn, diff;
+        d.SetParam(0, P_DETUNE, (uint8_t)(50 + i)); d.SnapParams();
+        up = d.PitchBase(0) - zero;
+        d.SetParam(0, P_DETUNE, (uint8_t)(50 - i)); d.SnapParams();
+        dn = zero - d.PitchBase(0);
+        diff = up > dn ? up - dn : dn - up;
+        if (diff > worst) worst = diff;
+    }
+    printf("  worst up/down asymmetry over +-50 cents: %d pitch units\n", worst);
+    ok(worst == 0, "detuning down matches detuning up, cent for cent",
+       "the two sides of the centre detent disagree");
+
+    /* And the first click either way is the same size -- the one the panel
+     * actually caught. */
+    d.SetParam(0, P_DETUNE, 51); d.SnapParams();
+    {
+        int up = d.PitchBase(0) - zero;
+        int dn;
+        d.SetParam(0, P_DETUNE, 49); d.SnapParams();
+        dn = zero - d.PitchBase(0);
+        ok(up == dn && up == 1,
+           "the first cent either side is one pitch unit", "not 1 and 1");
+    }
+
+    /* The ends still reach +-50 cents: 64 units of 1/128 semitone. */
+    d.SetParam(0, P_DETUNE, 100); d.SnapParams();
+    ok(d.PitchBase(0) - zero == 64, "+50 cents is 64 pitch units", "span moved");
+    d.SetParam(0, P_DETUNE, 0); d.SnapParams();
+    ok(zero - d.PitchBase(0) == 64, "-50 cents is 64 pitch units", "span moved");
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -1402,6 +1461,7 @@ int main(void)
     test_mod_matrix();
     test_late_additions();
     test_fine();
+    test_detune_symmetry();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

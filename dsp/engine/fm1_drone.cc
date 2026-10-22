@@ -45,6 +45,30 @@ static const int32_t kDetuneSpan = 64;      /* 50 cents = 64 units of 1/128 */
  * worst 0.22 cents out and inaudible. */
 static const int32_t kCentInPitch = 164;
 
+/* Cents to pitch units, ROUNDED SYMMETRICALLY ABOUT ZERO.
+ *
+ * `(cents * 164) >> 7` looks like a divide by 128 and is not: an arithmetic
+ * right shift rounds toward NEGATIVE INFINITY, so it truncates above zero and
+ * floors below it. The two sides of the knob then behave differently:
+ *
+ *      +1 cent ->  +164 >> 7 =  1.28 ->  +1 unit
+ *      -1 cent ->  -164 >> 7 = -1.28 ->  -2 units
+ *
+ * The first click below centre moved twice as far as the first click above,
+ * which is audible as a step exactly at the zero crossing and nowhere else --
+ * reported from the panel as "0 => -1 cent has a very distinct jump ... not
+ * from 0 => +1 ... and -1 => -50 is also without a noticeable jump". Further
+ * out every step is the same ~1.28, so only the crossing gives it away.
+ *
+ * Rounding half away from zero instead makes -n the exact mirror of +n, which
+ * is what a bipolar control has to be: its centre detent is a real zero, and
+ * either side of it must cost the same. */
+static inline int32_t fm1_cents_to_pitch(int32_t cents)
+{
+    int32_t n = cents * kCentInPitch;
+    return n >= 0 ? (n + 64) >> 7 : -((-n + 64) >> 7);
+}
+
 /* ~0.5 s of red at 256 frames per block, 44.1 kHz. */
 static const uint8_t kClipHoldBlocks = 86;
 
@@ -112,7 +136,7 @@ void Drone::ApplyPitch(uint8_t v)
      * knob offset as if a click were a pitch unit, which made the real range
      * +-50 cents while the screen said +-64: the knob was honest about
      * neither its span nor its step. */
-    pitch += (((int32_t)d.p[P_DETUNE] - 50) * kCentInPitch) >> 7;
+    pitch += fm1_cents_to_pitch((int32_t)d.p[P_DETUNE] - 50);
 
     /* SPREAD fans the voices apart, voice 0 lowest */
     int32_t spread = (int32_t)g_[G_SPREAD];

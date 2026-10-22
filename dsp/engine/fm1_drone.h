@@ -146,6 +146,17 @@ class Drone {
 
     uint8_t GetParam(uint8_t voice, uint8_t param) const;
 
+    /* The voice's pitch before drift, in 1/128 semitone -- note, octave,
+     * detune and spread, exactly as it reaches the oscillator.
+     *
+     * Exposed so tuning can be TESTED rather than listened for. The detune
+     * knob was asymmetric about its own centre for a while, by one pitch
+     * unit, which is inaudible as a pitch and unmistakable as a step when you
+     * cross zero. Nothing could see it: the parameter read back correctly,
+     * the sound was the only evidence, and the sound is not a unit test. */
+    int16_t PitchBase(uint8_t voice) const
+    { return voice < FM1_VOICES ? v_[voice].pitch_base : 0; }
+
     /* The UI has to SHOW a global, not only set one. Without this the FX and
      * GLO pages could edit values they could not display. */
     uint8_t GetGlobal(uint8_t param) const;
