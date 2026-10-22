@@ -45,6 +45,59 @@ static const int32_t kDetuneSpan = 64;      /* 50 cents = 64 units of 1/128 */
  * worst 0.22 cents out and inaudible. */
 static const int32_t kCentInPitch = 164;
 
+/* Pitch (1/128 semitone) to Hz in Q16, INTERPOLATED WITHIN THE SEMITONE.
+ *
+ * This is what the comb and the resonators tune from, and until now it threw
+ * the fraction away:
+ *
+ *     int32_t semis = (pitch / kPitchPerSemitone) - 69;
+ *
+ * An integer divide, so the comb only ever landed on whole semitones. At a
+ * note exactly on the grid, pitch is N*128 and semis is N. One cent FLAT
+ * makes pitch N*128 - 1, which divides to N - 1 -- so the first click below
+ * centre dropped the comb A WHOLE SEMITONE, and it stayed there for the
+ * entire negative half (-50 cents is only -64 units, never reaching the next
+ * boundary). The positive half never crossed one at all.
+ *
+ * That is the "completely different harmonics from -1 cent onward" reported
+ * from the panel: a resonator a semitone off against its own oscillator is a
+ * different instrument, and it switched between them at the centre detent.
+ * The earlier rounding fix made the PITCH symmetric and could not touch this,
+ * because the fault was downstream in what the pitch was then used for.
+ *
+ * Linear interpolation between adjacent semitone ratios is plenty: one
+ * semitone spans 5.9%, over which 2^x is nearly straight, so the error stays
+ * under about 0.2 cents -- far below the 0.78 cent resolution of the pitch
+ * unit feeding it.
+ *
+ * Exposed as a static so the continuity can be tested rather than heard.
+ */
+q16_t Drone::PitchToHz(int32_t pitch)
+{
+    /* 2^(n/12) in Q12, with the octave as a thirteenth entry so the top
+     * semitone interpolates toward 2.0 instead of wrapping to 1.0. */
+    static const uint16_t kSemi[13] = {
+        4096, 4339, 4596, 4868, 5157, 5462,
+        5786, 6129, 6492, 6877, 7286, 7719, 8192
+    };
+    /* Floor, deliberately: the shift must round down on both sides so that
+     * `frac` is always the positive distance above `semis`. This is the one
+     * place an arithmetic shift does exactly the right thing. */
+    int32_t total = pitch - 69 * kPitchPerSemitone;
+    int32_t semis = total >> 7;
+    int32_t frac  = total & 127;
+    int32_t oct = semis / 12, rem = semis % 12;
+    uint32_t a, b, m, f;
+
+    if (rem < 0) { rem += 12; oct -= 1; }
+    a = kSemi[rem];
+    b = kSemi[rem + 1];
+    m = a + (((b - a) * (uint32_t)frac) >> 7);              /* Q12 */
+    f = (uint32_t)((440u << 16) >> 12) * m;                 /* Q16 */
+    if (oct >= 0) f <<= (uint32_t)oct; else f >>= (uint32_t)(-oct);
+    return (q16_t)f;
+}
+
 /* Cents to pitch units, ROUNDED SYMMETRICALLY ABOUT ZERO.
  *
  * `(cents * 164) >> 7` looks like a divide by 128 and is not: an arithmetic
@@ -161,19 +214,7 @@ void Drone::ApplyPitch(uint8_t v)
      * without a 64-bit divide. */
     q16_t hz_q16 = 0;
     {
-        /* MIDI note -> Hz in Q16, by table-free octave shifting of A4.
-         * 440 Hz in Q16 is 28835840; note 69 is A4. */
-        int32_t semis = (pitch / kPitchPerSemitone) - 69;
-        int32_t oct = semis / 12, rem = semis % 12;
-        if (rem < 0) { rem += 12; oct -= 1; }
-        /* 2^(n/12) in Q12 for n = 0..11 */
-        static const uint16_t kSemi[12] = {
-            4096, 4339, 4596, 4868, 5157, 5462,
-            5786, 6129, 6492, 6877, 7286, 7719
-        };
-        uint32_t f = (uint32_t)((440u << 16) >> 12) * kSemi[rem];   /* Q16 */
-        if (oct >= 0) f <<= (uint32_t)oct; else f >>= (uint32_t)(-oct);
-        hz_q16 = (q16_t)f;
+        hz_q16 = PitchToHz(pitch);
     }
     uint32_t inc = fm1_phase_inc(hz_q16, FM1_K_44100);
     /* The filters only need the key while KEYTRACK is up. The SLOTS need it

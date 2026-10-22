@@ -1445,6 +1445,44 @@ static void test_detune_symmetry(void)
     ok(d.PitchBase(0) - zero == 64, "+50 cents is 64 pitch units", "span moved");
     d.SetParam(0, P_DETUNE, 0); d.SnapParams();
     ok(zero - d.PitchBase(0) == 64, "-50 cents is 64 pitch units", "span moved");
+
+    /* AND THE FREQUENCY THE SLOTS TUNE FROM, which is the one that actually
+     * broke. Symmetric pitch was not enough: PitchToHz quantised to whole
+     * semitones, so one cent flat moved the comb an entire semitone while
+     * fifty cents sharp moved it not at all. Different harmonics either side
+     * of the centre detent, from a control that reads +-50 cents.
+     *
+     * Walk the whole knob and demand that no single click moves the comb
+     * further than a click possibly can. One cent is about 0.058% of a
+     * frequency; anything past a tenth of a percent is a boundary jump. */
+    {
+        int32_t base = (int32_t)(60 * 128);       /* note 60, on the grid */
+        uint32_t prev = (uint32_t)fm1::Drone::PitchToHz(base - 64);
+        uint32_t worst_num = 0, worst_den = 1;
+        int c;
+
+        for (c = -63; c <= 64; c++) {
+            uint32_t h = (uint32_t)fm1::Drone::PitchToHz(base + c);
+            uint32_t dd = h > prev ? h - prev : prev - h;
+            /* compare dd/h against worst_num/worst_den without floats */
+            if ((uint64_t)dd * worst_den > (uint64_t)worst_num * h) {
+                worst_num = dd; worst_den = h;
+            }
+            prev = h;
+        }
+        printf("  worst single-step comb jump: %u/1e6 of the frequency\n",
+               (unsigned)((uint64_t)worst_num * 1000000u / worst_den));
+        ok((uint64_t)worst_num * 1000u < (uint64_t)worst_den,
+           "the comb's tuning never jumps between adjacent detune steps",
+           "a step moved the resonator more than a cent could");
+    }
+
+    /* And it must still be RIGHT, not merely smooth: A4 is 440 Hz. */
+    {
+        uint32_t a4 = (uint32_t)fm1::Drone::PitchToHz(69 * 128);
+        ok(a4 > (440u << 16) - 2000u && a4 < (440u << 16) + 2000u,
+           "note 69 is still 440 Hz", "the interpolation moved concert pitch");
+    }
 }
 
 int main(void)

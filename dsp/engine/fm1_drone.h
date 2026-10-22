@@ -146,6 +146,15 @@ class Drone {
 
     uint8_t GetParam(uint8_t voice, uint8_t param) const;
 
+    /* Pitch in 1/128 semitone to Hz in Q16, interpolated within the semitone.
+     *
+     * What the comb and the resonators tune from. Public and static because
+     * it used to quantise to whole semitones, which made the slots jump an
+     * entire semitone the moment detune went one cent flat -- audible as the
+     * harmonics changing instrument at the centre detent, and invisible to
+     * every test that only looked at the pitch. */
+    static q16_t PitchToHz(int32_t pitch);
+
     /* The voice's pitch before drift, in 1/128 semitone -- note, octave,
      * detune and spread, exactly as it reaches the oscillator.
      *
