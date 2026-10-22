@@ -50,4 +50,29 @@ static const uint32_t fm1_lfo_inc[FM1_LFO_RATES] = {
      416691025u,  442391230u,  469676543u,  498644729u,
 };
 
+/* The same rates in MILLIHERTZ, for the screen: rate 0 is 10
+ * (0.010 Hz, a 100 s cycle) and rate 127 is 20000 (20.0 Hz).
+ *
+ * A bare 0..127 is unusable on an instrument whose useful range is a
+ * ten-second cycle: every setting worth having is crowded into the
+ * bottom quarter of the knob and they all read the same. */
+static const uint16_t fm1_lfo_mhz[FM1_LFO_RATES] = {
+        10u,     11u,     11u,     12u,     13u,     13u,     14u,     15u,
+        16u,     17u,     18u,     19u,     21u,     22u,     23u,     25u,
+        26u,     28u,     29u,     31u,     33u,     35u,     37u,     40u,
+        42u,     45u,     47u,     50u,     53u,     57u,     60u,     64u,
+        68u,     72u,     77u,     81u,     86u,     92u,     97u,    103u,
+       110u,    116u,    124u,    131u,    139u,    148u,    157u,    167u,
+       177u,    188u,    199u,    212u,    225u,    239u,    253u,    269u,
+       285u,    303u,    322u,    342u,    363u,    385u,    409u,    434u,
+       461u,    489u,    519u,    551u,    585u,    622u,    660u,    701u,
+       744u,    790u,    838u,    890u,    945u,   1003u,   1065u,   1131u,
+      1201u,   1275u,   1353u,   1437u,   1525u,   1619u,   1719u,   1825u,
+      1938u,   2057u,   2184u,   2319u,   2462u,   2614u,   2775u,   2946u,
+      3128u,   3321u,   3526u,   3743u,   3974u,   4219u,   4479u,   4756u,
+      5049u,   5360u,   5691u,   6042u,   6415u,   6810u,   7230u,   7676u,
+      8150u,   8652u,   9186u,   9753u,  10354u,  10993u,  11671u,  12391u,
+     13155u,  13966u,  14828u,  15742u,  16713u,  17744u,  18838u,  20000u,
+};
+
 #endif /* FM1_LFO_TABLE_H */

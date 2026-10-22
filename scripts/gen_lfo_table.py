@@ -69,6 +69,30 @@ def build():
     ]
     for r in range(0, N, 4):
         lines.append(("    " + " ".join("%10du," % v for v in incs[r:r + 4])).rstrip())
+    lines += ["};", ""]
+
+    # The same rates as a NUMBER THE PLAYER READS, in MILLIHERTZ. Computed
+    # back from the shipped integers like everything else here, so the screen
+    # cannot claim a rate the LFO does not run at.
+    #
+    # Millihertz and not hundredths: this instrument lives at the slow end,
+    # and in hundredths the first seven settings all quantise to 0.01 Hz --
+    # seven knob positions that sound different and read identically, which is
+    # the exact failure the readout exists to fix. 10 .. 20000 fits a uint16.
+    mhz = [max(1, int(round(v / (1 << 32) * BLOCK_RATE * 1000.0))) for v in incs]
+    lines += [
+        "/* The same rates in MILLIHERTZ, for the screen: rate 0 is %d"
+        % mhz[0],
+        " * (%.3f Hz, a %.0f s cycle) and rate 127 is %d (%.1f Hz)."
+        % (mhz[0] / 1000.0, 1.0 / slow, mhz[-1], mhz[-1] / 1000.0),
+        " *",
+        " * A bare 0..127 is unusable on an instrument whose useful range is a",
+        " * ten-second cycle: every setting worth having is crowded into the",
+        " * bottom quarter of the knob and they all read the same. */",
+        "static const uint16_t fm1_lfo_mhz[FM1_LFO_RATES] = {",
+    ]
+    for r in range(0, N, 8):
+        lines.append(("    " + " ".join("%6du," % v for v in mhz[r:r + 8])).rstrip())
     lines += ["};", "", "#endif /* FM1_LFO_TABLE_H */", ""]
 
     return "\n".join(lines), slow, fast

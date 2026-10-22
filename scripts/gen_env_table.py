@@ -67,12 +67,27 @@ def settle(knob):
     return 4.6 / (a * FS)
 
 
+def settle_ms(knob):
+    """The same settle time, in whole milliseconds, for the screen.
+
+    Derived from the SAME quantised coefficient as settle(), so the number on
+    the panel is the time the table actually delivers -- not the time the
+    generator was asked for, and not a second approximation free to drift from
+    the first. Capped at 65535 to fit a uint16; the slowest knob is ~32 s."""
+    return min(65535, int(round(settle(knob) * 1000.0)))
+
+
 def render():
     vals = [coeff(n) for n in range(128)]
+    ms = [settle_ms(n) for n in range(128)]
 
     body = []
     for i in range(0, 128, 6):
         body.append("    " + " ".join(f"{v:8d}," for v in vals[i:i + 6]))
+
+    msbody = []
+    for i in range(0, 128, 8):
+        msbody.append("    " + " ".join(f"{v:6d}," for v in ms[i:i + 8]))
 
     return f"""/* SPDX-License-Identifier: MIT
  *
@@ -108,6 +123,21 @@ def render():
 
 static const uint32_t fm1_env_a[128] = {{
 {chr(10).join(body)}
+}};
+
+/* The same settings as a TIME, in milliseconds, for the screen.
+ *
+ * A bare 0..127 on an envelope knob says nothing a player can act on -- "is
+ * 40 a long decay?" has no answer without turning it and listening. These are
+ * computed from the coefficients above rather than alongside them, so the
+ * panel cannot promise a time the envelope does not take.
+ *
+ *     knob   0 -> {ms[0]:5d} ms
+ *     knob  64 -> {ms[64]:5d} ms
+ *     knob 127 -> {ms[127]:5d} ms
+ */
+static const uint16_t fm1_env_ms[128] = {{
+{chr(10).join(msbody)}
 }};
 
 #endif /* FM1_ENV_TABLE_H */

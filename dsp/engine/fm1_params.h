@@ -244,6 +244,9 @@ enum {
     K_PCT,
     K_CENTS,    /* cents, one per step, centre at def */
     K_OCT,      /* octave offset, shown signed around the centre */
+    K_HZ,       /* a filter corner: the knob is a MIDI note, shown in Hz */
+    K_MS,       /* an envelope segment, shown as a time */
+    K_RATE,     /* an LFO rate, shown in Hz or as a cycle length */
     K_RATIO,
     K_FTYPE,    /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
     K_FXTYPE,   /* an effect name,     FM1_FXNAME   in fm1_rack.h */
@@ -300,29 +303,29 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * stays free of fm1_filter.h -- which would drag braids::Svf in and make
      * it C++ only. fm1_drone.cc static_asserts that they still agree. */
     [P_F1_TYPE]    = {"F1 TYPE",  4,   0, K_FTYPE,   0},
-    [P_F1_CUT]     = {"F1 CUT", 127,  64, K_NUM,     74},  /* GM brightness */
+    [P_F1_CUT]     = {"F1 CUT", 127,  64, K_HZ,      74},  /* GM brightness */
     [P_F1_RES]     = {"F1 RES", 127,   0, K_NUM,     71},  /* GM harmonic content */
     [P_F1_MIX]     = {"F1 MIX", 127, 127, K_PCT,     0},
     [P_F2_TYPE]    = {"F2 TYPE",  4,   0, K_FTYPE,   0},
-    [P_F2_CUT]     = {"F2 CUT", 127,  64, K_NUM,     0},
+    [P_F2_CUT]     = {"F2 CUT", 127,  64, K_HZ,      0},
     [P_F2_RES]     = {"F2 RES", 127,   0, K_NUM,     0},
     [P_F2_MIX]     = {"F2 MIX", 127, 127, K_PCT,     0},
     /* Three EQ bands. GAIN is centred (flat); MODE 0 is shelf/peak and 1 is
      * the pass or notch. Defaults put the bands at roughly 65 Hz, 523 Hz and
      * 2 kHz -- low, mid, air -- so the page is useful before anything is
      * moved. */
-    [P_EQ1_MODE]  = {"EQ1 MOD",  1,   0, K_EQMODE,  0},
-    [P_EQ1_FRQ]   = {"EQ1 FRQ",127,  36, K_NUM,     0},
+    [P_EQ1_MODE]  = {"EQ1 MODE",  1,   0, K_EQMODE,  0},
+    [P_EQ1_FRQ]   = {"EQ1 FREQ",127,  36, K_HZ,      0},
     [P_EQ1_GAIN]  = {"EQ1 GAIN",127,  64, K_BIP,     0},
     [P_EQ1_RES]   = {"EQ1 RES",127,  40, K_NUM,     0},
     [P_EQ1_MIX]   = {"EQ1 MIX",127, 127, K_PCT,     0},
-    [P_EQ2_MODE]  = {"EQ2 MOD",  1,   0, K_EQMODE,  0},
-    [P_EQ2_FRQ]   = {"EQ2 FRQ",127,  72, K_NUM,     0},
+    [P_EQ2_MODE]  = {"EQ2 MODE",  1,   0, K_EQMODE,  0},
+    [P_EQ2_FRQ]   = {"EQ2 FREQ",127,  72, K_HZ,      0},
     [P_EQ2_GAIN]  = {"EQ2 GAIN",127,  64, K_BIP,     0},
     [P_EQ2_RES]   = {"EQ2 RES",127,  40, K_NUM,     0},
     [P_EQ2_MIX]   = {"EQ2 MIX",127, 127, K_PCT,     0},
-    [P_EQ3_MODE]  = {"EQ3 MOD",  1,   0, K_EQMODE,  0},
-    [P_EQ3_FRQ]   = {"EQ3 FRQ",127,  96, K_NUM,     0},
+    [P_EQ3_MODE]  = {"EQ3 MODE",  1,   0, K_EQMODE,  0},
+    [P_EQ3_FRQ]   = {"EQ3 FREQ",127,  96, K_HZ,      0},
     [P_EQ3_GAIN]  = {"EQ3 GAIN",127,  64, K_BIP,     0},
     [P_EQ3_RES]   = {"EQ3 RES",127,  40, K_NUM,     0},
     [P_EQ3_MIX]   = {"EQ3 MIX",127, 127, K_PCT,     0},
@@ -332,11 +335,11 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * press a key, not fade in politely -- and SUSTAIN at full means DECAY
      * does nothing until you ask it to, so the envelope starts out of the
      * way. */
-    [P_ATTACK]     = {"ATTACK", 127,   8, K_NUM,     0},
-    [P_HOLD]       = {"HOLD",   127,   0, K_NUM,     0},
-    [P_DECAY]      = {"DECAY",  127,  40, K_NUM,     0},
+    [P_ATTACK]     = {"ATTACK", 127,   8, K_MS,      0},
+    [P_HOLD]       = {"HOLD",   127,   0, K_MS,      0},
+    [P_DECAY]      = {"DECAY",  127,  40, K_MS,      0},
     [P_SUSTAIN]    = {"SUSTAIN",127, 127, K_NUM,     0},
-    [P_RELEASE]    = {"RELEASE",127,  20, K_NUM,     0},
+    [P_RELEASE]    = {"RELEASE",127,  20, K_MS,      0},
     [P_LEVEL]      = {"LEVEL",  127, 100, K_NUM,     7},   /* GM volume */
     [P_PAN]        = {"PAN",    127,  64, K_BIP,    10},   /* GM pan */
     [P_MONO]       = {"MONO",     1,   0, K_ONOFF,   0},
@@ -350,37 +353,37 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * bipolar so 64 is the centre detent, exactly as FM and MOD are on the
      * BRAIDS page -- the same gesture means the same thing. */
     [P_MD0_DEPTH] = {"PITCH",  127,  64, K_BIP,     0},
-    [P_MD0_SRC]   = {"SRCPIT",   5,   0, K_MODSRC,  0},
+    [P_MD0_SRC]   = {"PITCH SRC",   5,   0, K_MODSRC,  0},
     [P_MD1_DEPTH] = {"TIMBRE", 127,  64, K_BIP,     0},
-    [P_MD1_SRC]   = {"SRCTMB",   5,   0, K_MODSRC,  0},
+    [P_MD1_SRC]   = {"TIMBRE SRC",   5,   0, K_MODSRC,  0},
     [P_MD2_DEPTH] = {"COLOR",  127,  64, K_BIP,     0},
-    [P_MD2_SRC]   = {"SRCCOL",   5,   0, K_MODSRC,  0},
+    [P_MD2_SRC]   = {"COLOR SRC",   5,   0, K_MODSRC,  0},
     [P_MD3_DEPTH] = {"LEVEL",  127,  64, K_BIP,     0},
-    [P_MD3_SRC]   = {"SRCLVL",   5,   0, K_MODSRC,  0},
+    [P_MD3_SRC]   = {"LEVEL SRC",   5,   0, K_MODSRC,  0},
     [P_MD4_DEPTH] = {"F1CUT",  127,  64, K_BIP,     0},
-    [P_MD4_SRC]   = {"SRCF1C",   5,   0, K_MODSRC,  0},
+    [P_MD4_SRC]   = {"F1CUT SRC",   5,   0, K_MODSRC,  0},
     [P_MD5_DEPTH] = {"F2CUT",  127,  64, K_BIP,     0},
-    [P_MD5_SRC]   = {"SRCF2C",   5,   0, K_MODSRC,  0},
+    [P_MD5_SRC]   = {"F2CUT SRC",   5,   0, K_MODSRC,  0},
     [P_MD6_DEPTH] = {"SLOT1",  127,  64, K_BIP,     0},
-    [P_MD6_SRC]   = {"SRCSL1",   5,   0, K_MODSRC,  0},
+    [P_MD6_SRC]   = {"SLOT1 SRC",   5,   0, K_MODSRC,  0},
     [P_MD7_DEPTH] = {"SLOT2",  127,  64, K_BIP,     0},
-    [P_MD7_SRC]   = {"SRCSL2",   5,   0, K_MODSRC,  0},
+    [P_MD7_SRC]   = {"SLOT2 SRC",   5,   0, K_MODSRC,  0},
     [P_MD8_DEPTH] = {"PAN",    127,  64, K_BIP,     0},
-    [P_MD8_SRC]   = {"SRCPAN",   5,   0, K_MODSRC,  0},
+    [P_MD8_SRC]   = {"PAN SRC",   5,   0, K_MODSRC,  0},
 
     /* 12 dB is the default because it is what the filter was before the
      * knob existed -- no patch changes character by gaining a control. */
-    [P_F1_POLE]    = {"F1 SLP",   2,   1, K_POLES,   0},
-    [P_F2_POLE]    = {"F2 SLP",   2,   1, K_POLES,   0},
+    [P_F1_POLE]    = {"F1 SLOPE",   2,   1, K_POLES,   0},
+    [P_F2_POLE]    = {"F2 SLOPE",   2,   1, K_POLES,   0},
 
     /* Both slots start OFF, which is a true bypass rather than a wet/dry at
      * zero -- the same silence, reached without the arithmetic. P1 centres
      * because it is a tune or an offset on half the types. */
-    [P_SL1_TYPE]   = {"SL1 TYP",  4,   0, K_SLOT,    0},
+    [P_SL1_TYPE]   = {"SL1 TYPE",  4,   0, K_SLOT,    0},
     [P_SL1_P1]     = {"SL1 P1", 127,  64, K_NUM,     0},
     [P_SL1_P2]     = {"SL1 P2", 127,   0, K_NUM,     0},
     [P_SL1_MIX]    = {"SL1 MIX",127, 127, K_PCT,     0},
-    [P_SL2_TYPE]   = {"SL2 TYP",  4,   0, K_SLOT,    0},
+    [P_SL2_TYPE]   = {"SL2 TYPE",  4,   0, K_SLOT,    0},
     [P_SL2_P1]     = {"SL2 P1", 127,  64, K_NUM,     0},
     [P_SL2_P2]     = {"SL2 P2", 127,   0, K_NUM,     0},
     [P_SL2_MIX]    = {"SL2 MIX",127, 127, K_PCT,     0},
@@ -400,22 +403,22 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
      * fm1_rack.h; fm1_drone.cc static_asserts both. Every channel starts
      * unplugged (DEST OFF), so a patch opts into the FX rather than having
      * to switch them off. */
-    [G_FX1_TYPE]   = {"FX1 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX1_TYPE]   = {"FX1 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX1_P1]     = {"FX1 P1", 127,  64, K_NUM,     0},
     [G_FX1_P2]     = {"FX1 P2", 127,  64, K_NUM,     0},
     [G_FX1_MIX]    = {"FX1 MIX",127, 127, K_PCT,     0},
     [G_FX1_DEST]   = {"FX1 OUT",  5,   0, K_DEST,    0},
-    [G_FX2_TYPE]   = {"FX2 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX2_TYPE]   = {"FX2 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX2_P1]     = {"FX2 P1", 127,  64, K_NUM,     0},
     [G_FX2_P2]     = {"FX2 P2", 127,  64, K_NUM,     0},
     [G_FX2_MIX]    = {"FX2 MIX",127, 127, K_PCT,     0},
     [G_FX2_DEST]   = {"FX2 OUT",  5,   0, K_DEST,    0},
-    [G_FX3_TYPE]   = {"FX3 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX3_TYPE]   = {"FX3 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX3_P1]     = {"FX3 P1", 127,  64, K_NUM,     0},
     [G_FX3_P2]     = {"FX3 P2", 127,  64, K_NUM,     0},
     [G_FX3_MIX]    = {"FX3 MIX",127, 127, K_PCT,     0},
     [G_FX3_DEST]   = {"FX3 OUT",  5,   0, K_DEST,    0},
-    [G_FX4_TYPE]   = {"FX4 TYP",  5,   0, K_FXTYPE,  0},
+    [G_FX4_TYPE]   = {"FX4 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX4_P1]     = {"FX4 P1", 127,  64, K_NUM,     0},
     [G_FX4_P2]     = {"FX4 P2", 127,  64, K_NUM,     0},
     [G_FX4_MIX]    = {"FX4 MIX",127, 127, K_PCT,     0},
@@ -423,26 +426,31 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
 
     /* AMOUNT defaults to 0: an LFO that is running but reaching nothing is
      * the right state to switch on in. RATE defaults slow -- 24 of 127 on an
-     * exponential 0.01..20 Hz scale is about 0.1 Hz, a ten-second cycle,
-     * which is what this instrument is for. PHASE spreads the four apart so
+     * exponential 0.01..20 Hz scale is 0.042 Hz, a 23.8 second cycle, which
+     * is what this instrument is for.
+     *
+     * That line used to say "about 0.1 Hz, a ten-second cycle". It was wrong
+     * by a factor of two and nobody could tell, because the screen showed
+     * `024`. The first thing the new readout did was contradict it -- which
+     * is the argument for units in one sentence. PHASE spreads the four apart so
      * that two of them assigned to the same destination do not simply sum
      * into one deeper modulation. */
-    [G_LFO1_RATE]  = {"LFO1 RT",127,  24, K_NUM,     0},
-    [G_LFO1_AMT]   = {"LFO1 AM",127,   0, K_NUM,     0},
-    [G_LFO1_PHASE] = {"LFO1 PH",127,   0, K_NUM,     0},
-    [G_LFO1_MODE]  = {"LFO1 MD",  5,   0, K_LFOMODE, 0},
-    [G_LFO2_RATE]  = {"LFO2 RT",127,  30, K_NUM,     0},
-    [G_LFO2_AMT]   = {"LFO2 AM",127,   0, K_NUM,     0},
-    [G_LFO2_PHASE] = {"LFO2 PH",127,  32, K_NUM,     0},
-    [G_LFO2_MODE]  = {"LFO2 MD",  5,   0, K_LFOMODE, 0},
-    [G_LFO3_RATE]  = {"LFO3 RT",127,  18, K_NUM,     0},
-    [G_LFO3_AMT]   = {"LFO3 AM",127,   0, K_NUM,     0},
-    [G_LFO3_PHASE] = {"LFO3 PH",127,  64, K_NUM,     0},
-    [G_LFO3_MODE]  = {"LFO3 MD",  5,   5, K_LFOMODE, 0},   /* SMOOTH */
-    [G_LFO4_RATE]  = {"LFO4 RT",127,  36, K_NUM,     0},
-    [G_LFO4_AMT]   = {"LFO4 AM",127,   0, K_NUM,     0},
-    [G_LFO4_PHASE] = {"LFO4 PH",127,  96, K_NUM,     0},
-    [G_LFO4_MODE]  = {"LFO4 MD",  5,   0, K_LFOMODE, 0},
+    [G_LFO1_RATE]  = {"LFO1 RATE",127,  24, K_RATE,    0},
+    [G_LFO1_AMT]   = {"LFO1 AMOUNT",127,   0, K_NUM,     0},
+    [G_LFO1_PHASE] = {"LFO1 PHASE",127,   0, K_NUM,     0},
+    [G_LFO1_MODE]  = {"LFO1 MODE",  5,   0, K_LFOMODE, 0},
+    [G_LFO2_RATE]  = {"LFO2 RATE",127,  30, K_RATE,    0},
+    [G_LFO2_AMT]   = {"LFO2 AMOUNT",127,   0, K_NUM,     0},
+    [G_LFO2_PHASE] = {"LFO2 PHASE",127,  32, K_NUM,     0},
+    [G_LFO2_MODE]  = {"LFO2 MODE",  5,   0, K_LFOMODE, 0},
+    [G_LFO3_RATE]  = {"LFO3 RATE",127,  18, K_RATE,    0},
+    [G_LFO3_AMT]   = {"LFO3 AMOUNT",127,   0, K_NUM,     0},
+    [G_LFO3_PHASE] = {"LFO3 PHASE",127,  64, K_NUM,     0},
+    [G_LFO3_MODE]  = {"LFO3 MODE",  5,   5, K_LFOMODE, 0},   /* SMOOTH */
+    [G_LFO4_RATE]  = {"LFO4 RATE",127,  36, K_RATE,    0},
+    [G_LFO4_AMT]   = {"LFO4 AMOUNT",127,   0, K_NUM,     0},
+    [G_LFO4_PHASE] = {"LFO4 PHASE",127,  96, K_NUM,     0},
+    [G_LFO4_MODE]  = {"LFO4 MODE",  5,   0, K_LFOMODE, 0},
 };
 
 /* --- which parameters are slewed -----------------------------------------

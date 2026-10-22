@@ -125,6 +125,95 @@ static void ui_i16(int32_t v, char *s)
     s[i] = 0;
 }
 
+/* --- real units -----------------------------------------------------------
+ *
+ * `072` tells a player nothing. The engine has always known these are
+ * 1.0 kHz and 253 ms -- the generators compute them, print them in their
+ * header comments, and then threw them away. Now they ship the numbers too,
+ * so the screen reads them out of the same tables the DSP runs on and cannot
+ * promise a value the engine does not deliver.
+ *
+ * Six characters, like the labels: the value column is the same width.
+ */
+
+/* A whole number and one decimal, with a unit: "12.5k", "253ms", "2.0s". */
+static void ui_dec1(uint32_t whole, uint32_t tenth, const char *unit, char *s)
+{
+    uint32_t i = 0;
+    if (whole >= 100u) s[i++] = (char)('0' + (whole / 100u) % 10u);
+    if (whole >= 10u)  s[i++] = (char)('0' + (whole / 10u) % 10u);
+    s[i++] = (char)('0' + whole % 10u);
+    /* Three digits already fills the column; a decimal point after them
+     * would push the unit off the end. */
+    if (whole < 100u) {
+        s[i++] = '.';
+        s[i++] = (char)('0' + tenth % 10u);
+    }
+    while (*unit) s[i++] = *unit++;
+    s[i] = 0;
+}
+
+/* The filter knob IS a MIDI note -- fm1_svf_table.h is indexed by one, and
+ * tuned to 440 * 2^((note-69)/12). Same arithmetic the engine uses for the
+ * comb (fm1_drone.cc), in tenths of a hertz so the bottom octave keeps a
+ * decimal: note 0 is 8.1 Hz and note 127 is 12.5 kHz. */
+static void ui_hz(uint8_t note, char *s)
+{
+    static const uint16_t kSemi[12] = {        /* 2^(n/12) in Q12 */
+        4096, 4339, 4596, 4868, 5157, 5462,
+        5786, 6129, 6492, 6877, 7286, 7719
+    };
+    int32_t  semis = (int32_t)note - 69;
+    int32_t  oct = semis / 12, rem = semis % 12;
+    uint32_t hz10;
+
+    if (rem < 0) { rem += 12; oct -= 1; }
+    hz10 = (4400u * (uint32_t)kSemi[rem]) >> 12;      /* tenths of a Hz at 2^0 */
+    if (oct >= 0) hz10 <<= (uint32_t)oct;
+    else          hz10 >>= (uint32_t)(-oct);
+
+    if (hz10 >= 10000u)                                /* 1 kHz and up */
+        ui_dec1(hz10 / 10000u, (hz10 / 1000u) % 10u, "k", s);
+    else
+        ui_dec1(hz10 / 10u, hz10 % 10u, "Hz", s);
+}
+
+/* A whole number and a unit, no decimal: "40ms", "253ms". */
+static void ui_int_unit(uint32_t v, const char *unit, char *s)
+{
+    uint32_t i = 0, d = 10000u;
+    while (d > 1u && v < d) d /= 10u;
+    while (d) { s[i++] = (char)('0' + (v / d) % 10u); d /= 10u; }
+    while (*unit) s[i++] = *unit++;
+    s[i] = 0;
+}
+
+/* An envelope segment, from the time the table actually delivers.
+ *
+ * No decimal below a second: a tenth of a millisecond is beyond both the
+ * block rate and anyone's hearing, and "3.0ms" spends two of six characters
+ * saying nothing. */
+static void ui_ms(uint8_t knob, char *s)
+{
+    uint32_t ms = fm1_env_ms[knob & 127u];
+    if (ms >= 1000u) ui_dec1(ms / 1000u, (ms / 100u) % 10u, "s", s);
+    else             ui_int_unit(ms, "ms", s);
+}
+
+/* An LFO rate. Below 1 Hz it is shown as the CYCLE LENGTH, because that is
+ * how it is used here -- "a ten-second sweep" is a thing a player decides,
+ * "0.1 Hz" is a thing they then have to divide. */
+static void ui_rate(uint8_t knob, char *s)
+{
+    uint32_t mhz = fm1_lfo_mhz[knob & 127u];
+    if (mhz >= 1000u) {
+        ui_dec1(mhz / 1000u, (mhz / 100u) % 10u, "Hz", s);
+    } else {
+        uint32_t s10 = 10000u / (mhz ? mhz : 1u);      /* tenths of a second */
+        ui_dec1(s10 / 10u, s10 % 10u, "s", s);
+    }
+}
+
 static const char *const UI_NOTE[12] = {
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
 };
@@ -226,6 +315,15 @@ static void ui_fmt(int id, char *out)
         break;
     case K_OCT:
         ui_i16((int32_t)v - (int32_t)d->def, out);
+        break;
+    case K_HZ:
+        ui_hz(v, out);
+        break;
+    case K_MS:
+        ui_ms(v, out);
+        break;
+    case K_RATE:
+        ui_rate(v, out);
         break;
     case K_ONOFF:
         ui_str(out, &i, v ? "ON" : "OFF");
@@ -914,7 +1012,7 @@ static void ui_draw_load(int32_t y)
             while (d) { u[j++] = (char)('0' + (pkts / d) % 10u); d /= 10u; }
         }
         u[j] = 0;
-        draw_text_box(6, y + 18, 234, &FONT_S, u,
+        draw_text_box(6, y + 16, 234, &FONT_S, u,
                       uac.go ? C_ON : (uac.alt ? C_ACC : C_TRACK), 0);
     }
 }
@@ -1014,7 +1112,9 @@ static void ui_body_home(void)
 
     /* HOME is "what is the instrument doing", and on a device with a fixed
      * audio budget that includes how much of it is left. */
-    ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 + 6);
+    /* Two rows of 16 from here: 176..191 and 192..207, the last pixel
+     * before Y_KEYS. The voice rows above end at 172. */
+    ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 - 2);
 }
 
 /* `clear` blanks the body first. That is right when the PAGE CHANGES -- the
@@ -1107,7 +1207,7 @@ static void ui_tick(void)
     if (rescue_count) { ui_draw(); return; }
     switch (ui_nav.menu) {
     case M_HOME:
-        ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 + 6);
+        ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 - 2);
         break;
     case M_MIX:
     case M_LFO:

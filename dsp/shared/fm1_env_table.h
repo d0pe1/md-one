@@ -55,4 +55,34 @@ static const uint32_t fm1_env_a[128] = {
           59,       54,
 };
 
+/* The same settings as a TIME, in milliseconds, for the screen.
+ *
+ * A bare 0..127 on an envelope knob says nothing a player can act on -- "is
+ * 40 a long decay?" has no answer without turning it and listening. These are
+ * computed from the coefficients above rather than alongside them, so the
+ * panel cannot promise a time the envelope does not take.
+ *
+ *     knob   0 ->     2 ms
+ *     knob  64 ->   253 ms
+ *     knob 127 -> 32407 ms
+ */
+static const uint16_t fm1_env_ms[128] = {
+         2,      2,      2,      2,      3,      3,      3,      3,
+         3,      4,      4,      4,      5,      5,      5,      6,
+         6,      7,      7,      8,      9,      9,     10,     11,
+        12,     13,     14,     15,     16,     17,     19,     20,
+        22,     23,     25,     27,     29,     32,     34,     37,
+        40,     43,     47,     50,     54,     59,     63,     68,
+        74,     80,     86,     93,    101,    109,    117,    127,
+       137,    148,    159,    172,    186,    201,    217,    234,
+       253,    273,    295,    319,    344,    372,    401,    433,
+       468,    505,    546,    590,    637,    688,    743,    802,
+       866,    935,   1010,   1091,   1178,   1273,   1375,   1484,
+      1603,   1731,   1870,   2018,   2179,   2355,   2544,   2747,
+      2966,   3205,   3459,   3739,   4032,   4353,   4704,   5087,
+      5486,   5932,   6410,   6917,   7479,   8065,   8706,   9409,
+     10174,  10938,  11824,  12774,  13780,  14957,  16055,  17327,
+     18817,  20349,  21875,  23649,  25735,  27778,  29661,  32407,
+};
+
 #endif /* FM1_ENV_TABLE_H */
