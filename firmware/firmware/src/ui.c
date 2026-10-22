@@ -449,7 +449,8 @@ static const char *ui_label(int id)
      * and pluck position. "TIMBRE 064" tells you nothing you could not have
      * guessed; "RATIO 064" tells you what you are holding. Derived from the
      * renderers -- see FM1_SHAPE_TIMBRE and docs/BRAIDS_SHAPES.md. */
-    if (id == P_TIMBRE || id == P_COLOR) {
+    if (FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+        (id == P_TIMBRE || id == P_COLOR)) {
         uint8_t sh = fm1_drone_get_param(ui_voice(), P_SHAPE) % FM1_NSHAPES;
         return id == P_TIMBRE ? FM1_SHAPE_TIMBRE[sh] : FM1_SHAPE_COLOR[sh];
     }

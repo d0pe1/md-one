@@ -194,7 +194,17 @@ void Drone::ApplyPitch(uint8_t v)
     /* SPREAD fans the voices apart, voice 0 lowest */
     int32_t spread = (int32_t)g_[G_SPREAD];
     if (spread) {
-        int32_t off = ((int32_t)v - (FM1_VOICES - 1) / 2) * spread * kDetuneSpan / 127;
+        /* Doubled, so the fan is SYMMETRIC about the note.
+         *
+         * `(v - (FM1_VOICES-1)/2)` is integer arithmetic: (4-1)/2 is 1, so
+         * the multipliers were -1, 0, +1, +2 where four voices need
+         * -1.5, -0.5, +0.5, +1.5. Opening SPREAD therefore raised the
+         * ensemble's pitch centre instead of fanning around it -- +25 cents
+         * at the top of the knob -- and voice 1 never moved at all.
+         *
+         * Working in halves keeps it exact without a fraction. */
+        int32_t off = ((int32_t)(2 * v) - (FM1_VOICES - 1))
+                    * spread * kDetuneSpan / (2 * 127);
         pitch += off;
     }
 
@@ -854,8 +864,26 @@ void Drone::Render(int16_t *out, uint32_t n)
                     /* A comb tunes from the voice's phase increment, so a
                      * modulated P1 has to go back through ApplyPitch -- once,
                      * however many slots moved. This is the path that makes
-                     * "a slow LFO into comb tune" work. */
-                    if (retune) ApplyPitch(vi);
+                     * "a slow LFO into comb tune" work.
+                     *
+                     * ApplyPitch also writes the OSCILLATOR's pitch, from the
+                     * base only -- no glide, no drift, no matrix -- and it
+                     * runs after the modulated write above. So routing any
+                     * slot P1 silently froze the oscillator at pitch_base:
+                     * the drift stopped, a pitch LFO went inaudible and GLIDE
+                     * became instant, all as a side effect of modulating a
+                     * comb. Measured: with a slot routed, the per-block zero
+                     * crossings of a drifting voice collapsed from 3..15 to
+                     * 6..9.
+                     *
+                     * The comb tracking the base is deliberate (see
+                     * ApplyPitch) -- a resonator chasing the drift would
+                     * cancel the beating it exists to make. Only the
+                     * oscillator write is wrong, so it is put back. */
+                    if (retune) {
+                        ApplyPitch(vi);
+                        d.osc.set_pitch((int16_t)pitch);
+                    }
                 }
             }
 

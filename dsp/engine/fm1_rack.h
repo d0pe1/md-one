@@ -201,7 +201,15 @@ static inline void fx_chan_tick(fx_chan_t *c, uint32_t w,
     case FX_CHORUS: {
         /* Two taps 90 degrees apart, which is what makes it stereo without a
          * second LFO. p1 is rate, p2 is depth. */
-        uint32_t inc = 200000u + (uint32_t)c->p1 * 26000u;   /* ~0.05..0.8 Hz */
+        /* One phase cycle is 2^32, so Hz = inc * 44100 / 2^32 and one hertz
+         * is 97391. The old constants -- 200000 + p1*26000 -- were therefore
+         * 2.05 Hz to 35.96 Hz, not the 0.05..0.8 the comment claimed: forty
+         * times too fast, with the DEFAULT p1 of 64 landing on 19.1 Hz. At
+         * that rate the delay sweeps its whole range in 26 ms and reverses
+         * hard at each apex, which is a warble, not a chorus.
+         *
+         * rings/dsp/fx/chorus.h runs its two LFOs at 0.184 and 0.239 Hz. */
+        uint32_t inc = 4870u + (uint32_t)c->p1 * 575u;       /* 0.05..0.8 Hz */
         c->phase += inc;
 
         int32_t depth = (int32_t)c->p2;                      /* 0..127 */
@@ -243,8 +251,21 @@ static inline void fx_chan_tick(fx_chan_t *c, uint32_t w,
         break;
     }
     case FX_LP: case FX_HP:
-        wl = c->svf[0].Process(il);
-        wr = c->svf[1].Process(ir);
+        /* SCALED INTO THE FILTER'S RANGE, AND BACK OUT.
+         *
+         * braids::Svf clamps its own integrators to int16 (CLIP in svf.h),
+         * but this bus deliberately carries FM1_FX_CEIL = 8.0 -- four voices
+         * at full level reach 4.0 and the headroom is the whole point of the
+         * int32 bus. So the filter saturated at an eighth of what it was
+         * handed: an 18 dB hard clip, inside the loop, before any output
+         * gain, on a channel the panel calls LOWPASS.
+         *
+         * That is verbatim the lesson this file already records for the comb
+         * at the top of the header -- "it saturated INSIDE the loop, before
+         * any output gain, so it never showed as clipping in a rendered
+         * file" -- and then repeats two lines later. */
+        wl = (int32_t)c->svf[0].Process(il >> 3) << 3;
+        wr = (int32_t)c->svf[1].Process(ir >> 3) << 3;
         break;
     default:
         break;      /* FX_NONE: the channel is a wire, wet is dry */

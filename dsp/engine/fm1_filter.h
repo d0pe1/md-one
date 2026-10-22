@@ -235,7 +235,15 @@ static inline q15_t fm1_filter_tick(fm1_filter_t *f, q15_t x)
              * landed on whole semitones. Switching SLOPE from 12 to 6 dB used
              * to move the corner by up to half a semitone as a side effect,
              * which is not what that knob is for. */
-            f->op += (f->fc * ((int32_t)x - f->op)) >> Q15_BITS;
+            /* ROUNDED, not floored. An arithmetic shift biases every step
+             * by half an LSB, and a one-pole INTEGRATES that: the state
+             * settles at -0.5 * 32768 / fc and stays there. Measured at CUT 0
+             * (fc = 38) it is -431 LSB, -37.6 dBFS of DC on every voice --
+             * and the sign inverts in HIGHPASS, where the output is x - op.
+             * Four voices of it is -25.6 dBFS going straight into the DAW,
+             * plus a thump whenever a gate opens. */
+            f->op += (f->fc * ((int32_t)x - f->op) + (1 << (Q15_BITS - 1)))
+                     >> Q15_BITS;
             w = (f->mode == F_LP) ? f->op : ((int32_t)x - f->op);
             w = fm1_q31_to_q15_sat(w);
             break;

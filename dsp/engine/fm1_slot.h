@@ -105,10 +105,18 @@ static inline void fm1_slot_set_key(fm1_slot_t *s, int16_t key, uint32_t inc)
 {
     s->key = key;
     if (s->type == SL_COMB) {
-        /* ratio from P1: 64 is unison. The comb derives its delay from the
-         * voice's phase increment, which is how it tunes without a 64-bit
-         * divide anywhere in the control path. */
-        int32_t ratio_q12 = 2048 + ((int32_t)s->p1 * 2048) / 127;
+        /* The comb derives its delay from the voice's phase increment,
+         * which is how it tunes without a 64-bit divide in the control path.
+         *
+         * fm1_comb.h: 4096 IS the note, 8192 an octave down, 2048 an octave
+         * up. This read `2048 + p1*2048/127`, spanning 2048..4096 -- that is
+         * octave-up to unison. So the detent this comment used to call unison
+         * was 3080, a fourth and a bit SHARP, and a comb tuned BELOW the note
+         * was unreachable: half of what a resonator is for, missing, behind a
+         * centre that was not centred.
+         *
+         * Centred on 4096 now, an octave either way. */
+        int32_t ratio_q12 = 4096 + (((int32_t)s->p1 - 64) * 2048) / 64;
         fm1_comb_set_from_inc(&s->comb, inc, ratio_q12);
     } else if (s->type == SL_RESO) {
         /* P1 is an offset in SEMITONES from the note, so the peak tracks the
@@ -125,6 +133,10 @@ static inline void fm1_slot_set_key(fm1_slot_t *s, int16_t key, uint32_t inc)
     }
 }
 
+/* Declared early: set_type has to reapply P2 after re-initialising the comb
+ * and the SVF, and the definition sits below. */
+static inline void fm1_slot_set_p2(fm1_slot_t *s, uint8_t v);
+
 static inline void fm1_slot_set_type(fm1_slot_t *s, uint8_t t)
 {
     if (t >= SL_NTYPES || t == s->type) return;
@@ -133,6 +145,16 @@ static inline void fm1_slot_set_type(fm1_slot_t *s, uint8_t t)
      * its delay line -- that is a click and a fragment of the wrong sound. */
     fm1_comb_init(&s->comb);
     fm1_svf_init(&s->svf);
+    /* ...but those Inits also reset the FEEDBACK and the RESONANCE to their
+     * defaults, and P2 was never reapplied -- so switching COMB -> DRIVE ->
+     * COMB silently dropped the feedback to zero while the panel still read
+     * 127. It got 12 dB LOUDER too, because the comb's input gain is scaled
+     * against its feedback and jumped back to unity.
+     *
+     * Worse, the knob could not fix it: ApplyParam short-circuits on
+     * `d.p[param] == value`, so re-sending the value already on screen did
+     * nothing. The only recovery was to move the knob and move it back. */
+    fm1_slot_set_p2(s, s->p2);
 }
 
 static inline void fm1_slot_set_p1(fm1_slot_t *s, uint8_t v) { s->p1 = v; }
