@@ -490,6 +490,7 @@ static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
                                     int32_t detents, uint8_t max)
 {
     uint32_t dt = now - a->last_ms;
+    uint32_t n  = (uint32_t)(detents < 0 ? -detents : detents);
     uint32_t v, mult, ceil;
 
     a->last_ms = now;
@@ -497,6 +498,25 @@ static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
     /* Small ranges never accelerate: a six-entry mode list has nowhere to go
      * and absolutely must not overshoot. */
     if (max <= 16u) { a->run = 0; return detents; }
+
+    /* PER DETENT, not per call. fm1_enc_take() returns however many detents
+     * piled up since the last poll, so a report of three means three clicks
+     * happened inside this one interval -- the knob was turning three times
+     * faster than `dt` alone says.
+     *
+     * Missing this inverted the whole control. Spin faster than the UI polls
+     * and every extra detent lands in the SAME call, so the measured speed
+     * saturates at the poll rate however hard you turn. Worse: a value change
+     * forces a full redraw, so turning fast makes the poll interval LONGER,
+     * and once it crosses FM1_ACC_MS a fast spin with ten queued detents
+     * takes the "stopped" branch below and pays one step each. Turning harder
+     * made the knob slower, which is exactly how it was reported from the
+     * panel.
+     *
+     * The interval still includes any idle time before the burst began, so
+     * this under-reads the speed rather than over-reading it. That is the
+     * right direction to be wrong in. */
+    if (n > 1u) dt /= n;
 
     if (dt >= FM1_ACC_MS) {             /* stopped, or never started */
         a->run = 0;
@@ -507,24 +527,43 @@ static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
     /* Smoothed, because one mistimed detent should not launch the value
      * across the range. Two-tap IIR: each sample halves the error, so it
      * tracks a change of speed within three or four clicks and still ignores
-     * a single outlier. */
+     * a single outlier.
+     *
+     * But a report of several detents is ALREADY an average over that many
+     * intervals, so it needs less smoothing, not the same -- and filtering it
+     * at the same rate would measure the time constant in POLLS rather than
+     * in clicks. At eight detents a poll that is a ramp lasting dozens of
+     * detents, which is most of a fast spin spent not yet accelerating: the
+     * residue of the same bug, one layer down. Take it as read instead. */
     if (a->dt_avg == 0u) a->dt_avg = (uint16_t)FM1_ACC_MS;
-    a->dt_avg = (uint16_t)((a->dt_avg + dt) >> 1);
+    a->dt_avg = (uint16_t)(n > 1u ? dt : ((a->dt_avg + dt) >> 1));
 
     /* The FIRST fast detent is still worth one step, so a quick two-tap to
-     * nudge a value by two does not land on four. */
-    if (a->run < 2u) { a->run++; return detents; }
+     * nudge a value by two does not land on four. A report carrying several
+     * detents at once is never a two-tap -- it is already a spin -- so it
+     * clears this immediately instead of spending two whole polls, which at
+     * five detents a poll would have cost ten clicks of ramp. */
+    if (a->run < 2u) {
+        a->run = (uint8_t)(a->run + n);
+        if (a->run < 2u) return detents;
+    }
 
     v = (uint32_t)a->dt_avg >= FM1_ACC_MS ? 0u
                                           : FM1_ACC_MS - (uint32_t)a->dt_avg;
     mult = 1u + (v * v) / FM1_ACC_DIV;
 
-    /* A step larger than an eighth of the range makes the ends unreachable
-     * by feel, so a narrow parameter accelerates less than a wide one. On a
-     * 0..127 knob this never bites; on the 48 shapes it caps at 6, which is
-     * fast without turning the list into a slot machine. (Whole categories
-     * are SHIFT + ALGORITHM, which is the right tool for crossing 48.) */
-    ceil = (uint32_t)max / 8u + 1u;
+    /* A narrow parameter accelerates less than a wide one, so one detent can
+     * never swallow a whole short list. A quarter of the range: on 0..127
+     * this never bites, and on the 48 shapes it caps at 12.
+     *
+     * This was an EIGHTH, which capped the shapes at 6 where the old
+     * run-length curve reached 9 -- so the one control most likely to be
+     * spun hard got slower, not faster. A tighter cap made sense when a
+     * sustained turn was the only way to travel; it does not now that slow
+     * turns are exactly one step each, because the ceiling only ever applies
+     * at full spin, which is precisely when travelling is what was asked
+     * for. (Whole categories are still SHIFT + ALGORITHM.) */
+    ceil = (uint32_t)max / 4u + 1u;
     if (ceil > FM1_ACC_MAX) ceil = FM1_ACC_MAX;
     if (mult > ceil) mult = ceil;
 

@@ -465,6 +465,58 @@ static void test_encoder_feel(void)
     memset(&a, 0, sizeof a);
     check(fm1_enc_accel(&a, t, 3, 127) == 3,
           "three detents in one poll are three steps", 0);
+
+    /* Spinning FASTER THAN THE UI POLLS must not read as slower.
+     *
+     * This is the bug that reached the panel. fm1_enc_take() hands over
+     * however many detents piled up since the last poll, so above the poll
+     * rate the extra clicks arrive inside ONE call and the gap between calls
+     * stops shrinking. Measuring that gap instead of the per-detent interval
+     * pinned the multiplier to the poll rate however hard the knob was
+     * turned -- and because changing a value forces a redraw, turning fast
+     * LENGTHENED the poll, eventually past the threshold, at which point a
+     * ten-detent burst was treated as a dead stop and paid one step each.
+     *
+     * Same wall-clock, same knob speed, reported at three different poll
+     * rates. What the user did is identical in all three; only the firmware's
+     * polling differs, so the value must travel about the same distance.
+     */
+    {
+        int32_t got[3];
+        int steady = 1, none_collapsed = 1;
+        int j;
+        static const struct { uint32_t per_poll, polls, ms; } rate[3] = {
+            { 1u, 24u,  25u },   /* loop keeps up: one detent per poll   */
+            { 3u,  8u,  75u },   /* redraw costs: three pile up per poll */
+            { 8u,  3u, 200u },   /* slow redraw: a burst per poll, over
+                                  * the old "stopped" threshold          */
+        };
+
+        for (j = 0; j < 3; j++) {
+            memset(&a, 0, sizeof a);
+            got[j] = 0;
+            for (i = 0; i < (int)rate[j].polls; i++)
+                got[j] += fm1_enc_accel(&a,
+                                        t + (uint32_t)i * rate[j].ms,
+                                        (int32_t)rate[j].per_poll, 127);
+            printf("    24 detents, %u per poll every %3u ms: %3d steps\n",
+                   rate[j].per_poll, rate[j].ms, got[j]);
+        }
+
+        /* All three are the same gesture -- 24 detents in 600 ms -- so they
+         * must land within a third of each other, and none may collapse to
+         * one-step-per-detent. */
+        for (j = 1; j < 3; j++) {
+            int32_t lo = got[0] < got[j] ? got[0] : got[j];
+            int32_t hi = got[0] < got[j] ? got[j] : got[0];
+            if (hi > lo + lo / 2) steady = 0;
+            if (got[j] <= 24) none_collapsed = 0;
+        }
+        check(none_collapsed,
+              "a burst bigger than the poll never reads as a dead stop", 0);
+        check(steady,
+              "one knob speed travels the same, whatever the poll rate", 0);
+    }
 }
 
 int main(void)
