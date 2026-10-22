@@ -421,14 +421,21 @@ static void test_encoder_feel(void)
     check(total == 2, "a quick two-tap moves exactly two", 0);
 
     /* Keep turning and it travels. Twenty detents at 50 ms -- one second of
-     * deliberate turning -- must cross a 0..127 range rather than covering
-     * a sixth of it. */
+     * deliberate turning -- must cover most of a 0..127 range rather than a
+     * sixth of it.
+     *
+     * The bar was ">= 127", the whole range, until the curve was turned by a
+     * human on hardware and came back "a LITTLE too fast". That number was a
+     * design target picked on paper; this one is a design target corrected by
+     * the panel, which outranks it. Relaxed deliberately, and the floor is
+     * still high enough to fail the thing this guards -- a knob that needs
+     * six turns to cross its range. */
     memset(&a, 0, sizeof a);
     total = 0;
     for (i = 0; i < 20; i++)
         total += fm1_enc_accel(&a, t + (uint32_t)i * 50u, 1, 127);
     printf("    twenty detents at 50 ms: %d steps\n", total);
-    check(total >= 127, "a sustained turn crosses the full range", 0);
+    check(total >= 90, "a sustained turn covers most of the range", 0);
 
     /* The property the user actually asked for, and the one the previous
      * curve did NOT have: turn faster and it moves faster, at the same point
@@ -458,11 +465,11 @@ static void test_encoder_feel(void)
         /* Not merely monotonic -- the span has to be worth having. A gentle
          * turn stays aimable and a fast one crosses the range. */
         slow_is_gentle = reach[0] <= 24;        /* 110 ms: about 2 a click */
-        fast_is_quick  = reach[3] >= 100;       /* 20 ms: most of 0..127   */
+        fast_is_quick  = reach[3] >= 80;        /* 20 ms: most of 0..127   */
 
         check(monotonic, "every step up in speed moves further per detent", 0);
         check(slow_is_gentle, "a gentle turn stays aimable", 0);
-        check(fast_is_quick, "a fast spin crosses the range in a dozen", 0);
+        check(fast_is_quick, "a fast spin covers most of the range in a dozen", 0);
     }
 
     /* Speed is read from the CURRENT turn, not from how long one has been

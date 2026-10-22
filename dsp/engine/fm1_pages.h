@@ -477,8 +477,8 @@ static inline int fm1_streq(const char *a, const char *b)
  * the failure this whole function exists to avoid.
  */
 #define FM1_ACC_MS   140u   /* slower than this and you are placing a value */
-#define FM1_ACC_DIV  1150u  /* picked so 50 ms/detent gives 8 -- see above */
-#define FM1_ACC_MAX  16u    /* no detent is ever worth more than this */
+#define FM1_ACC_DIV  1600u  /* gain: 50 ms/detent gives 6 -- see the table */
+#define FM1_ACC_MAX  12u    /* no detent is ever worth more than this */
 
 typedef struct {
     uint32_t last_ms;
@@ -534,9 +534,29 @@ static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
      * at the same rate would measure the time constant in POLLS rather than
      * in clicks. At eight detents a poll that is a ramp lasting dozens of
      * detents, which is most of a fast spin spent not yet accelerating: the
-     * residue of the same bug, one layer down. Take it as read instead. */
+     * residue of the same bug, one layer down.
+     *
+     * Less smoothing, though, is not NONE, and HOW MUCH less should follow
+     * how many detents the report carries -- an average over eight is worth
+     * more confidence than an average over two. So the weight toward the new
+     * reading is n/4, capped:
+     *
+     *     n = 2   half way      a burst that might be two stray clicks
+     *     n = 3   three quarters
+     *     n >= 4  taken as read an unambiguous spin
+     *
+     * Taking EVERY burst as read was the previous version, and it jumped to
+     * full speed on the first one -- from the panel that reads as coarse,
+     * because the knob arrives rather than accelerates. Weighting it keeps
+     * the gentle onset for the small bursts a responsive UI delivers, while
+     * a genuinely fast spin still converges in one report. */
     if (a->dt_avg == 0u) a->dt_avg = (uint16_t)FM1_ACC_MS;
-    a->dt_avg = (uint16_t)(n > 1u ? dt : ((a->dt_avg + dt) >> 1));
+    if (n > 1u) {
+        uint32_t w = n > 4u ? 4u : n;
+        a->dt_avg = (uint16_t)(((4u - w) * (uint32_t)a->dt_avg + w * dt) >> 2);
+    } else {
+        a->dt_avg = (uint16_t)(((uint32_t)a->dt_avg + dt) >> 1);
+    }
 
     /* The FIRST fast detent is still worth one step, so a quick two-tap to
      * nudge a value by two does not land on four. A report carrying several
@@ -553,8 +573,13 @@ static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
     mult = 1u + (v * v) / FM1_ACC_DIV;
 
     /* A narrow parameter accelerates less than a wide one, so one detent can
-     * never swallow a whole short list. A quarter of the range: on 0..127
-     * this never bites, and on the 48 shapes it caps at 12.
+     * never swallow a whole short list. A SIXTH of the range: on 0..127 this
+     * never bites, and on the 48 shapes it caps at 8.
+     *
+     * An eighth, then a quarter, now a sixth -- and the middle one is the
+     * only value that was never turned by a human. It was chosen on paper to
+     * undo the eighth being too tight, overshot, and the shape list came back
+     * from the panel as a slot machine.
      *
      * This was an EIGHTH, which capped the shapes at 6 where the old
      * run-length curve reached 9 -- so the one control most likely to be
@@ -563,7 +588,7 @@ static inline int32_t fm1_enc_accel(fm1_accel_t *a, uint32_t now,
      * turns are exactly one step each, because the ceiling only ever applies
      * at full spin, which is precisely when travelling is what was asked
      * for. (Whole categories are still SHIFT + ALGORITHM.) */
-    ceil = (uint32_t)max / 4u + 1u;
+    ceil = (uint32_t)max / 6u + 1u;
     if (ceil > FM1_ACC_MAX) ceil = FM1_ACC_MAX;
     if (mult > ceil) mult = ceil;
 

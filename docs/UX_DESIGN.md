@@ -279,11 +279,17 @@ Speed now sets the step size directly, quadratically
 | Turning at | Steps per detent | Feels like |
 | --- | --- | --- |
 | 140 ms/detent or slower | 1 | placing a value |
-| 100 ms | 2 | |
-| 80 ms | 4 | |
-| 50 ms | 8 | a deliberate sweep — 0–127 in about sixteen |
-| 20 ms | 13 | |
-| 10 ms | 15 | flicked |
+| 110 ms | 1 | |
+| 80 ms | 2–3 | |
+| 50 ms | 4–6 | a deliberate sweep — most of 0–127 in a second |
+| 20 ms | 8–10 | |
+| 10 ms | 11–12 | flicked |
+
+These are the **second** set of numbers. The first were picked on paper and
+came back from the panel as *"a LITTLE too fast"* and coarse, so the gain was
+softened by about a third and the ceiling dropped from 16 to 12. A curve for
+a knob is not something to be right about in the abstract; it is settled by
+turning the knob.
 
 Three rules hold it in place, all of them tested on a host rather than
 photographed:
@@ -294,9 +300,12 @@ photographed:
   interval is smoothed by a two-tap IIR, which tracks a real change of speed
   and ignores one mistimed click.
 * **Enums never accelerate at all**, and a narrow range accelerates less than
-  a wide one: a step bigger than an eighth of the range makes the ends
-  unreachable by feel. On the 48 shapes that caps at 6 per detent. Crossing
-  all 48 is SHIFT + ALGORITHM's job, not the spin's.
+  a wide one, so one detent can never swallow a whole short list. A sixth of
+  the range: on 0–127 it never bites, and the 48 shapes cap at 8. Crossing all
+  48 is SHIFT + ALGORITHM's job, not the spin's.
+* A report carrying **several detents at once** — which is what a fast spin
+  looks like to a UI that polls — is weighted by how many it carries, so a
+  two-click burst eases in and an eight-click burst is believed at once.
 
 Two shape facts the screen must surface, because they are invisible otherwise
 and both have already caused confusion:
