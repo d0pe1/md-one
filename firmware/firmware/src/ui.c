@@ -193,11 +193,34 @@ static void ui_int_unit(uint32_t v, const char *unit, char *s)
  * No decimal below a second: a tenth of a millisecond is beyond both the
  * block rate and anyone's hearing, and "3.0ms" spends two of six characters
  * saying nothing. */
-static void ui_ms(uint8_t knob, char *s)
+static void ui_ms_val(uint32_t ms, char *s)
 {
-    uint32_t ms = fm1_env_ms[knob & 127u];
     if (ms >= 1000u) ui_dec1(ms / 1000u, (ms / 100u) % 10u, "s", s);
     else             ui_int_unit(ms, "ms", s);
+}
+
+static void ui_ms(uint8_t knob, char *s)
+{
+    ui_ms_val(fm1_env_ms[knob & 127u], s);
+}
+
+/* HOLD is not timed like the other four, and printing it from the same table
+ * made the knob lie by a factor of 4.6.
+ *
+ * fm1_env_ms[] is a SETTLE time -- about 4.6 time constants, which is what
+ * attack, decay and release take to arrive. HOLD is not an exponential at
+ * all: it is a plain sample counter, and fm1_env_set_hold sets its length to
+ * FM1_ENV_ONE / fm1_env_a[v], which is exactly ONE time constant. So the
+ * screen said 32.4 s where the envelope held for 7.0, and said 2 ms where it
+ * held for 0.43.
+ *
+ * Derived from the same fm1_env_a[] the engine counts with, so the two cannot
+ * drift -- the discipline the generated tables already follow. */
+static void ui_hold(uint8_t knob, char *s)
+{
+    uint32_t a = fm1_env_a[knob & 127u];
+    uint32_t samples = (knob & 127u) ? (uint32_t)FM1_ENV_ONE / a : 0u;
+    ui_ms_val((samples * 1000u) / 44100u, s);
 }
 
 /* An LFO rate. Below 1 Hz it is shown as the CYCLE LENGTH, because that is
@@ -334,7 +357,10 @@ static void ui_fmt(int id, char *out)
         ui_hz(v, out);
         break;
     case K_MS:
-        ui_ms(v, out);
+        /* HOLD counts samples where the others settle exponentially, so it
+         * is timed from a different quantity. See ui_hold. */
+        if (id == P_HOLD) ui_hold(v, out);
+        else              ui_ms(v, out);
         break;
     case K_RATE:
         ui_rate(v, out);

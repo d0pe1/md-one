@@ -168,9 +168,28 @@ static inline int32_t fm1_env_tick(fm1_env_t *e)
     }
 
     /* 64-bit multiply, then a shift. The chip has no 64-bit DIVIDE, which is
-     * the rule; multiplication is fine and is what makes Q24 affordable. */
-    int32_t delta =
-        (int32_t)(((int64_t)(target - e->level) * (int64_t)a) >> FM1_ENV_BITS);
+     * the rule; multiplication is fine and is what makes Q24 affordable.
+     *
+     * TAKEN ON THE MAGNITUDE AND SIGNED BACK, because `>>` on a signed
+     * product is an arithmetic shift: it FLOORS, it does not divide. Rising
+     * segments were fine -- a positive product truncates toward zero and the
+     * snap below fires. Falling ones never could: floor of any value between
+     * -1 and 0 is -1, never 0, so DECAY and RELEASE could not reach the
+     * `delta == 0` test at all and ended only by arriving one LSB per sample.
+     *
+     * At RELEASE 127 that meant the exponential finished at 25 s with the
+     * level still at 1.85% of full, and then crawled LINEARLY for another 7
+     * seconds to reach zero -- in a file whose whole premise is that the
+     * segments are exponential. Worse, fm1_env_idle() needs level == 0, so
+     * the voice was not skipped for any of it: about 59 million cycles of
+     * full voice render, a third of a second of it below -60 dBFS.
+     *
+     * This is the FOURTH time this project has shipped a floored negative
+     * shift -- detune, the comb's tuning, the resonator's, and now this. */
+    int32_t diff = target - e->level;
+    int32_t mag  = diff < 0 ? -diff : diff;
+    int32_t step = (int32_t)(((int64_t)mag * (int64_t)a) >> FM1_ENV_BITS);
+    int32_t delta = diff < 0 ? -step : step;
 
     /* An exponential approaches but never arrives, and in integer arithmetic
      * it stalls outright once the remaining distance times the coefficient

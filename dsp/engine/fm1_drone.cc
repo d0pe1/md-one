@@ -250,8 +250,29 @@ void Drone::NoteOff(uint8_t voice)
 void Drone::SetGate(uint8_t voice, uint8_t on)
 {
     if (voice >= FM1_VOICES) return;
-    v_[voice].gate = on ? 1 : 0;
-    fm1_env_gate(&v_[voice].env, v_[voice].gate);
+    {
+        uint8_t g = on ? 1 : 0;
+        /* ONLY ON AN EDGE.
+         *
+         * apply_gates() in the firmware loops all four voices and calls this
+         * for each on every key press, every MUTE and every SOLO -- so an
+         * unconditional gate restarted the ATTACK of the three voices you did
+         * not touch, every time you touched one.
+         *
+         * It is silent at the shipped default because SUSTAIN is 127: the
+         * level is already at the top, so the step is zero and the stage
+         * machine falls straight through. Lower SUSTAIN -- the most ordinary
+         * thing anyone does with an AHDSR -- and the whole bed swells and
+         * decays on every keypress. With a long attack that is a thirty-second
+         * swell on voices nobody asked to retrigger, and no way for the player
+         * to avoid it except to leave SUSTAIN at 127, which disables HOLD and
+         * DECAY as well.
+         *
+         * Re-gating to the state it already holds is not a gesture. */
+        if (v_[voice].gate == g) return;
+        v_[voice].gate = g;
+        fm1_env_gate(&v_[voice].env, g);
+    }
 }
 
 void Drone::Strike(uint8_t voice)
