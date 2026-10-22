@@ -280,7 +280,11 @@ void Drone::SetParam(uint8_t voice, uint8_t param, uint8_t value)
 void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
 {
     DroneVoice &d = v_[voice];
-    if (d.p[param] == value) return;
+    /* A fine-capable parameter must NOT be skipped when its coarse byte is
+     * unchanged -- that is the whole state a fine edit lives in. Everything
+     * else still short-circuits, which is what keeps this cheap on the
+     * hundred-odd parameters that have no fraction. */
+    if (d.p[param] == value && !HasFine(param)) return;
     d.p[param] = value;
 
     switch (param) {
@@ -292,9 +296,18 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
         break;
 
     /* CUT is just a cutoff now. It used to drive the comb's delay too, which
-     * is why it went through ApplyPitch; the comb left with the resonators. */
-    case P_F1_CUT: fm1_filter_set_cut(&d.f[0], value); break;
-    case P_F2_CUT: fm1_filter_set_cut(&d.f[1], value); break;
+     * is why it went through ApplyPitch; the comb left with the resonators.
+     *
+     * From the ACCUMULATOR rather than the byte, in 1/128 semitone: acc is
+     * Q8 of a 0..127 knob and the filter's unit is half that. Taking `value`
+     * here would round the cutoff back to a whole semitone every block and
+     * quietly undo both the fine edit and the smooth modulation. */
+    case P_F1_CUT:
+        fm1_filter_set_cut_p(&d.f[0], (int32_t)d.acc[P_F1_CUT] >> 1);
+        break;
+    case P_F2_CUT:
+        fm1_filter_set_cut_p(&d.f[1], (int32_t)d.acc[P_F2_CUT] >> 1);
+        break;
 
     case P_F1_TYPE: fm1_filter_set_mode(&d.f[0], value); break;
     case P_F2_TYPE: fm1_filter_set_mode(&d.f[1], value); break;
@@ -430,7 +443,14 @@ uint8_t Drone::GetGlobal(uint8_t param) const
  * step quieter -- so it is not offered. */
 int Drone::HasFine(uint8_t param)
 {
-    return param == P_TIMBRE || param == P_COLOR;
+    /* The filter cutoffs joined once the filter stopped rounding them. They
+     * were excluded on the grounds that fm1_svf_f[] is indexed by MIDI note
+     * and seven bits IS its resolution -- true of the table, false of the
+     * filter: braids::Svf interpolates, and the one-pole does now too. The
+     * conclusion was wrong because it looked at the table instead of at what
+     * reads it. */
+    return param == P_TIMBRE || param == P_COLOR ||
+           param == P_F1_CUT || param == P_F2_CUT;
 }
 
 /* The shared body of both nudges: walk a Q8 target by `delta`, either in
@@ -601,6 +621,26 @@ uint8_t Drone::EffParam(const DroneVoice &d, uint8_t param, uint8_t dest) const
     if (x < 0)   x = 0;
     if (x > 127) x = 127;
     return (uint8_t)x;
+}
+
+/* The same thing in 1/128 SEMITONE, for the one destination where the extra
+ * bits reach a filter that can use them.
+ *
+ * EffParam rounds to a byte, so an LFO swept a cutoff in 128 semitone jumps
+ * -- the stepped-filter zipper, and the most obviously cheap artefact an
+ * instrument can make. braids::Svf interpolates its frequency and always
+ * has; the parameter threw the resolution away before it arrived.
+ *
+ * Reads `acc`, not `p`, so a fine edit of the cutoff lands here too. */
+int32_t Drone::EffCutP(const DroneVoice &d, uint8_t param, uint8_t dest) const
+{
+    /* acc is Q8 of a 0..127 knob; the filter wants 1/128 semitone, so the
+     * knob's own unit halves. The modulation reaches +-64 knob steps, which
+     * is +-8192 here. */
+    int32_t x = ((int32_t)d.acc[param] >> 1) + ((ModOf(d, dest) * 8192) >> 15);
+    if (x < 0)         x = 0;
+    if (x > 127 * 128) x = 127 * 128;
+    return x;
 }
 
 void Drone::Render(int16_t *out, uint32_t n)
@@ -776,9 +816,9 @@ void Drone::Render(int16_t *out, uint32_t n)
                  * routed at all, and ModOf returns after one compare when
                  * they are not. */
                 if (ModOf(d, MD_F1CUT))
-                    fm1_filter_set_cut(&d.f[0], EffParam(d, P_F1_CUT, MD_F1CUT));
+                    fm1_filter_set_cut_p(&d.f[0], EffCutP(d, P_F1_CUT, MD_F1CUT));
                 if (ModOf(d, MD_F2CUT))
-                    fm1_filter_set_cut(&d.f[1], EffParam(d, P_F2_CUT, MD_F2CUT));
+                    fm1_filter_set_cut_p(&d.f[1], EffCutP(d, P_F2_CUT, MD_F2CUT));
 
                 {
                     static const uint8_t SDEST[FM1_SLOTS] = { MD_SL1, MD_SL2 };

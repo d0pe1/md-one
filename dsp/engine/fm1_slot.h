@@ -115,11 +115,13 @@ static inline void fm1_slot_set_key(fm1_slot_t *s, int16_t key, uint32_t inc)
          * voice instead of sitting at a fixed frequency -- on a drone that is
          * the difference between a struck body and a whistle. key is in
          * 1/128 semitone, and the SVF wants a note. */
+        /* Tuned from the FULL pitch, not from `key >> 7`. That shift floored
+         * to a whole semitone, which gave the resonator the comb's bug
+         * exactly: a note on the grid is N*128, one cent flat is N*128 - 1,
+         * and that floors to N - 1 -- so it dropped a semitone on the first
+         * click below centre and did not move at all for fifty cents sharp. */
         int32_t semis = ((int32_t)s->p1 - 64) * 24 / 64;
-        int32_t note = ((int32_t)key >> 7) + semis;
-        if (note < 0)   note = 0;
-        if (note > 127) note = 127;
-        fm1_svf_set_note(&s->svf, (uint8_t)note);
+        fm1_svf_set_pitch(&s->svf, (int32_t)key + semis * 128);
     }
 }
 

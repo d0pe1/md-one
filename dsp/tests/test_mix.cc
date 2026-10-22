@@ -1363,15 +1363,23 @@ static void test_fine(void)
     for (i = 0; i < 600; i++) d.NudgeParam(0, P_TIMBRE, -1, 0);
     ok(d.GetParam(0, P_TIMBRE) == 0, "fine cannot push below zero", "underran");
 
-    /* Offered only where the bits reach something. The filters are indexed by
-     * MIDI note, so seven bits IS their resolution -- a fine click there
-     * would be a control that moves nothing, which is the lie we keep
-     * removing from this instrument. */
+    /* Offered only where the bits reach something.
+     *
+     * The cutoffs were excluded at first, on the grounds that fm1_svf_f[] is
+     * indexed by MIDI note so seven bits IS its resolution. True of the
+     * table and false of the filter: braids::Svf interpolates its frequency
+     * and always did, and the one-pole does now too. The conclusion looked at
+     * the table instead of at what reads it.
+     *
+     * So this assertion flipped on purpose, and the reason is written down
+     * rather than the expectation quietly edited to match. */
     ok(fm1::Drone::HasFine(P_TIMBRE) && fm1::Drone::HasFine(P_COLOR),
        "TIMBRE and COLOR carry their fine bits", "not offered");
-    ok(!fm1::Drone::HasFine(P_F1_CUT) && !fm1::Drone::HasFine(P_SHAPE) &&
-       !fm1::Drone::HasFine(P_ATTACK),
-       "a table index, an enum and a time do not", "offered where it does nothing");
+    ok(fm1::Drone::HasFine(P_F1_CUT) && fm1::Drone::HasFine(P_F2_CUT),
+       "and the cutoffs, now the filter interpolates them", "not offered");
+    ok(!fm1::Drone::HasFine(P_SHAPE) && !fm1::Drone::HasFine(P_ATTACK) &&
+       !fm1::Drone::HasFine(P_F1_TYPE),
+       "an enum, a time and a mode do not", "offered where it does nothing");
 
     /* The coarse readout must keep saying what was dialled, through a render
      * and through the slew. */
@@ -1475,6 +1483,32 @@ static void test_detune_symmetry(void)
         ok((uint64_t)worst_num * 1000u < (uint64_t)worst_den,
            "the comb's tuning never jumps between adjacent detune steps",
            "a step moved the resonator more than a cent could");
+    }
+
+    /* THE FILTER TUNING, which had the same shape of fault one table over.
+     *
+     * fm1_svf_f[] is indexed by whole MIDI note, so anything that reached it
+     * by flooring a pitch landed on a semitone grid: the resonator slot did
+     * (`key >> 7`, the comb's bug exactly) and the one-pole 6 dB branch did.
+     * braids::Svf never did, which is why only some paths stepped.
+     *
+     * Same test as the comb: no adjacent step may move the corner further
+     * than one pitch unit possibly can. */
+    {
+        uint32_t prev = (uint32_t)fm1_svf_cut_q15(60 * 128 - 64);
+        uint32_t wn = 0, wd = 1;
+        int c;
+        for (c = -63; c <= 64; c++) {
+            uint32_t h = (uint32_t)fm1_svf_cut_q15(60 * 128 + c);
+            uint32_t dd = h > prev ? h - prev : prev - h;
+            if ((uint64_t)dd * wd > (uint64_t)wn * h) { wn = dd; wd = h; }
+            prev = h;
+        }
+        printf("  worst single-step filter jump: %u/1e6 of the coefficient\n",
+               (unsigned)((uint64_t)wn * 1000000u / wd));
+        ok((uint64_t)wn * 1000u < (uint64_t)wd,
+           "the filter corner never jumps between adjacent cutoff steps",
+           "a step moved the corner more than a pitch unit could");
     }
 
     /* And it must still be RIGHT, not merely smooth: A4 is 440 Hz. */

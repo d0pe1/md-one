@@ -47,6 +47,11 @@ namespace fm1 {
 struct fm1_filter_t {
     uint8_t     mode;
     uint8_t     cut, res, mix;      /* raw 0..127, as the knobs read */
+    /* The cutoff again, in 1/128 semitone -- what the filter is actually
+     * tuned to. `cut` is this rounded down, kept for the screen, the patch
+     * and the CC map. Two names for one value because they have different
+     * audiences: the player reads 128 steps, the filter hears 16384. */
+    int32_t     cut_p;
     uint8_t     poles;              /* FP_* -- 6, 12 or 24 dB per octave */
     int16_t     key;                /* the voice's pitch, 1/128 semitone */
 
@@ -73,7 +78,7 @@ static inline void fm1_filter_apply_cut(fm1_filter_t *f);
  */
 static inline void fm1_filter_apply_cut(fm1_filter_t *f)
 {
-    int32_t hz = (int32_t)f->cut << 7;
+    int32_t hz = f->cut_p;
 
     if (hz < 0)         hz = 0;
     if (hz > 127 * 128) hz = 127 * 128;
@@ -97,6 +102,7 @@ static inline void fm1_filter_init(fm1_filter_t *f)
 {
     f->mode = F_OFF;
     f->cut  = 64;
+    f->cut_p = 64 << 7;
     f->res  = 0;
     f->mix  = 127;          /* fully wet; OFF is how you bypass */
     f->poles = FP_12;       /* what it was before the knob existed */
@@ -144,9 +150,28 @@ static inline void fm1_filter_set_poles(fm1_filter_t *f, uint8_t poles)
     f->svf2.Init();
 }
 
+/* Cutoff in 1/128 SEMITONE -- the unit the pitch, the comb and the key all
+ * speak. The coarse byte is kept beside it for the screen and the patch.
+ *
+ * This is what makes a MODULATED sweep smooth. braids::Svf has always
+ * interpolated its frequency (Interpolate824 over lut_svf_cutoff), but it
+ * only ever received `cut << 7` with cut an integer, so an LFO on the cutoff
+ * moved in 128 semitone jumps however finely the filter could have been
+ * tuned. The resolution was there the whole way down and the parameter
+ * threw it away before it arrived. */
+static inline void fm1_filter_set_cut_p(fm1_filter_t *f, int32_t pitch)
+{
+    if (pitch < 0)         pitch = 0;
+    if (pitch > 127 * 128) pitch = 127 * 128;
+    f->cut_p = pitch;
+    f->cut   = (uint8_t)(pitch >> 7);
+    fm1_filter_apply_cut(f);
+}
+
 static inline void fm1_filter_set_cut(fm1_filter_t *f, uint8_t cut)
 {
     f->cut = cut;
+    f->cut_p = (int32_t)cut << 7;
     fm1_filter_apply_cut(f);
 }
 
@@ -187,8 +212,14 @@ static inline q15_t fm1_filter_tick(fm1_filter_t *f, q15_t x)
     case F_LP: case F_HP:
         if (f->poles == FP_6) {
             /* One pole, from the same coefficient table the SVF reads. The
-             * cheapest block in the voice: one multiply, one add. */
-            int32_t fc = fm1_svf_f[f->cut & 127];
+             * cheapest block in the voice: one multiply, one add.
+             *
+             * Interpolated, because the 12 and 24 dB paths are: braids::Svf
+             * runs its frequency through Interpolate824, so only this branch
+             * landed on whole semitones. Switching SLOPE from 12 to 6 dB used
+             * to move the corner by up to half a semitone as a side effect,
+             * which is not what that knob is for. */
+            int32_t fc = fm1_svf_cut_q15(f->cut_p);
             f->op += (fc * ((int32_t)x - f->op)) >> Q15_BITS;
             w = (f->mode == F_LP) ? f->op : ((int32_t)x - f->op);
             w = fm1_q31_to_q15_sat(w);

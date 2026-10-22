@@ -60,6 +60,40 @@ static inline void fm1_svf_set_note(fm1_svf_t *s, uint8_t note)
     s->f = fm1_svf_f[note & 127];
 }
 
+/* Tune from a pitch in 1/128 SEMITONE -- the unit the oscillator, the comb
+ * and the voice key all speak -- INTERPOLATING between table entries.
+ *
+ * fm1_svf_f[] is indexed by whole MIDI note, so anything that reached it by
+ * shifting a pitch down (`key >> 7`) landed on a semitone grid and stayed
+ * there until the pitch crossed a boundary. On the resonator slot that had
+ * exactly the fault the comb turned out to have: a note sitting on the grid
+ * is N*128, one cent flat is N*128 - 1, and the shift floors that to N - 1 --
+ * so the first click below centre dropped the resonator a whole semitone
+ * while fifty cents sharp moved it not at all.
+ *
+ * Linear between adjacent entries is ample. A semitone is 5.9% and the
+ * coefficient is near-linear across one, leaving error far below the 0.78
+ * cent step of the pitch unit feeding it. */
+static inline int32_t fm1_svf_cut_q15(int32_t pitch)
+{
+    int32_t n, frac, a, b;
+
+    if (pitch < 0)            pitch = 0;
+    if (pitch > 127 * 128)    pitch = 127 * 128;
+    n    = pitch >> 7;
+    frac = pitch & 127;
+    a = fm1_svf_f[n];
+    /* The top note has nothing above it to reach toward, and no fraction
+     * left either once the clamp above has run. */
+    b = n < 127 ? fm1_svf_f[n + 1] : a;
+    return a + (((b - a) * frac) >> 7);
+}
+
+static inline void fm1_svf_set_pitch(fm1_svf_t *s, int32_t pitch)
+{
+    s->f = fm1_svf_cut_q15(pitch);
+}
+
 /* Resonance from a 0..127 knob. 0 is heavily damped, 127 is nearly ringing.
  *
  * The map is to 1/Q, not Q, because that is what the difference equation
