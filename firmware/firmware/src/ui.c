@@ -381,6 +381,50 @@ static void ui_body_clear(void)
     lcd_fill(0, Y_BODY, 240, Y_KEYS - Y_BODY, C_BLACK);
 }
 
+/* A bipolar bar that repaints WITHOUT being blanked first.
+ *
+ * There is no framebuffer -- lcd_fill DMAs straight to the glass -- so
+ * anything cleared before it is redrawn is visibly blank for the milliseconds
+ * the redraw takes. At the 20 Hz tick that reads as flicker and as bands
+ * sweeping down the screen, which is how it was reported from the panel.
+ *
+ * So every pixel of the bar's row is written every frame: the filled part in
+ * `col`, the rest in the background. A shrinking bar erases its own tail, and
+ * the page never has to be cleared to be correct.
+ *
+ * `v` is the signed value, -32768..32767, over a bar spanning [x, x+w) with
+ * its zero at the middle. Drawing order matches what the two pages did by
+ * hand before -- gaps, track, centre tick, fill -- so the result is pixel for
+ * pixel what it was, minus the blanking. */
+static void ui_bipolar_bar(int32_t x, int32_t y, int32_t w, int32_t h,
+                           int32_t v, uint16_t col)
+{
+    int32_t half = w / 2, mid = x + half;
+    int32_t f = (v * half) / 32768;
+    int32_t lo, len, gap;
+
+    if (f >  half) f =  half;
+    if (f < -half) f = -half;
+    lo  = f < 0 ? mid + f : mid;
+    len = f < 0 ? -f : f;
+
+    gap = lo - x;
+    if (gap > 0)
+        lcd_fill((uint32_t)x, (uint32_t)y, (uint32_t)gap, (uint32_t)h, C_BLACK);
+    gap = (x + w) - (lo + len);
+    if (gap > 0)
+        lcd_fill((uint32_t)(lo + len), (uint32_t)y, (uint32_t)gap, (uint32_t)h,
+                 C_BLACK);
+
+    /* The track and its centre, so zero is a place rather than an absence: an
+     * LFO at amount 0 and an LFO passing through the middle of its travel must
+     * not look the same. */
+    lcd_fill((uint32_t)x, (uint32_t)(y + h / 2), (uint32_t)w, 1u, C_TRACK);
+    lcd_fill((uint32_t)mid, (uint32_t)y, 1u, (uint32_t)h, C_GREY);
+    if (len > 0)
+        lcd_fill((uint32_t)lo, (uint32_t)y, (uint32_t)len, (uint32_t)h, col);
+}
+
 /* The shape list. 48 on a bare encoder would be unusable, so the body spends
  * its space on a window rather than a number: you see where you are and what
  * is on either side, and the shape changes as you pass it, so you hear every
@@ -507,8 +551,22 @@ static void ui_body_mixer(void)
          * imitating -- a horizontal bar reads as a spectrum analyser, which
          * is a different instrument telling you a different thing. */
         {
+            int32_t top = MTR_BOT - MTR_H;
             int32_t cap = MTR_BOT - 4 - ((int32_t)lvl * (MTR_H - 8)) / 127;
-            lcd_fill(x + 15, MTR_BOT - MTR_H, 2, MTR_H, C_TRACK);
+
+            /* Self-erasing, like the bars: the cap's whole column is written
+             * every frame -- background above it, background below it -- so
+             * moving the fader does not leave the old cap behind and the body
+             * never needs clearing first. The meter segments above already
+             * work this way; the fader was the one thing on this page that
+             * relied on the clear. */
+            if (cap > top)
+                lcd_fill((uint32_t)(x + 12), (uint32_t)top, 9u,
+                         (uint32_t)(cap - top), C_BLACK);
+            if (cap + 4 < MTR_BOT)
+                lcd_fill((uint32_t)(x + 12), (uint32_t)(cap + 4), 9u,
+                         (uint32_t)(MTR_BOT - cap - 4), C_BLACK);
+            lcd_fill(x + 15, top, 2, MTR_H, C_TRACK);
             lcd_fill(x + 12, cap, 9, 4, ch == ui_voice() ? C_ACC : C_MID);
         }
 
@@ -699,7 +757,6 @@ static void ui_body_lfo(void)
     for (n = 0; n < FD_LFOS; n++) {
         int32_t y = Y_BODY + 6 + (int32_t)n * 26;
         int32_t v = fm1_drone_lfo_value(n);     /* -32768..32767 */
-        int32_t w = (v * (LFO_BAR_W / 2)) / 32768;
         char lab[8];
         uint16_t col = (n == ui_nav.sel[SUBJ_LFO]) ? C_ACC : C_ON;
 
@@ -709,14 +766,7 @@ static void ui_body_lfo(void)
         draw_text_box(0, y, 22, &FONT_S, lab,
                       n == ui_nav.sel[SUBJ_LFO] ? C_ACC : C_GREY, 1);
 
-        /* The track and its centre, so zero is a place rather than an
-         * absence: an LFO at amount 0 and an LFO passing through the middle
-         * of its travel must not look the same. */
-        lcd_fill(LFO_BAR_X, y + 8, LFO_BAR_W, 1, C_TRACK);
-        lcd_fill(LFO_BAR_MID, y + 4, 1, 9, C_GREY);
-
-        if (w > 0)      lcd_fill(LFO_BAR_MID, y + 4, w, 9, col);
-        else if (w < 0) lcd_fill(LFO_BAR_MID + w, y + 4, -w, 9, col);
+        ui_bipolar_bar(LFO_BAR_X, y + 4, LFO_BAR_W, 9, v, col);
     }
 }
 
@@ -767,12 +817,7 @@ static void ui_body_mod(void)
             int32_t v = (sv == MD_SRC_NONE) ? 0
                       : ((int32_t)fm1_drone_lfo_value((uint8_t)(sv - 1))
                          * depth) >> 6;
-            int32_t w = (v * 56) / 32768;
-            int32_t mid = 180;
-            lcd_fill(124, y + 8, 112, 1, C_TRACK);
-            lcd_fill(mid, y + 3, 1, 11, C_GREY);
-            if (w > 0)      lcd_fill(mid, y + 4, w, 9, C_ACC);
-            else if (w < 0) lcd_fill(mid + w, y + 4, -w, 9, C_ACC);
+            ui_bipolar_bar(124, y + 4, 112, 9, v, C_ACC);
         }
     }
 
@@ -921,12 +966,23 @@ static void ui_body_home(void)
     ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 + 6);
 }
 
-static void ui_draw_body(void)
+/* `clear` blanks the body first. That is right when the PAGE CHANGES -- the
+ * outgoing page's elements are arbitrary and nothing else erases them -- and
+ * wrong on the 20 Hz tick, where the same elements are simply repainted in
+ * place. There is no framebuffer, so a blanked body is visible on the glass
+ * for the milliseconds the repaint takes: at twenty times a second that is
+ * the flicker and the sweeping bands seen on MIX, LFO and MOD, the three
+ * pages whose bodies are live enough to tick.
+ *
+ * Everything those pages draw is now self-erasing -- text boxes always were,
+ * since draw_text_box blits an opaque canvas, and the bars and the fader are
+ * now too -- so a tick needs no clear to be correct. */
+static void ui_draw_body(int clear)
 {
     const fm1_page_t *p = fm1_nav_page(&ui_nav);
     int alg;
 
-    ui_body_clear();
+    if (clear) ui_body_clear();
 
     if (ui_nav.menu == M_MIX)  { ui_body_mixer(); return; }
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
@@ -984,7 +1040,7 @@ static void ui_draw(void)
     }
     ui_draw_header();
     ui_draw_knobs();
-    ui_draw_body();
+    ui_draw_body(1);
 }
 
 /* The part of the current page that moves on its own, redrawn on a timer.
@@ -1005,7 +1061,7 @@ static void ui_tick(void)
     case M_MIX:
     case M_LFO:
     case M_MOD:
-        ui_draw_body();
+        ui_draw_body(0);
         break;
     default:
         break;
