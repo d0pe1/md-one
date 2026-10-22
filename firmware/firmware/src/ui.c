@@ -95,6 +95,12 @@ static uint8_t rescue_count;
 
 #define UI_VOICES  FD_VOICES
 
+/* Declared early: the header and the knob row draw through this, and its
+ * definition sits further down beside ui_body_clear, which invalidates it. */
+static void draw_text_cached(uint8_t slot, int32_t x, int32_t y, int32_t w,
+                             const felucca_font_t *f, const char *s,
+                             uint16_t col, int align);
+
 /* --- small text helpers ---------------------------------------------------
  * There is no stdio here. These are the whole of our string formatting. */
 
@@ -475,7 +481,7 @@ static void ui_draw_header(void)
     line[i++] = '/';
     line[i++] = (char)('0' + m->npages);
     line[i] = 0;
-    draw_text_box(4, Y_TITLE, 236, &FONT_S, line, C_ACC, 0);
+    draw_text_cached(0, 4, Y_TITLE, 236, &FONT_S, line, C_ACC, 0);
 
     /* The Subject. Blank where a menu has none, rather than a stale one --
      * GLO acting on "VOICE 2" would be a lie. */
@@ -497,7 +503,7 @@ static void ui_draw_header(void)
         }
         line[i] = 0;
     }
-    draw_text_box(4, Y_SUBJECT, 236, &FONT_S, line, C_MID, 0);
+    draw_text_cached(1, 4, Y_SUBJECT, 236, &FONT_S, line, C_MID, 0);
     lcd_fill(0, Y_RULE, 240, 1, C_GREY);
 }
 
@@ -622,7 +628,7 @@ static void ui_draw_knobs(void)
         /* The label turns accent while SHIFT is held over a knob that HAS a
          * fine layer -- so the gesture announces itself on the one page it
          * works, instead of being something you have to know. */
-        draw_text_box(x, Y_LABEL, COL_W, &FONT_S,
+        draw_text_cached((uint8_t)(2 + k), x, Y_LABEL, COL_W, &FONT_S,
                       id == PG_NONE ? "----" : ui_label(id),
                       id == PG_NONE ? C_TRACK
                       : (ui_shift &&
@@ -656,7 +662,7 @@ static void ui_draw_knobs(void)
             int32_t  bx = x + 6, bw = COL_W - 12;
             int32_t  by = Y_VALUE + 18;          /* 84: clear of Y_BODY at 90 */
 
-            draw_text_box(x, Y_VALUE, COL_W, &FONT_S,
+            draw_text_cached((uint8_t)(6 + k), x, Y_VALUE, COL_W, &FONT_S,
                           id == PG_NONE ? "" : val,
                           id == PG_NONE ? C_TRACK : c, 1);
 
@@ -676,9 +682,81 @@ static void ui_draw_knobs(void)
 
 /* --- page bodies ----------------------------------------------------------- */
 
+/* --- a text box that does not repaint when nothing changed ---------------
+ *
+ * The SPI bus is the bottleneck, not the CPU: 12 MHz at 16 bpp is 1.33 us a
+ * pixel, so one 240x16 row costs 5 ms and a whole frame 77 ms. Everything
+ * expensive about this interface is pixels pushed.
+ *
+ * Almost none of them need pushing. HOME repaints two full-width rows twenty
+ * times a second to show a CPU figure that changes once a second; the knob
+ * row repaints four labels and four values when one value moved; the title
+ * repaints on every redraw and changes only when you press a menu button.
+ *
+ * So each cached box remembers its geometry, colour and text, and returns
+ * without touching the bus when all of them match. A caller does not have to
+ * know whether anything changed -- it draws as before and the skip happens
+ * underneath, which is what keeps the drawing code readable.
+ *
+ * The cache is only valid while nothing else paints over the same pixels, so
+ * every path that blanks a region invalidates it.
+ */
+#define UI_TC_SLOTS 18
+#define UI_TC_LEN   30
+
+typedef struct {
+    int16_t  x, y, w;
+    uint16_t col;
+    uint8_t  align;
+    char     s[UI_TC_LEN];
+} ui_tc_t;
+
+static ui_tc_t ui_tc[UI_TC_SLOTS];
+
+/* Forget everything: the next draw of every slot will actually paint. */
+static void ui_tc_reset(void)
+{
+    uint8_t i;
+    for (i = 0; i < UI_TC_SLOTS; i++) ui_tc[i].w = -1;
+}
+
+static void draw_text_cached(uint8_t slot, int32_t x, int32_t y, int32_t w,
+                             const felucca_font_t *f, const char *s,
+                             uint16_t col, int align)
+{
+    ui_tc_t *c;
+    uint32_t i;
+
+    if (slot >= UI_TC_SLOTS) { draw_text_box(x, y, w, f, s, col, align); return; }
+    c = &ui_tc[slot];
+
+    /* Too long to remember is too long to trust: draw it and leave the slot
+     * invalid rather than compare a truncated copy and wrongly skip. */
+    for (i = 0; s[i]; i++) { }
+    if (i >= UI_TC_LEN) {
+        c->w = -1;
+        draw_text_box(x, y, w, f, s, col, align);
+        return;
+    }
+
+    if (c->w == (int16_t)w && c->x == (int16_t)x && c->y == (int16_t)y &&
+        c->col == col && c->align == (uint8_t)align) {
+        for (i = 0; s[i] && c->s[i] == s[i]; i++) { }
+        if (c->s[i] == s[i]) return;            /* both ended here: identical */
+    }
+
+    c->x = (int16_t)x; c->y = (int16_t)y; c->w = (int16_t)w;
+    c->col = col; c->align = (uint8_t)align;
+    for (i = 0; s[i]; i++) c->s[i] = s[i];
+    c->s[i] = 0;
+    draw_text_box(x, y, w, f, s, col, align);
+}
+
 static void ui_body_clear(void)
 {
     lcd_fill(0, Y_BODY, 240, Y_KEYS - Y_BODY, C_BLACK);
+    /* Anything remembered has just been painted over. */
+    ui_tc_reset();
 }
 
 /* A bipolar bar that repaints WITHOUT being blanked first.
@@ -1164,8 +1242,8 @@ static void ui_draw_load(int32_t y)
     ui_str(line, &i, "%");
     line[i] = 0;
 
-    draw_text_box(6, y, 234, &FONT_S, line,
-                  pk >= 90u ? C_RED : (pk >= 60u ? C_ACC : C_GREY), 0);
+    draw_text_cached(10, 6, y, 234, &FONT_S, line,
+                     pk >= 90u ? C_RED : (pk >= 60u ? C_ACC : C_GREY), 0);
 
     /* The USB capture endpoint, on screen.
      *
@@ -1195,13 +1273,18 @@ static void ui_draw_load(int32_t y)
         ui_str(u, &j, " GO ");
         u[j++] = (char)('0' + (uac.go      ? 1 : 0));
         ui_str(u, &j, "  PKT ");
-        /* The low five digits: it is a rate we are reading, not a total. */
+        /* THOUSANDS. At roughly a packet a millisecond the raw counter
+         * changes on every tick, so the row never matched its cache and
+         * repainted 234x16 pixels twenty times a second to show a number
+         * nobody reads digit by digit. In thousands it moves about once a
+         * second, which is all "is it still flowing" needs. */
         {
-            uint32_t d = 10000u;
-            while (d) { u[j++] = (char)('0' + (pkts / d) % 10u); d /= 10u; }
+            uint32_t k = pkts / 1000u, d = 1000u;
+            while (d) { u[j++] = (char)('0' + (k / d) % 10u); d /= 10u; }
+            u[j++] = 'k';
         }
         u[j] = 0;
-        draw_text_box(6, y + 16, 234, &FONT_S, u,
+        draw_text_cached(11, 6, y + 16, 234, &FONT_S, u,
                       uac.go ? C_ON : (uac.alt ? C_ACC : C_TRACK), 0);
     }
 }
@@ -1294,7 +1377,7 @@ static void ui_body_home(void)
         ui_str(line, &i, FM1_DESTNAME[dest % DEST_NDEST]);
         line[i] = 0;
 
-        draw_text_box(6, Y_BODY + (int32_t)v * 22, 234, &FONT_S, line,
+        draw_text_cached((uint8_t)(12 + v), 6, Y_BODY + (int32_t)v * 22, 234, &FONT_S, line,
                       v == ui_voice() ? C_ACC
                                       : (dest == DEST_OFF ? C_GREY : C_ON), 0);
     }
@@ -1370,6 +1453,7 @@ static void ui_draw(void)
         char line[24];
         uint32_t i = 0;
         lcd_fill(0, 0, 240, Y_KEYS, C_BLACK);
+        ui_tc_reset();
         draw_text_box(0, 70, 240, &FONT_L, "RESCUE IN", C_RED, 1);
         line[i++] = (char)('0' + rescue_count);
         ui_str(line, &i, " S");
