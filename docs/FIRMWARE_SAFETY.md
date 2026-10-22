@@ -1,30 +1,33 @@
 # Firmware safety and recovery
 
-## Status for this bootstrap
+## Status
 
-**No firmware was written to any device. No device was connected.**
+**MD-One runs on hardware.** Flashed 2026-10-22 to the development unit,
+identity `FM-1_971` confirmed by the installer after restart. It boots,
+sounds, delivers audio to a DAW over USB, and reports 42% CPU on its own
+HOME page.
 
-Concretely, during this bootstrap we did **not**:
+The recovery loop has been walked end to end on that device — see
+"Recovery, verified by us" below. A build that boots but misbehaves is
+provably recoverable.
 
-* connect an FM-1 (none exists here — a USB scan found only a Focusrite
-  interface, an AKAI MIDI Mix and a virtual MIDI driver);
-* run `tools/fm1_install.py` or any other installer;
-* send any SysEx to any device;
-* erase, write or read device flash;
-* touch a bootloader region;
-* attempt any recovery procedure.
-
-Everything was built and tested on the host and in the emulator. The only
-network writes were `git clone` and HTTPS downloads of published artifacts.
+This section previously read *"No firmware was written to any device. No
+device was connected."* That was true for the bootstrap and false the moment
+hardware arrived. It is recorded here rather than quietly deleted because a
+safety document whose opening line is stale is worse than one that admits
+what changed.
 
 ## Device policy
 
-Two FM-1 units are on order.
+| Unit | Role | Policy | State |
+| --- | --- | --- | --- |
+| **A** | development — "the beater" | the only unit that receives our firmware | **running MD-One** |
+| **B** | reference | stays stock | not yet unboxed |
 
-| Unit | Role | Policy |
-| --- | --- | --- |
-| **A** | development | the only unit that ever receives our firmware |
-| **B** | reference | stays stock |
+Unit A was running M-VAVE's `FM-1_015` before the first flash, which is the
+same identity as the image preserved at
+`artifacts/firmwares/mvave-stock-015.fwsc` — so the rollback target is not
+merely *a* stock image but the one this device shipped with.
 
 ### The unresolved tension in "keep one boxed"
 
