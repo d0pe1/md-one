@@ -116,6 +116,18 @@ typedef struct {
     uint8_t on[NV];
     uint8_t p[NV][FD_NPARAM];
     uint8_t g[FD_NGPARAM];
+    /* The fractional part of every voice target, 0..255.
+     *
+     * Fine editing (SHIFT + knob) moves a parameter by 1/256 of a coarse
+     * step, and `p` above is the coarse byte -- so without this a fine edit
+     * lives until the next power cycle and then silently vanishes. That is
+     * the same class of quiet loss PATCH_MAGIC exists to prevent, so it is
+     * saved rather than documented away.
+     *
+     * Stored for ALL parameters, not only the two that can hold a fraction
+     * today, so that widening Drone::HasFine later costs no format change.
+     * 280 bytes against a 2 KiB staging buffer. */
+    uint8_t fine[NV][FD_NPARAM];
 } patch_t;
 
 /* Bumped from 0xD1 when the globals were added and the per-voice octave moved
@@ -126,7 +138,11 @@ typedef struct {
  * D7 -> D8: P_DETUNE went from 0..127 of raw pitch offset to 0..100 cents, so
  * a D7 patch's detune byte is both out of range and differently scaled. A
  * stale patch that still loads is worse than one that is ignored. */
-#define PATCH_MAGIC 0xD8
+/* D8 -> D9: the patch carries the fine fraction of every voice target now.
+ * A D8 patch has no `fine` block, so loading one would read whatever follows
+ * it in the sector as sub-step offsets -- a patch that comes back very
+ * slightly out of tune, which is worse than one that is ignored. */
+#define PATCH_MAGIC 0xD9
 
 static void patch_store(patch_t *q)
 {
@@ -135,7 +151,10 @@ static void patch_store(patch_t *q)
     for (v = 0; v < NV; v++) {
         q->note[v] = st.note[v];
         q->on[v] = st.on[v];
-        for (i = 0; i < FD_NPARAM; i++) q->p[v][i] = fm1_drone_get_param(v, i);
+        for (i = 0; i < FD_NPARAM; i++) {
+            q->p[v][i]    = fm1_drone_get_param(v, i);
+            q->fine[v][i] = fm1_drone_get_fine(v, i);
+        }
     }
     for (i = 0; i < FD_NGPARAM; i++) q->g[i] = fm1_drone_get_global(i);
 }
@@ -145,7 +164,11 @@ static void patch_apply(const patch_t *q)
     uint8_t v, i;
     for (i = 0; i < FD_NGPARAM; i++) fm1_drone_set_global(i, q->g[i]);
     for (v = 0; v < NV; v++) {
-        for (i = 0; i < FD_NPARAM; i++) fm1_drone_set_param(v, i, q->p[v][i]);
+        for (i = 0; i < FD_NPARAM; i++) {
+            fm1_drone_set_param(v, i, q->p[v][i]);
+            /* After the coarse value, which rewrites the whole target. */
+            fm1_drone_set_fine(v, i, q->fine[v][i]);
+        }
         st.note[v] = q->note[v];
         st.on[v] = q->on[v];
         fm1_drone_note_on(v, st.note[v]);       /* pitch, then gate below */

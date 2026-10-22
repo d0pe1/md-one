@@ -276,6 +276,20 @@ static void ui_nudge(int id, int32_t delta)
     int32_t x;
 
     if (!d) return;
+
+    /* A parameter that can hold a fine offset goes through the engine's own
+     * snap, which rounds to the coarse grid IN THE DIRECTION OF TRAVEL.
+     *
+     * Doing it here instead would be subtly wrong downwards: ui_get()
+     * truncates, so from 64 + 90/256 a click down reads 64 and lands on 63 --
+     * skipping the grid point it was sitting just above. Up happens to be
+     * right by accident. The engine knows the fraction; this does not. */
+    if (FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+        fm1_drone_has_fine((uint8_t)id)) {
+        fm1_drone_nudge_param(ui_voice(), (uint8_t)id, delta, 1);
+        return;
+    }
+
     x = (int32_t)ui_get(id) + delta;
     if (x < 0) x = 0;
     if (x > (int32_t)d->max) x = (int32_t)d->max;
@@ -1388,7 +1402,40 @@ static int ui_encoders(void)
              * of its own (invariant 4), and on every page without a shift
              * layer it changes nothing. */
             int id = ui_shift ? fm1_page_shift_knob(&ui_nav, k) : PG_NONE;
-            if (id == PG_NONE) id = fm1_page_knob(&ui_nav, k);
+            int fine = 0;
+
+            if (id == PG_NONE) {
+                id = fm1_page_knob(&ui_nav, k);
+                /* PRECISION MODE: SHIFT on a page with no shift layer.
+                 *
+                 * These are encoders, so the 128 steps a coarse turn offers
+                 * were a storage limit, never a physical one. Held, a click
+                 * is 1/256 of a coarse step and reaches the width Braids
+                 * actually takes -- VOWEL blends across a 12-bit field and a
+                 * coarse knob can only visit 16 of its 4096 positions.
+                 *
+                 * Only where those bits arrive somewhere (Drone::HasFine).
+                 * A filter cutoff indexes fm1_svf_f[] by MIDI note, so seven
+                 * bits IS that table's resolution and a fine click would be a
+                 * control that moves nothing.
+                 *
+                 * It cannot be offered on the MOD pages at all: SHIFT is
+                 * spoken for there, picking the modulation source, and a
+                 * modifier that means two things depending on the page is
+                 * the invariant this surface is built on. */
+                fine = ui_shift && id != PG_NONE &&
+                       FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                       fm1_drone_has_fine((uint8_t)id);
+            }
+            if (fine) {
+                /* Accelerated like the coarse turn -- 256 sub-steps is a long
+                 * way at one a click -- but against the FINE range, so the
+                 * ceiling scales to the travel that actually exists here. */
+                int32_t d = ui_accel((uint8_t)(ENC_KNOB1 + k), e, 0);
+                fm1_drone_nudge_param(ui_voice(), (uint8_t)id, d, 0);
+                changed = 1;
+                continue;
+            }
             if (id != PG_NONE) {
                 ui_nudge(id, ui_accel((uint8_t)(ENC_KNOB1 + k), e,
                                       fm1_page_def(&ui_nav, id)));

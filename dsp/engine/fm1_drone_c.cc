@@ -113,6 +113,11 @@ void fm1_drone_set_gate(uint8_t v, uint8_t on) { g_drone.SetGate(v, on); }
 
 void fm1_drone_set_param(uint8_t v, uint8_t p, uint8_t val) { g_drone.SetParam(v, p, val); }
 uint8_t fm1_drone_get_param(uint8_t v, uint8_t p)           { return g_drone.GetParam(v, p); }
+uint8_t fm1_drone_nudge_param(uint8_t v, uint8_t p, int32_t d, int snap)
+{ return g_drone.NudgeParam(v, p, d, snap); }
+int fm1_drone_has_fine(uint8_t p)                           { return fm1::Drone::HasFine(p); }
+uint8_t fm1_drone_get_fine(uint8_t v, uint8_t p)            { return g_drone.GetFine(v, p); }
+void fm1_drone_set_fine(uint8_t v, uint8_t p, uint8_t f)    { g_drone.SetFine(v, p, f); }
 void fm1_drone_set_global(uint8_t p, uint8_t val)           { g_drone.SetGlobal(p, val); }
 uint8_t fm1_drone_get_global(uint8_t p)                     { return g_drone.GetGlobal(p); }
 void fm1_drone_snap_params(void)                            { g_drone.SnapParams(); }

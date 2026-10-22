@@ -200,6 +200,18 @@ void fm1_drone_set_gate(uint8_t voice, uint8_t on);
 
 void    fm1_drone_set_param(uint8_t voice, uint8_t param, uint8_t value);
 uint8_t fm1_drone_get_param(uint8_t voice, uint8_t param);
+
+/* Fine editing, for the UI's precision gesture. `delta` is in SIXTEENTH-BIT
+ * steps, 256 to a coarse one; `snap` rounds to the coarse grid in the
+ * direction of travel first, which is what a plain turn does. */
+uint8_t fm1_drone_nudge_param(uint8_t voice, uint8_t param, int32_t delta,
+                              int snap);
+/* Would fine editing reach anything here? False for enums, for times, and
+ * for the filters, whose table is indexed by MIDI note and so already has
+ * exactly seven bits of resolution. */
+int     fm1_drone_has_fine(uint8_t param);
+uint8_t fm1_drone_get_fine(uint8_t voice, uint8_t param);
+void    fm1_drone_set_fine(uint8_t voice, uint8_t param, uint8_t frac);
 void    fm1_drone_set_global(uint8_t param, uint8_t value);
 /* The UI has to SHOW a global, not only set one -- without this the FX and
  * GLO pages could edit values they could not display. */

@@ -1308,6 +1308,86 @@ static void test_late_additions(void)
     }
 }
 
+/* --- fine editing ---------------------------------------------------------
+ *
+ * These are ENCODERS, so 128 destinations was never a physical limit, only a
+ * storage one. tgt is Q8 now: a coarse click is 256, a fine click is 1, and
+ * Braids finally receives the width it has always taken.
+ */
+static void test_fine(void)
+{
+    fm1::Drone d;
+    int i;
+
+    printf("\nfine editing (15-bit targets on an encoder)\n");
+
+    d.Init(1);
+    d.SetParam(0, P_TIMBRE, 64);
+    d.SnapParams();
+
+    /* A fine click must NOT move the coarse value -- that is the whole
+     * point of having one. */
+    d.NudgeParam(0, P_TIMBRE, +1, 0);
+    ok(d.GetParam(0, P_TIMBRE) == 64,
+       "a fine click leaves the coarse value alone", "coarse moved");
+
+    for (i = 0; i < 255; i++) d.NudgeParam(0, P_TIMBRE, +1, 0);
+    ok(d.GetParam(0, P_TIMBRE) == 65,
+       "256 fine clicks make exactly one coarse step", "not 65");
+
+    /* Coarse after fine: round toward travel, so the click both MOVES and
+     * lands on the grid. Centre has to stay reachable -- on every bipolar
+     * control, centre is what OFF means. */
+    d.Init(1); d.SetParam(0, P_TIMBRE, 64); d.SnapParams();
+    for (i = 0; i < 90; i++) d.NudgeParam(0, P_TIMBRE, +1, 0);
+    d.NudgeParam(0, P_TIMBRE, +1, 1);
+    ok(d.GetParam(0, P_TIMBRE) == 65,
+       "a coarse click up from off-grid lands on the grid above", "not 65");
+
+    d.Init(1); d.SetParam(0, P_TIMBRE, 64); d.SnapParams();
+    for (i = 0; i < 90; i++) d.NudgeParam(0, P_TIMBRE, +1, 0);
+    d.NudgeParam(0, P_TIMBRE, -1, 1);
+    ok(d.GetParam(0, P_TIMBRE) == 64,
+       "a coarse click down from off-grid lands on the grid below", "not 64");
+
+    /* On the grid it is just a step, with no click swallowed. */
+    d.Init(1); d.SetParam(0, P_TIMBRE, 64); d.SnapParams();
+    d.NudgeParam(0, P_TIMBRE, +1, 1);
+    ok(d.GetParam(0, P_TIMBRE) == 65, "on-grid, a coarse click is one step", "not 65");
+
+    /* Clamping from a fine position, both ends. */
+    d.Init(1); d.SetParam(0, P_TIMBRE, 127); d.SnapParams();
+    for (i = 0; i < 600; i++) d.NudgeParam(0, P_TIMBRE, +1, 0);
+    ok(d.GetParam(0, P_TIMBRE) == 127, "fine cannot push past the maximum", "overran");
+    d.SetParam(0, P_TIMBRE, 0); d.SnapParams();
+    for (i = 0; i < 600; i++) d.NudgeParam(0, P_TIMBRE, -1, 0);
+    ok(d.GetParam(0, P_TIMBRE) == 0, "fine cannot push below zero", "underran");
+
+    /* Offered only where the bits reach something. The filters are indexed by
+     * MIDI note, so seven bits IS their resolution -- a fine click there
+     * would be a control that moves nothing, which is the lie we keep
+     * removing from this instrument. */
+    ok(fm1::Drone::HasFine(P_TIMBRE) && fm1::Drone::HasFine(P_COLOR),
+       "TIMBRE and COLOR carry their fine bits", "not offered");
+    ok(!fm1::Drone::HasFine(P_F1_CUT) && !fm1::Drone::HasFine(P_SHAPE) &&
+       !fm1::Drone::HasFine(P_ATTACK),
+       "a table index, an enum and a time do not", "offered where it does nothing");
+
+    /* The coarse readout must keep saying what was dialled, through a render
+     * and through the slew. */
+    d.Init(1); d.SetParam(0, P_TIMBRE, 64); d.SnapParams();
+    d.NudgeParam(0, P_TIMBRE, +40, 0);
+    {
+        int16_t buf[FM1_BLOCK * 2];
+        for (i = 0; i < 8; i++) {
+            for (int j = 0; j < FM1_BLOCK * 2; j++) buf[j] = 0;
+            d.Render(buf, FM1_BLOCK);
+        }
+    }
+    ok(d.GetParam(0, P_TIMBRE) == 64,
+       "and the coarse readout still says what you dialled", "coarse drifted");
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -1321,6 +1401,7 @@ int main(void)
     test_lfo();
     test_mod_matrix();
     test_late_additions();
+    test_fine();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",
            failures, failures == 1 ? "" : "s");

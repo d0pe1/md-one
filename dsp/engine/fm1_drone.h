@@ -59,9 +59,26 @@ struct DroneVoice {
      *        for rather than a number crawling toward it.
      *   acc  the same value in Q8. Needed because p is a byte: a slew of one
      *        step per block would stall forever without somewhere to keep the
-     *        fraction. */
+     *        fraction.
+     *
+     * tgt IS Q8 TOO, which is what makes fine editing possible at all.
+     *
+     * Braids takes its two parameters as 0..32767, and this engine has always
+     * carried that precision in `acc` -- then thrown it away, because tgt was
+     * a byte and every block truncated back to one. A knob could name 128
+     * destinations while an LFO reaching the SAME destination ran at full
+     * width: one parameter, two resolutions, depending on what moved it.
+     *
+     * These are ENCODERS, not pots -- unlimited travel -- so 128 was never a
+     * physical limit, only a storage one. With tgt in Q8 a coarse click is
+     * +-256 and a fine click is +-1, and the existing slew carries both
+     * without a line of it changing.
+     *
+     * p stays a byte deliberately. It is what the CC map, the patch format
+     * and the screen all speak, and widening it would cost all three to buy
+     * resolution an enum or a filter-table index cannot use. */
     uint8_t      p[NPARAM];
-    uint8_t      tgt[NPARAM];
+    int16_t      tgt[NPARAM];   /* Q8, as acc */
     int16_t      acc[NPARAM];   /* Q8; 127 << 8 = 32512, inside int16 */
     int16_t      note;          /* MIDI note, 0..127 */
     int16_t      pitch_base;    /* note+octave+detune+spread, before drift */
@@ -98,6 +115,34 @@ class Drone {
     /* Set a per-voice parameter (index from fm1_params.h, value 0..max). */
     void SetParam(uint8_t voice, uint8_t param, uint8_t value);
     void SetGlobal(uint8_t param, uint8_t value);
+
+    /* Nudge a parameter by `delta` SIXTEENTH-BIT steps -- the fine gesture.
+     *
+     * 256 of these make one coarse step, so one click here is 1/32768 of the
+     * range rather than 1/128. It is the only way to reach the resolution
+     * Braids actually takes: VOWEL blends across a 12-bit field and gets 16
+     * of its 4096 values from a coarse knob.
+     *
+     * `snap` is the coarse gesture instead: it rounds to the 128-grid IN THE
+     * DIRECTION OF TRAVEL first, so a coarse click after a fine edit always
+     * both moves and lands on the grid -- which is what keeps exact centre
+     * reachable, and on a bipolar control centre is what OFF means.
+     *
+     * Returns the new coarse value, for the screen. */
+    uint8_t NudgeParam(uint8_t voice, uint8_t param, int32_t delta, int snap);
+    uint8_t NudgeGlobal(uint8_t param, int32_t delta, int snap);
+
+    /* Does this parameter carry more than its coarse byte to the engine?
+     * Only where the extra bits reach something -- offering precision that
+     * changes nothing is the same lie as a mislabelled knob. */
+    static int HasFine(uint8_t param);
+
+    /* The fractional part of a target, 0..255, and a way to put it back.
+     * The patch saves these: without them a fine edit survives until the
+     * next power cycle and then quietly vanishes, which is the same silent
+     * loss the patch magic exists to prevent. */
+    uint8_t GetFine(uint8_t voice, uint8_t param) const;
+    void    SetFine(uint8_t voice, uint8_t param, uint8_t frac);
 
     uint8_t GetParam(uint8_t voice, uint8_t param) const;
 
@@ -187,7 +232,7 @@ class Drone {
 
     DroneVoice v_[FM1_VOICES];
     uint8_t    g_[NGPARAM];         /* in force now, as DroneVoice::p */
-    uint8_t    gtgt_[NGPARAM];
+    int16_t    gtgt_[NGPARAM];  /* Q8, as gacc_ */
     int16_t    gacc_[NGPARAM];
 
     /* Four shared modulators, stepped once per block. Shared is the point:

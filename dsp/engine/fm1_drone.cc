@@ -57,13 +57,13 @@ void Drone::Init(uint32_t seed)
          * 45 ms would be making a noise nobody asked for. */
         for (uint8_t v = 0; v < FM1_VOICES; v++) {
             v_[v].p[i]   = FM1_PDEF[i].def;
-            v_[v].tgt[i] = FM1_PDEF[i].def;
+            v_[v].tgt[i] = (int16_t)(FM1_PDEF[i].def << 8);
             v_[v].acc[i] = (int16_t)(FM1_PDEF[i].def << 8);
         }
     }
     for (uint8_t i = 0; i < NGPARAM; i++) {
         g_[i]    = FM1_GDEF[i].def;
-        gtgt_[i] = FM1_GDEF[i].def;
+        gtgt_[i] = (int16_t)(FM1_GDEF[i].def << 8);
         gacc_[i] = (int16_t)(FM1_GDEF[i].def << 8);
     }
     fx_rack_init(&rack_);
@@ -200,8 +200,8 @@ void Drone::SetParam(uint8_t voice, uint8_t param, uint8_t value)
     if (value > FM1_PDEF[param].max) value = FM1_PDEF[param].max;
 
     DroneVoice &d = v_[voice];
-    if (d.tgt[param] == value) return;
-    d.tgt[param] = value;
+    if (d.tgt[param] == (int16_t)(value << 8)) return;
+    d.tgt[param] = (int16_t)(value << 8);
 
     /* A slewed parameter only gets a new destination here; SlewBlock walks
      * it there. Everything else lands now -- an enum has nowhere to slide
@@ -287,8 +287,8 @@ void Drone::SetGlobal(uint8_t param, uint8_t value)
 {
     if (param >= NGPARAM) return;
     if (value > FM1_GDEF[param].max) value = FM1_GDEF[param].max;
-    if (gtgt_[param] == value) return;
-    gtgt_[param] = value;
+    if (gtgt_[param] == (int16_t)(value << 8)) return;
+    gtgt_[param] = (int16_t)(value << 8);
 
     if (!fm1_gparam_is_smoothed(param)) {
         gacc_[param] = (int16_t)(value << 8);
@@ -341,13 +341,106 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
 uint8_t Drone::GetParam(uint8_t voice, uint8_t param) const
 {
     if (voice >= FM1_VOICES || param >= NPARAM) return 0;
-    return v_[voice].tgt[param];
+    return (uint8_t)(v_[voice].tgt[param] >> 8);
 }
 
 uint8_t Drone::GetGlobal(uint8_t param) const
 {
     if (param >= NGPARAM) return 0;
-    return gtgt_[param];
+    return (uint8_t)(gtgt_[param] >> 8);
+}
+
+/* Which parameters carry their fine bits all the way to something audible.
+ *
+ * Only TIMBRE and COLOR today, and that is not a placeholder -- it is where
+ * the resolution exists to be had. Braids takes those two as 0..32767, and
+ * several shapes read far down the word: VOWEL picks its vowel from the top
+ * four bits and BLENDS across the low twelve, so a coarse knob reaches 16 of
+ * its 4096 blend positions.
+ *
+ * The filters deliberately do NOT. fm1_svf_f[] is indexed by MIDI note
+ * 0..127, so seven bits is exactly the table's own resolution and a fine
+ * click would move nothing until that table is interpolated. Offering
+ * precision that changes nothing is the same lie as a mislabelled knob, one
+ * step quieter -- so it is not offered. */
+int Drone::HasFine(uint8_t param)
+{
+    return param == P_TIMBRE || param == P_COLOR;
+}
+
+/* The shared body of both nudges: walk a Q8 target by `delta`, either in
+ * fine steps or snapped to the coarse grid. */
+static int32_t NudgeQ8(int32_t cur, int32_t delta, int snap, uint8_t max)
+{
+    int32_t out;
+
+    if (!snap) {
+        out = cur + delta;                      /* fine: one step is 1/256 */
+    } else if (cur & 255) {
+        /* Off the grid after a fine edit. Round IN THE DIRECTION OF TRAVEL
+         * and spend one click doing it, so a coarse turn always both moves
+         * and lands on the grid -- and exact centre, which is what OFF means
+         * on every bipolar control, stays reachable. */
+        int32_t base = delta > 0 ? (cur >> 8) + 1 : (cur >> 8);
+        int32_t rest = delta > 0 ? delta - 1 : delta + 1;
+        out = (base + rest) << 8;
+    } else {
+        out = ((cur >> 8) + delta) << 8;
+    }
+
+    if (out < 0) out = 0;
+    if (out > (int32_t)max << 8) out = (int32_t)max << 8;
+    return out;
+}
+
+uint8_t Drone::NudgeParam(uint8_t voice, uint8_t param, int32_t delta, int snap)
+{
+    if (voice >= FM1_VOICES || param >= NPARAM) return 0;
+    {
+        DroneVoice &d = v_[voice];
+        int32_t out = NudgeQ8(d.tgt[param], delta, snap, FM1_PDEF[param].max);
+        d.tgt[param] = (int16_t)out;
+        /* An unslewed parameter has no accumulator walking it anywhere, so
+         * it has to land now -- the same split SetParam makes. */
+        if (!fm1_param_is_smoothed(param)) {
+            d.acc[param] = (int16_t)out;
+            ApplyParam(voice, param, (uint8_t)(out >> 8));
+        }
+        return (uint8_t)(out >> 8);
+    }
+}
+
+uint8_t Drone::NudgeGlobal(uint8_t param, int32_t delta, int snap)
+{
+    if (param >= NGPARAM) return 0;
+    {
+        int32_t out = NudgeQ8(gtgt_[param], delta, snap, FM1_GDEF[param].max);
+        gtgt_[param] = (int16_t)out;
+        if (!fm1_gparam_is_smoothed(param)) {
+            gacc_[param] = (int16_t)out;
+            ApplyGlobal(param, (uint8_t)(out >> 8));
+        }
+        return (uint8_t)(out >> 8);
+    }
+}
+
+uint8_t Drone::GetFine(uint8_t voice, uint8_t param) const
+{
+    if (voice >= FM1_VOICES || param >= NPARAM) return 0;
+    return (uint8_t)(v_[voice].tgt[param] & 255);
+}
+
+void Drone::SetFine(uint8_t voice, uint8_t param, uint8_t frac)
+{
+    if (voice >= FM1_VOICES || param >= NPARAM) return;
+    {
+        DroneVoice &d = v_[voice];
+        int32_t out = ((int32_t)(d.tgt[param] >> 8) << 8) + frac;
+        if (out > (int32_t)FM1_PDEF[param].max << 8)
+            out = (int32_t)FM1_PDEF[param].max << 8;
+        d.tgt[param] = (int16_t)out;
+        if (!fm1_param_is_smoothed(param)) d.acc[param] = (int16_t)out;
+    }
 }
 
 void Drone::SnapParams()
@@ -355,13 +448,13 @@ void Drone::SnapParams()
     for (uint8_t v = 0; v < FM1_VOICES; v++) {
         DroneVoice &d = v_[v];
         for (uint8_t i = 0; i < NPARAM; i++) {
-            d.acc[i] = (int16_t)(d.tgt[i] << 8);
-            ApplyParam(v, i, d.tgt[i]);
+            d.acc[i] = d.tgt[i];
+            ApplyParam(v, i, (uint8_t)(d.tgt[i] >> 8));
         }
     }
     for (uint8_t i = 0; i < NGPARAM; i++) {
-        gacc_[i] = (int16_t)(gtgt_[i] << 8);
-        ApplyGlobal(i, gtgt_[i]);
+        gacc_[i] = gtgt_[i];
+        ApplyGlobal(i, (uint8_t)(gtgt_[i] >> 8));
     }
 }
 
@@ -392,7 +485,7 @@ void Drone::SlewBlock()
     for (uint8_t v = 0; v < FM1_VOICES; v++) {
         DroneVoice &d = v_[v];
         for (uint8_t i = 0; i < NPARAM; i++) {
-            int32_t t = (int32_t)d.tgt[i] << 8;
+            int32_t t = (int32_t)d.tgt[i];
             int32_t s = d.acc[i];
 
             if (s == t) continue;               /* settled: one compare */
@@ -403,7 +496,7 @@ void Drone::SlewBlock()
     }
 
     for (uint8_t i = 0; i < NGPARAM; i++) {
-        int32_t t = (int32_t)gtgt_[i] << 8;
+        int32_t t = (int32_t)gtgt_[i];
         int32_t s = gacc_[i];
 
         if (s == t) continue;
@@ -578,13 +671,24 @@ void Drone::Render(int16_t *out, uint32_t n)
              * shape) and the player should choose it, so MOD simply defaults
              * to centre and does nothing until turned up. Silently ignoring
              * a knob is worse than letting it do something surprising. */
-            int32_t timbre = (int32_t)d.p[P_TIMBRE] << 8;
+            /* From the ACCUMULATOR, not from the byte.
+             *
+             * acc is the slewed value in Q8 -- the full width Braids takes --
+             * and `p` is that same value with its low eight bits thrown away.
+             * Reading p here cost every fine bit the engine had already
+             * computed, and made a hand on the knob step in units of 256
+             * while an LFO on the same destination moved continuously. One
+             * parameter, two resolutions, depending on what moved it.
+             *
+             * This is also what makes the fine gesture audible at all: a
+             * fine click moves acc by 1, which p cannot represent. */
+            int32_t timbre = (int32_t)d.acc[P_TIMBRE];
             timbre += (((dr >> 2) * mod_amt) >> 6);
             timbre += ModOf(d, MD_TIMBRE) >> 1;     /* +-half the range */
             if (timbre < 0)     timbre = 0;
             if (timbre > 32767) timbre = 32767;
 
-            int32_t colour = (int32_t)d.p[P_COLOR] << 8;
+            int32_t colour = (int32_t)d.acc[P_COLOR];
             colour += ModOf(d, MD_COLOR) >> 1;
             if (colour < 0)     colour = 0;
             if (colour > 32767) colour = 32767;
