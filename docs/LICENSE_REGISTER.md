@@ -17,6 +17,7 @@ read from each clone's own `LICENSE` file at the pinned SHA.
 | [lunar-modulator](https://github.com/ip2k/lunar-modulator) | `bfa0424` | **MIT** | DSP engines, `fm1_identify.py` | retain copyright + MIT text |
 | [hortator](https://github.com/DeadActive/hortator) | `7e34159` | **GPL-3.0-only** | integer Plaits drum ports | GPL-3.0-only (we are there anyway) |
 | [awesome-fm-1](https://github.com/cicloid/awesome-fm-1) | `b310034` | **CC0-1.0** | an index | none |
+| [JIANT FM](https://github.com/juanjiant-bit/JIANT) | `dc8d025` | **GPL-3.0-only** | **ideas only** — cloned to read its control surface | GPL-3.0-only if code is ever taken. **Nothing from it may reach `dsp/`.** |
 | [AudibleInstruments](https://github.com/VCVRack/AudibleInstruments) `src/` | `a1cd335` | **GPL-3.0-or-later** (Andrew Belt) | **nothing** — VCV Rack wrappers only, no DSP | avoid; see the trap below |
 | AudibleInstruments `eurorack/` submodule | `9739c02` | **MIT** (Emilie Gillet) | Braids DSP — this is where the algorithms live | retain the per-file MIT header verbatim |
 | AudibleInstruments `res/` | `a1cd335` | **© Emilie Gillet, "used with permission"** | **nothing** | **not an open licence — do not reuse the panel graphics** |

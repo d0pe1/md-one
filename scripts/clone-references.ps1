@@ -34,6 +34,11 @@ $repos = @(
     @{ n = 'lunar-modulator'; u = 'https://github.com/ip2k/lunar-modulator';   sha = 'bfa042446f36c8647efddc6d76b06753d2a5b612' }
     @{ n = 'hortator';        u = 'https://github.com/DeadActive/hortator';    sha = '7e3415971c5800b4a3ad0146a7d95615883d7d96' }
     @{ n = 'awesome-fm-1';    u = 'https://github.com/cicloid/awesome-fm-1';   sha = 'b31003409227464dd781f9a2f03d9d9b62b40d67' }
+    # READ-ONLY REFERENCE, AND GPL-3.0. Cloned for its control surface. Nothing
+    # from it may reach dsp/ -- that tree is MIT, and its freedom from GPL code
+    # is the one licence property this project has to actively defend.
+    # See docs/LICENSE_REGISTER.md.
+    @{ n = 'JIANT';           u = 'https://github.com/juanjiant-bit/JIANT';    sha = 'dc8d025526eecdd89d0bdf0cc3669c22cbde1b71' }
 )
 
 foreach ($r in $repos) {

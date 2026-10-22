@@ -460,6 +460,79 @@ static void ui_draw_header(void)
     lcd_fill(0, Y_RULE, 240, 1, C_GREY);
 }
 
+/* --- value as heat ---------------------------------------------------------
+ *
+ * The idea is JIANT FM's (juanjiant-bit, GPL-3.0, read as reference): a
+ * control's value becomes a colour on a thermal ramp, so a row of knobs can
+ * be read without reading it. This is our own ramp and our own code; what is
+ * borrowed is the idea, and the one detail that makes it work.
+ *
+ * That detail: a BIPOLAR control is coloured by its DISTANCE FROM CENTRE, not
+ * by its value. A pan at centre, an attenuverter at 64, an EQ gain at 0 dB
+ * and a modulation depth doing nothing all go cold; deflection either way
+ * heats up. So "which of these four knobs is actually doing something" is
+ * answerable at a glance, which on a four-knob instrument is most of the
+ * question. Ours knows which controls those are already -- K_BIP, K_CENTS and
+ * K_OCT are exactly the ones centred on their default.
+ *
+ * Seven stops, indigo through to white, interpolated in RGB565.
+ */
+static uint16_t ui_heat(uint32_t q)             /* q: 0..1000 */
+{
+    static const uint8_t H[7][3] = {
+        {  56,  58, 120 },      /* indigo: at rest */
+        { 120,  70, 180 },      /* violet */
+        { 220,  60, 110 },      /* red    */
+        { 250, 120,  40 },      /* orange */
+        { 250, 190,  60 },      /* amber  */
+        { 255, 230, 160 },      /* cream  */
+        { 255, 255, 255 }       /* white: at the stop */
+    };
+    uint32_t i, f, r, g, b;
+
+    if (q > 1000u) q = 1000u;
+    i = (q * 6u) / 1000u;                        /* which of the six spans */
+    if (i > 5u) i = 5u;
+    f = (q * 6u) - i * 1000u;                    /* 0..1000 within it */
+    r = ((uint32_t)H[i][0] * (1000u - f) + (uint32_t)H[i + 1][0] * f) / 1000u;
+    g = ((uint32_t)H[i][1] * (1000u - f) + (uint32_t)H[i + 1][1] * f) / 1000u;
+    b = ((uint32_t)H[i][2] * (1000u - f) + (uint32_t)H[i + 1][2] * f) / 1000u;
+    return RGB(r, g, b);
+}
+
+/* How hot a parameter is right now, 0..1000. */
+static uint32_t ui_heat_of(const fm1_pdef_t *d, uint8_t v)
+{
+    int32_t zero;
+
+    if (!d || !d->max) return 0u;
+
+    /* The cold point is whatever the SCREEN calls zero, which is not always
+     * the default: K_BIP prints `v - 64` whatever its default, and P_FM's is
+     * 80. Reading the default here would have left the FM knob warm at rest
+     * and cold a fifth of the way up -- so this mirrors ui_fmt rather than
+     * guessing, and the two move together if either changes. */
+    switch (d->kind) {
+    case K_BIP:
+        zero = 64;
+        break;
+    case K_CENTS:
+    case K_OCT:
+        zero = (int32_t)d->def;
+        break;
+    default:
+        return ((uint32_t)v * 1000u) / (uint32_t)d->max;
+    }
+
+    /* Each side normalised on its own, so both extremes reach full heat even
+     * when the centre does not sit in the middle of the range. */
+    if ((int32_t)v >= zero) {
+        int32_t span = (int32_t)d->max - zero;
+        return span > 0 ? (uint32_t)(((int32_t)v - zero) * 1000 / span) : 0u;
+    }
+    return zero > 0 ? (uint32_t)((zero - (int32_t)v) * 1000 / zero) : 0u;
+}
+
 /* Four labels over four values, each physically under its knob. */
 static void ui_draw_knobs(void)
 {
@@ -479,9 +552,40 @@ static void ui_draw_knobs(void)
         draw_text_box(x, Y_LABEL, COL_W, &FONT_S,
                       id == PG_NONE ? "----" : ui_label(id),
                       id == PG_NONE ? C_TRACK : C_GREY, 1);
-        draw_text_box(x, Y_VALUE, COL_W, &FONT_S,
-                      id == PG_NONE ? "" : val,
-                      id == PG_NONE ? C_TRACK : C_WHITE, 1);
+
+        /* The value in its own heat, and a bar of the same colour under it.
+         *
+         * Two readings of one number, which is the point: the text answers
+         * "what is it" and the bar answers "where in its travel", and the
+         * colour answers "is it doing anything" from across the room. An
+         * enum has no travel, so it gets neither -- a filter MODE is not
+         * 60% of the way to anything. */
+        {
+            const fm1_pdef_t *d = fm1_page_def(&ui_nav, id);
+            int graded = d && (d->kind == K_NUM  || d->kind == K_PCT ||
+                               d->kind == K_BIP  || d->kind == K_CENTS ||
+                               d->kind == K_OCT  || d->kind == K_HZ ||
+                               d->kind == K_MS   || d->kind == K_RATE);
+            uint32_t q = graded ? ui_heat_of(d, ui_get(id)) : 0u;
+            uint16_t c = graded ? ui_heat(q) : C_WHITE;
+            int32_t  bx = x + 6, bw = COL_W - 12;
+            int32_t  by = Y_VALUE + 18;          /* 84: clear of Y_BODY at 90 */
+
+            draw_text_box(x, Y_VALUE, COL_W, &FONT_S,
+                          id == PG_NONE ? "" : val,
+                          id == PG_NONE ? C_TRACK : c, 1);
+
+            /* No track under an enum or an empty slot either: an unfilled
+             * bar still draws a RANGE, and promising travel to a control
+             * that has none is the same lie one step quieter. The row is
+             * cleared first so nothing stale survives the page change. */
+            lcd_fill((uint32_t)bx, (uint32_t)by, (uint32_t)bw, 3u, C_BLACK);
+            if (graded) {
+                uint32_t w = ((uint32_t)bw * q) / 1000u;
+                lcd_fill((uint32_t)bx, (uint32_t)by, (uint32_t)bw, 3u, C_TRACK);
+                if (w) lcd_fill((uint32_t)bx, (uint32_t)by, w, 3u, c);
+            }
+        }
     }
 }
 
