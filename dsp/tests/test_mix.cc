@@ -153,11 +153,27 @@ static void test_bus(void)
     ok(one < FM1_CLIP_KNEE, "one voice stays below the limiter knee",
        "a single voice is already being compressed");
 
-    /* Linear pan law: hard-panned is twice centre in that channel. Catches a
-     * pan law that silently became constant-power, or an off-by-one in the
-     * 0..127 mapping. */
-    ok(hard > one * 18 / 10 && hard < one * 22 / 10,
-       "hard pan is 2x centre pan (linear law)", "the pan law is not linear");
+    /* CONSTANT-POWER pan law: centre is 0.707 of hard over in that channel,
+     * not 0.5. This assertion used to demand 0.5 and was the thing defending
+     * a pan control that doubled as a 6 dB volume control -- the centre, where
+     * a drone bed sits, being the quietest place on the knob.
+     *
+     * The bound is wide on purpose and the ratio will read a little under the
+     * theoretical 1.414: a hard-panned voice at full level is up against the
+     * soft clipper, so its peak is held back while the centred one is not.
+     * What the test has to separate is 1.41 from 2.0 -- a law that silently
+     * goes back to linear -- and an off-by-one in the 0..127 mapping, which
+     * shows up at the ends rather than here. */
+    ok(hard * 100 > one * 125 && hard * 100 < one * 170,
+       "centre pan is 0.707 of hard over (constant power)",
+       "the pan law is not constant-power");
+
+    /* The ends are exact by construction (fm1_pan_table.h): unity into the
+     * near channel, silence into the far one. A voice panned hard must not
+     * lose level to the law, and must not leak across. */
+    ok(render_peak(1, 127, 0) > hard * 9 / 10,
+       "hard left matches hard right in level",
+       "the pan table is not symmetric at the ends");
 
     /* Four bit-identical voices are exactly 4x one on the bus, so the output
      * must be what the limiter curve predicts from one voice. This is the

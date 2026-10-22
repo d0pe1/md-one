@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "fm1_drone.h"
+#include "../shared/fm1_pan_table.h"
 
 namespace fm1 {
 
@@ -903,35 +904,44 @@ void Drone::Render(int16_t *out, uint32_t n)
             if (pan < 0)   pan = 0;
             if (pan > 127) pan = 127;
 
-            /* Voice gain is level x pan and NOTHING else.
+            /* Voice gain is pan and NOTHING else.
              *
              * It used to be divided by FM1_VOICES, which made every voice
              * quieter as soon as another existed -- turning a voice off
-             * changed the level of the rest. Unity is one voice at full level,
-             * centre-panned; four of those reach 4.0 on the bus, which is
-             * exactly the two bits of headroom int32 is here to carry.
+             * changed the level of the rest.
              *
-             * Linear pan law, not constant-power: a sqrt is not available and
-             * a drone bed does not need the 3 dB centre lift. Q12 keeps the
-             * quantisation well below a step of the 0..127 knob.
+             * CONSTANT POWER, via fm1_pan_table.h. This was a linear law,
+             * which gave a centred voice 0.5 per channel against 1.0 hard
+             * over -- so PAN was also a 6 dB volume control, and the centre,
+             * where a drone bed actually sits, was the quietest place on the
+             * knob. Measured on a bare CSAW voice at LEVEL 127: -9.1 dBFS
+             * centred, -3.7 dBFS hard left.
              *
-             * LEVEL is NOT here any more -- the VCA applies it inside the
-             * sample loop, between the two filters, so that F2 hears a voice
-             * that has already been faded. Applying it in both places would
-             * square it. */
-            /* MONO overrides PAN rather than resetting it, so switching it
-             * off returns the voice to exactly where it was in the image.
-             * Centre is 63.5/127, taken as 64 and 63 -- one LSB of asymmetry
-             * is inaudible and keeps the two gains summing to the same total
-             * a panned voice has. */
-            int32_t gl_q12, gr_q12;
-            if (d.p[P_MONO]) {
-                gl_q12 = (64 * Q12_ONE) / 127;
-                gr_q12 = (63 * Q12_ONE) / 127;
-            } else {
-                gl_q12 = ((127 - pan) * Q12_ONE) / 127;
-                gr_q12 = ( pan        * Q12_ONE) / 127;
-            }
+             * The comment that used to be here said a drone bed "does not
+             * need the 3 dB centre lift". It is not a lift. Constant power
+             * is the law that keeps the sweep level; linear is the one that
+             * costs 3 dB extra at the centre, which is where it was spent.
+             *
+             * It buys that 3 dB back out of bus headroom, and that is the
+             * right direction here twice over: one voice measured far too
+             * quiet, and four at full level were already into the soft
+             * clipper, so the headroom was notional anyway.
+             *
+             * No sqrt on this chip, but none is needed -- the law is decided
+             * once per voice per block and lives in a 128-entry table.
+             *
+             * LEVEL is NOT here -- the VCA applies it inside the sample loop,
+             * between the two filters, so that F2 hears a voice that has
+             * already been faded. Applying it in both places would square it.
+             *
+             * MONO overrides PAN rather than resetting it, so switching it
+             * off returns the voice to exactly where it was in the image. It
+             * reads the table at centre instead of branching to its own pair
+             * of constants, which is what used to make a mono voice quieter
+             * than a centred one by the same 3 dB. */
+            int32_t pq = d.p[P_MONO] ? 64 : pan;
+            int32_t gl_q12 = fm1_pan_q12[127 - pq];
+            int32_t gr_q12 = fm1_pan_q12[pq];
 
             /* Where this voice's cable goes. DEST_OFF means the voice is
              * rendered and DISCARDED -- it still costs its cycles, which is

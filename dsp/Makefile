@@ -39,7 +39,7 @@ ENG_DIR := engine
 ENG_SRC := $(ENG_DIR)/fm1_drone.cc
 ENG_HDR := $(wildcard $(ENG_DIR)/*.h) $(wildcard shared/*.h)
 
-.PHONY: all test bench demo target clean table braids braids-all braids-bench braids-ram drone drone-all
+.PHONY: all test bench demo target clean table braids braids-all braids-bench braids-ram drone drone-all gain
 all: $(BUILD)/render $(BUILD)/bench $(BUILD)/test_osc $(BUILD)/render_braids
 
 $(BUILD):
@@ -121,6 +121,15 @@ $(BUILD)/render_drone: host/render_drone.cc host/wav.c host/wav.h \
 
 drone: $(BUILD)/render_drone
 	./$(BUILD)/render_drone --preset drift --sec 20 --out $(BUILD)/drone-drift.wav
+
+# Where the level goes: peak dBFS per gain configuration, engine only. Answers
+# "is the instrument quiet, or is the signal chain after it quiet?", which a
+# DAW meter at the far end of a jack and a mixer preamp cannot.
+$(BUILD)/probe_gain: host/probe_gain.cc $(ENG_SRC) $(ENG_HDR) $(MI_SRC) $(MI_HDR) | $(BUILD)
+	$(CXX) $(MI_FLAGS) $(MI_INC) -o $@ host/probe_gain.cc $(ENG_SRC) $(MI_SRC) -lm
+
+gain: $(BUILD)/probe_gain
+	./$(BUILD)/probe_gain
 
 drone-all: $(BUILD)/render_drone
 	@for p in $$(./$(BUILD)/render_drone --list | awk '{print $$1}'); do \
