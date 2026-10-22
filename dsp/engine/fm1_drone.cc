@@ -885,12 +885,29 @@ void Drone::Render(int16_t *out, uint32_t n)
             }
 
             /* Where this voice's cable goes. DEST_OFF means the voice is
-             * rendered and discarded -- it still costs its cycles, which is
+             * rendered and DISCARDED -- it still costs its cycles, which is
              * correct: unplugging a cable does not unplug the oscillator, and
-             * re-plugging it must not restart the sound. */
+             * re-plugging it must not restart the sound.
+             *
+             * It used to `continue` here, which did not do that. Skipping the
+             * sample loop skipped fm1_env_tick with it, so a disconnected
+             * voice's envelope FROZE: a sounding voice kept level > 0 and a
+             * gated one stayed in ATTACK, so fm1_env_idle could never become
+             * true and the early-out at the top of this loop could never fire
+             * again. The oscillator then rendered every block for the rest of
+             * the session -- four voices parked at DEST_OFF is roughly a
+             * fifth of the audio budget spent on audio that goes nowhere --
+             * and the envelope-stage readout stuck on ATK or SUS for good.
+             *
+             * So the whole chain runs and only the BUS ADD is dropped, which
+             * is what the paragraph above always claimed. A disconnected
+             * voice now decays, reaches idle, and stops costing anything. */
             uint8_t  dest = d.p[P_DEST];
-            if (dest == DEST_OFF) continue;
-            int32_t *sink = (dest == DEST_OUT)
+            /* DEST_OFF is 0 and DEST_FX1 is 1, so the channel arithmetic
+             * would index fxin_[-1]. Nothing is ever written through it --
+             * the add below is gated -- but forming the address at all is
+             * undefined, so it points at the bus and goes unused. */
+            int32_t *sink = (dest == DEST_OUT || dest == DEST_OFF)
                           ? bus_
                           : fxin_[dest - DEST_FX1];
 
@@ -943,8 +960,10 @@ void Drone::Render(int16_t *out, uint32_t n)
 
                 /* No saturation here. The bus has room; limiting once at the
                  * end is the whole point. */
-                sink[2 * i]     += (s * gl_q12) >> Q12_BITS;
-                sink[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
+                if (dest != DEST_OFF) {
+                    sink[2 * i]     += (s * gl_q12) >> Q12_BITS;
+                    sink[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
+                }
             }
 
             /* Raise the meter; the fall already happened above. */

@@ -58,6 +58,10 @@ struct fm1_filter_t {
     braids::Svf svf;                /* a couple of dozen bytes */
     braids::Svf svf2;               /* the second pair, for 24 dB */
     int32_t     op;                 /* the one-pole's state, for 6 dB */
+    /* The one-pole's coefficient, derived with the two SVF frequencies in
+     * fm1_filter_apply_cut(). It belongs beside them: all three come from
+     * cut_p and all three change only when cut_p does. */
+    int32_t     fc;
 };
 
 
@@ -84,6 +88,17 @@ static inline void fm1_filter_apply_cut(fm1_filter_t *f)
     if (hz > 127 * 128) hz = 127 * 128;
     f->svf.set_frequency((int16_t)hz);
     f->svf2.set_frequency((int16_t)hz);
+    /* Derived HERE, not in the sample loop.
+     *
+     * The 6 dB branch used to read it per sample -- originally one indexed
+     * flash load, and then, once the interpolation went in, two loads plus
+     * two clamps and a lerp. Flash stalls about 3x on this part, so the
+     * coefficient cost roughly four times the one-pole it feeds, on a branch
+     * whose own comment calls it the cheapest block in the voice.
+     *
+     * It depends only on cut_p, and every write to cut_p comes through this
+     * function -- init, reset, set_cut and set_cut_p all end here. */
+    f->fc = fm1_svf_cut_q15(hz);
 }
 
 static inline void fm1_filter_set_res_raw(fm1_filter_t *f, uint8_t res)
@@ -211,16 +226,16 @@ static inline q15_t fm1_filter_tick(fm1_filter_t *f, q15_t x)
         break;
     case F_LP: case F_HP:
         if (f->poles == FP_6) {
-            /* One pole, from the same coefficient table the SVF reads. The
-             * cheapest block in the voice: one multiply, one add.
+            /* One pole, from the same coefficient table the SVF reads, and
+             * once again the cheapest block in the voice: one multiply, one
+             * add, with the coefficient prepared at knob rate.
              *
              * Interpolated, because the 12 and 24 dB paths are: braids::Svf
              * runs its frequency through Interpolate824, so only this branch
              * landed on whole semitones. Switching SLOPE from 12 to 6 dB used
              * to move the corner by up to half a semitone as a side effect,
              * which is not what that knob is for. */
-            int32_t fc = fm1_svf_cut_q15(f->cut_p);
-            f->op += (fc * ((int32_t)x - f->op)) >> Q15_BITS;
+            f->op += (f->fc * ((int32_t)x - f->op)) >> Q15_BITS;
             w = (f->mode == F_LP) ? f->op : ((int32_t)x - f->op);
             w = fm1_q31_to_q15_sat(w);
             break;
