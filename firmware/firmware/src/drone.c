@@ -210,6 +210,7 @@ static void app_main(void)
     patch_t saved;
     uint32_t prev = 0, dirty = 0, t_change = 0, t_meter = 0, shift_drawn = 2;
     uint32_t lit_drawn = ~0u, redraw = 1;
+    uint32_t midi_dirty = 0, t_midi_draw = 0;
     uint8_t v;
 
     fm1_drone_init();
@@ -376,13 +377,18 @@ static void app_main(void)
                 redraw = 1;
             } else if (msg == 0xB0u) {
                 fm1_drone_midi_cc(ch, d1, d2);
-                redraw = 1;
+                /* NOT an immediate redraw -- see the note below. */
+                midi_dirty = 1;
             } else if (msg == 0x90u && d2 && ch < NV) {
                 st.note[ch] = d1;
                 st.on[ch] = 1;
                 fm1_drone_note_on(ch, d1);
                 apply_gates();
-                redraw = 1;
+                /* HOME is the only page that shows a note. The keyboard strip
+                 * updates itself from `lit != lit_drawn` further down, whatever
+                 * page is open, so everywhere else a note changes nothing on
+                 * screen and must not cost a repaint. */
+                if (ui_nav.menu == M_HOME) midi_dirty = 1;
             } else if ((msg == 0x80u || msg == 0x90u) && ch < NV) {
                 /* A note-off does NOT silence a drone voice: holding a key is
                  * not how this instrument is played. Use MUTE or CC 123. */
@@ -442,6 +448,33 @@ static void app_main(void)
                     fm1_drone_get_param(ui_voice(), FD_P_OCTAVE) > 0);
         fm1_led_key(BTN_OCT_UP,
                     fm1_drone_get_param(ui_voice(), FD_P_OCTAVE) < FM1_PDEF[P_OCTAVE].max);
+
+        /* MIDI REDRAWS ARE COALESCED AND RATE-LIMITED, and this is not a
+         * nicety -- without it, streamed MIDI stalls the instrument.
+         *
+         * ui_draw() is a blocking SPI transfer. A 240x240 frame at 12 MHz and
+         * 16 bpp is 76.8 ms, and a page redraw overdraws past that. Every
+         * note-on and every CC used to set `redraw`, so at 145 BPM in
+         * sixteenths -- one note every 103 ms -- the main loop spent nearly
+         * all of its time painting, and it is the MAIN LOOP that drains the
+         * MIDI queue. The 2 kHz USB poll kept filling that queue from an ISR
+         * while nothing emptied it; at 64 deep it silently drops (usb.c), so
+         * messages arrived late, in bursts, and eventually not at all. Lag,
+         * jitter, and an instrument that looks hung while its audio ISR
+         * carries on perfectly.
+         *
+         * 150 ms bounds the painting to about 60% of the loop and leaves the
+         * rest for draining, which is thousands of iterations a second --
+         * far more than the ~20 messages a second this case produces.
+         *
+         * The real fix is to make a redraw cheap rather than rare: repaint
+         * only the strips whose content changed, instead of the whole page.
+         * Until then this is the guard. */
+        if (midi_dirty && fm1_ms - t_midi_draw >= 150u) {
+            t_midi_draw = fm1_ms;
+            midi_dirty = 0;
+            redraw = 1;
+        }
 
         if (lit != lit_drawn) { lit_drawn = lit; draw_keys(lit); }
         if (redraw)           { redraw = 0; ui_draw(); }
