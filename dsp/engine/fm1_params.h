@@ -242,7 +242,8 @@ enum {
     K_ONOFF,
     K_SHAPE,    /* a Braids shape name */
     K_PCT,
-    K_CENTS,
+    K_CENTS,    /* cents, one per step, centre at def */
+    K_OCT,      /* octave offset, shown signed around the centre */
     K_RATIO,
     K_FTYPE,    /* a filter mode name, FM1_FMODE_NAME in fm1_filter.h */
     K_FXTYPE,   /* an effect name,     FM1_FXNAME   in fm1_rack.h */
@@ -279,8 +280,15 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_FM]         = {"FM",     127,  80, K_BIP,     0},
     [P_MOD]        = {"MOD",    127,  64, K_BIP,     0},
     [P_DRIFT_RATE] = {"DRIFTRT",127,  20, K_NUM,     0},
-    [P_OCTAVE]     = {"OCTAVE",   8,   4, K_NUM,     0},
-    [P_DETUNE]     = {"DETUNE", 127,  64, K_CENTS,   0},
+    /* OCTAVE is an OFFSET, so it is shown as one. As a plain 0..8 the centre
+     * read "OCTAVE 004", which says nothing about being centred and makes
+     * "down one" look like a move to 3 rather than to -1. */
+    [P_OCTAVE]     = {"OCTAVE",   8,   4, K_OCT,     0},
+    /* DETUNE counts CENTS, one per click, which is why max is 100 and not
+     * 127. It used to be 0..127 displayed as -64..+63 and called cents while
+     * the engine gave it +-50 -- so the number was 28% larger than the
+     * detuning, and a click was 0.78 of the unit printed on the screen. */
+    [P_DETUNE]     = {"DETUNE", 100,  50, K_CENTS,   0},
     [P_GLIDE]      = {"GLIDE",  127,   0, K_NUM,     0},
     /* Both filters default to OFF, which is a true bypass. A patch that wants
      * the old comb character sets F1 TYPE to COMB explicitly -- the previous

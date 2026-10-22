@@ -122,7 +122,11 @@ typedef struct {
  * into P_OCTAVE, and again at 0xD3 when the four LFOs added 16 globals. An
  * old patch has a different layout, and loading it would scatter its bytes
  * across the wrong parameters. */
-#define PATCH_MAGIC 0xD7
+/* Bumped when a stored byte changes MEANING, not only when the layout moves.
+ * D7 -> D8: P_DETUNE went from 0..127 of raw pitch offset to 0..100 cents, so
+ * a D7 patch's detune byte is both out of range and differently scaled. A
+ * stale patch that still loads is worse than one that is ignored. */
+#define PATCH_MAGIC 0xD8
 
 static void patch_store(patch_t *q)
 {
@@ -195,7 +199,7 @@ static void app_main(void)
         st.on[v] = 1;
         fm1_drone_set_param(v, FD_P_SHAPE,       (uint8_t)(v == 3 ? 12 : 9));
         fm1_drone_set_param(v, FD_P_TIMBRE,      (uint8_t)(70 - v * 8));
-        fm1_drone_set_param(v, FD_P_DETUNE,      (uint8_t)(64 + (v & 1 ? 3 : -3)));
+        fm1_drone_set_param(v, FD_P_DETUNE,      (uint8_t)(50 + (v & 1 ? 3 : -3)));
         fm1_drone_set_param(v, FD_P_DRIFT_RATE,  (uint8_t)(10 + v * 4));
         fm1_drone_set_param(v, FD_P_FM,          (uint8_t)(40 + v * 6));
         /* A comb in the first insert slot: the chain this boot patch has

@@ -36,8 +36,14 @@ static_assert(LFO_NMODES - 1 == 5,
               "LFO mode count changed -- update G_LFO*_MODE max in fm1_params.h");
 
 /* Detune and drift are applied in 1/128-semitone units, Braids' pitch unit.
- * DETUNE is 0..127 around a centre of 64, spanning +-50 cents. */
+ * DETUNE is 0..100 CENTS around a centre of 50, one cent per click. */
 static const int32_t kDetuneSpan = 64;      /* 50 cents = 64 units of 1/128 */
+
+/* One cent, in pitch units of 1/128 semitone, as Q7: 128/100 = 1.28.
+ * Braids' pitch resolution IS 1/128 semitone, so 0.78 cents is the finest
+ * step that exists -- a 1-cent click lands on the nearest one, which is at
+ * worst 0.22 cents out and inaudible. */
+static const int32_t kCentInPitch = 164;
 
 /* ~0.5 s of red at 256 frames per block, 44.1 kHz. */
 static const uint8_t kClipHoldBlocks = 86;
@@ -99,8 +105,14 @@ void Drone::ApplyPitch(uint8_t v)
     /* OCTAVE is 0..8 with 4 as centre */
     pitch += ((int32_t)d.p[P_OCTAVE] - 4) * 12 * kPitchPerSemitone;
 
-    /* DETUNE, bipolar around 64 */
-    pitch += ((int32_t)d.p[P_DETUNE] - 64) * kDetuneSpan / 64;
+    /* DETUNE, in CENTS, one per click, bipolar around 50.
+     *
+     * The pitch unit is 1/128 of a semitone, so a cent is 128/100 of one --
+     * kCentInPitch is that ratio in Q7. The previous version added the raw
+     * knob offset as if a click were a pitch unit, which made the real range
+     * +-50 cents while the screen said +-64: the knob was honest about
+     * neither its span nor its step. */
+    pitch += (((int32_t)d.p[P_DETUNE] - 50) * kCentInPitch) >> 7;
 
     /* SPREAD fans the voices apart, voice 0 lowest */
     int32_t spread = (int32_t)g_[G_SPREAD];
@@ -519,8 +531,29 @@ void Drone::Render(int16_t *out, uint32_t n)
                 if (gl == 0) {
                     d.pitch_now = base;
                 } else if (d.pitch_now != base) {
-                    int32_t step = (base - d.pitch_now) >> (1 + (gl >> 4));
-                    d.pitch_now = step ? d.pitch_now + step : base;
+                    /* A CONSTANT RATE, so glide time is proportional to the
+                     * interval -- which is what portamento means, and what a
+                     * one-pole does not do.
+                     *
+                     * The one-pole here had two faults, both reported as the
+                     * knob not doing what it says. It shifted by `1 + gl>>4`,
+                     * so a 0..127 control addressed EIGHT speeds and most of
+                     * its travel changed nothing. And its step rounded to
+                     * zero for small intervals, where snap-on-stall then sent
+                     * the pitch straight to the target -- so at the SLOWEST
+                     * setting a semitone snapped instantly while an octave
+                     * glided. Slower settings made short moves faster.
+                     *
+                     * Exponential in the knob, interpolated between the
+                     * octaves so every value is a distinct speed: ~1 ms for
+                     * an octave at the fast end, ~1.8 s at the slow one. */
+                    int32_t hi   = 1024 >> (gl >> 4);
+                    int32_t rate = hi - ((hi >> 1) * (int32_t)(gl & 15)) / 16;
+                    int32_t diff = base - d.pitch_now;
+                    if (rate < 1) rate = 1;
+                    if (diff > rate)       d.pitch_now += rate;
+                    else if (diff < -rate) d.pitch_now -= rate;
+                    else                   d.pitch_now = base;
                 }
             }
 

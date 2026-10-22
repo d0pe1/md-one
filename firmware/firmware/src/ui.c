@@ -211,8 +211,21 @@ static void ui_fmt(int id, char *out)
 
     switch (d->kind) {
     case K_BIP:
-    case K_CENTS:
         ui_i16((int32_t)v - 64, out);
+        break;
+    /* Cents, with the unit on screen. These two used to share K_BIP's line,
+     * which printed the raw offset and let the label call it cents -- so
+     * DETUNE read +63 while the oscillator moved 49. A number with a unit
+     * attached is a promise, and this one was not being kept. */
+    case K_CENTS:
+        ui_i16((int32_t)v - (int32_t)d->def, out);
+        i = 0;
+        while (out[i]) i++;
+        out[i++] = 'C';
+        out[i] = 0;
+        break;
+    case K_OCT:
+        ui_i16((int32_t)v - (int32_t)d->def, out);
         break;
     case K_ONOFF:
         ui_str(out, &i, v ? "ON" : "OFF");

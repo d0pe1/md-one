@@ -356,6 +356,40 @@ static void test_shape_knob_labels(void)
     check(fm1_shape_is_chord(40), "WAVE PARAPHONIC is a chord shape", 0);
 }
 
+/* A control that prints a UNIT has to mean it.
+ *
+ * DETUNE was declared K_CENTS, drawn as `v - 64`, and labelled cents, while
+ * the engine gave it a +-50 cent span -- so the screen read +63 where the
+ * oscillator moved 49, and one click was 0.78 of the unit printed next to it.
+ * Nothing caught that because nothing related the declaration to the span.
+ *
+ * A bipolar control must at least be CENTRED: the distance to each end has to
+ * match, or the knob cannot reach as far one way as the other and its centre
+ * detent is not its zero. That is checkable from the table alone, and it is
+ * the property the old row broke -- 0..127 around 64 can go 63 up and 64
+ * down.
+ */
+static void test_bipolar_centred(void)
+{
+    int i, off_centre = 0, unreachable = 0;
+
+    for (i = 0; i < NPARAM; i++) {
+        const fm1_pdef_t *d = &FM1_PDEF[i];
+        if (d->kind != K_CENTS && d->kind != K_OCT) continue;
+        if ((uint32_t)d->def * 2u != (uint32_t)d->max) off_centre = 1;
+        if (d->def == 0u || d->def >= d->max) unreachable = 1;
+    }
+    check(!off_centre, "a control in cents or octaves is centred on its def", 0);
+    check(!unreachable, "and can be moved in both directions", 0);
+
+    /* The two that prompted this, pinned by value so a later edit cannot
+     * quietly reintroduce the mismatch. */
+    check(FM1_PDEF[P_DETUNE].max == 100 && FM1_PDEF[P_DETUNE].def == 50,
+          "DETUNE is +-50 cents, one per click", 0);
+    check(FM1_PDEF[P_OCTAVE].max == 8 && FM1_PDEF[P_OCTAVE].def == 4,
+          "OCTAVE is +-4 around centre", 0);
+}
+
 /* Encoder feel.
  *
  * This exists because the firmware shipped with every wide-range parameter
@@ -523,6 +557,7 @@ int main(void)
 {
     printf("menu and page map\n");
     test_reachable();
+    test_bipolar_centred();
     test_encoder_feel();
     test_shapes();
     test_shape_knob_labels();
