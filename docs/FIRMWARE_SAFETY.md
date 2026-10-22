@@ -173,6 +173,36 @@ Still true, and unchanged: **never overwrite the 16 KB region holding the
 partition header and boot vector.** We do not build it; we ship the SDK's,
 hash-checked.
 
+## Recovery, verified by us on hardware — 2026-10-22
+
+The whole loop was walked on a real device, each step observed:
+
+| Step | Observed |
+| --- | --- |
+| Enter rescue from a **running** firmware | OCT− + OCT+ held 5 s; red countdown from 2 s; release cancels |
+| The rescue is reachable over USB | enumerates, answers the installer, reports identity **`FM-1_000`** |
+| Install a firmware **from** rescue | `fm1_install.py` wrote a full package and the device restarted |
+| Return to normal | reports `FM-1_971`, audio running |
+
+This is the first recovery claim in this document that is ours rather than
+inherited. Everything below it is still someone else's testing.
+
+**What is NOT verified, and the distinction matters:**
+
+* **The boot-time OCT− trigger does not work on this hardware.** Three cold
+  boots, button held before power, nothing else pressed — straight to the
+  home screen every time. It is kept (hardened) as a second route, but it
+  is not the one to rely on.
+* **Entry from a firmware that will not boot** — the automatic path, two
+  crashed boots setting `BOOT_RECOVERY`. Untested. It is also the path that
+  matters most for a bad flash, and it is the one we cannot rehearse
+  without deliberately building something broken.
+* Mask-ROM USB, and anything needing the RP2040 dongle.
+
+So the honest position: a build that **boots but misbehaves** is now
+provably recoverable. A build that **does not boot at all** rests on a path
+nobody here has exercised.
+
 ## Recovery paths — documented, unproven
 
 Three layers are described upstream. Their validation status differs, and none
@@ -180,7 +210,7 @@ of it has been confirmed by us.
 
 | Layer | Trigger | Status |
 | --- | --- | --- |
-| 1. USB rescue | hold **OCT−** at power-on; automatic after two boot crashes | implemented in Dinghy; **verified by its author on hardware**, not by us |
+| 1. USB rescue | **OCT− + OCT+ held 5 s while running** (Felucca's trigger, added by us); or automatic after two boot crashes | the held-while-running path is **verified by us**, see above; the boot-time OCT− variant **does not fire on this hardware** |
 | 2. Mask-ROM USB | device enumerates as `WL80UBOOT`, USB `4C4A:8057` | needs an RP2040 "USB_KEY" dongle clocking D+ shortly after power-up |
 | 3. Full flash R/W | FM-1-Transporter reads 1 MiB in ~3 s | community-reported |
 
