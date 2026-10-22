@@ -292,6 +292,17 @@ static const char *ui_label(int id)
         }
     }
 
+    /* Same argument, one level up. TIMBRE and COLOR are two knobs in front of
+     * forty-eight different oscillators: on VOWEL they pick a vowel and shift
+     * its formants, on FM they are index and ratio, on PLUCKED they are decay
+     * and pluck position. "TIMBRE 064" tells you nothing you could not have
+     * guessed; "RATIO 064" tells you what you are holding. Derived from the
+     * renderers -- see FM1_SHAPE_TIMBRE and docs/BRAIDS_SHAPES.md. */
+    if (id == P_TIMBRE || id == P_COLOR) {
+        uint8_t sh = fm1_drone_get_param(ui_voice(), P_SHAPE) % FM1_NSHAPES;
+        return id == P_TIMBRE ? FM1_SHAPE_TIMBRE[sh] : FM1_SHAPE_COLOR[sh];
+    }
+
     return fm1_label_fit(d->name);
 }
 

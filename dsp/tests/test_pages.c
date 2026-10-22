@@ -312,6 +312,50 @@ static void test_shapes(void)
     check(covers, "every shape lands in exactly one category", 0);
 }
 
+/* The per-shape TIMBRE and COLOR labels.
+ *
+ * These replace the knob's own name on the EDIT page, so they are subject to
+ * exactly the rule that produced "EQ2 FRQEQ2 GAINEQ2 RES" on a real screen:
+ * the column does not wrap and does not clip, and one character too many
+ * overlaps the neighbour. Ninety-six hand-written strings is ninety-six
+ * chances to write a seventh character, so a test counts them.
+ */
+static void test_shape_knob_labels(void)
+{
+    uint8_t s;
+    int fits = 1, present = 1, chord_implies_stepped = 1;
+
+    for (s = 0; s < FM1_NSHAPES; s++) {
+        const char *t = FM1_SHAPE_TIMBRE[s];
+        const char *c = FM1_SHAPE_COLOR[s];
+
+        if (!t || !*t || !c || !*c) { present = 0; continue; }
+        if (strlen(t) > FM1_LABEL_MAX || strlen(c) > FM1_LABEL_MAX) fits = 0;
+
+        /* Every chord shape quantises something -- the intervals on the
+         * TRIPLE group, the chord table on WAVE PARAPHONIC. A chord badge
+         * with no STEPPED badge would mean a chord that glides between
+         * notes, which no shape here does. */
+        if (fm1_shape_is_chord(s) && !fm1_shape_quantised(s))
+            chord_implies_stepped = 0;
+    }
+
+    check(present, "every shape names both of its knobs", 0);
+    check(fits, "every per-shape knob label fits the column", 0);
+    check(chord_implies_stepped, "a chord shape always steps", 0);
+
+    /* Spot checks against the renderers, so the tables cannot drift into
+     * plausible-but-wrong. Each of these is a line of vendored source:
+     * HARMONICS slides both knobs (RenderHarmonics), TRIPLE RING MOD offsets
+     * two modulator pitches continuously (RenderTripleRingMod), and FM
+     * quantises only its ratio (DigitalOscillator::Render). */
+    check(!fm1_shape_quantised(24), "HARMONICS does not step", 0);
+    check(!fm1_shape_quantised(13), "TRIPLE RING MOD does not step", 0);
+    check(!fm1_shape_timbre_stepped(25) && fm1_shape_color_stepped(25),
+          "FM steps its ratio and not its index", 0);
+    check(fm1_shape_is_chord(40), "WAVE PARAPHONIC is a chord shape", 0);
+}
+
 /* Encoder feel.
  *
  * This exists because the firmware shipped with every wide-range parameter
@@ -376,6 +420,7 @@ int main(void)
     test_reachable();
     test_encoder_feel();
     test_shapes();
+    test_shape_knob_labels();
     test_no_duplicate_on_page();
     test_ids_in_range();
     test_navigation();

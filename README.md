@@ -73,12 +73,14 @@ Exact commands and their real output: **`docs/BUILD_AND_TEST.md`**.
 
 **Start with [`docs/ROADMAP.md`](docs/ROADMAP.md)** for what the instrument is
 and where it stands, and [`docs/UX_DESIGN.md`](docs/UX_DESIGN.md) for the
-control surface.
+control surface. [`docs/BRAIDS_SHAPES.md`](docs/BRAIDS_SHAPES.md) is the
+player's reference: what TIMBRE and COLOR do on each of the 48 oscillators,
+derived from the vendored renderers.
 
 ```
 docs/          roadmap, UX design, environment, repo map, hardware,
                build+test, safety, licences, platform survey, Braids port,
-               MIDI spec, drone engine, open questions
+               shape reference, MIDI spec, drone engine, open questions
 references/    upstream clones, read-only, pinned (gitignored)
 firmware/      our firmware -- empty, deliberately
 dsp/           shared/ (integer, ships) + host/ (float reference) + target/ + tests/

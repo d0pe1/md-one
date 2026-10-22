@@ -242,21 +242,26 @@ All 48 stay reachable. The drum shapes (KICK, CYMBAL, SNARE) are near-useless
 for drones but are not hidden — they live in one category you skip in a single
 jump, which costs nothing and avoids a "where did it go" problem later.
 
-Two shape facts the screen must surface, because they are invisible otherwise
-and both have already caused confusion:
+### The two knobs say what they do
 
-* On **TRIPLE**, **HARMONIC/FM** and **WAVETABLE** shapes, TIMBRE and COLOR
-  index a *quantised* table — semitone intervals, frequency ratios, discrete
-  waves. The knob steps rather than glides. The value row shows these as
-  stepped (`INTV +7`) rather than a bare number, so a knob that jumps does
-  not read as a knob that is broken.
-* On the **TRIPLE** shapes the voice is a **chord generator**: TIMBRE and
-  COLOR set the intervals of the second and third oscillators.
+TIMBRE and COLOR sit in front of all forty-eight of those oscillators and mean
+something different on every one. On a Braids module you learn that from the
+manual; here the screen says it, so KNOB1 over TRIPLE SAW reads `NOTE 2` and
+over QUESTION MARK reads `SPEED`.
 
-Page 1 is Braids' own front panel, minus FINE and COARSE — pitch comes from
-the keys and the PITCH page, so tuning knobs would be redundant. FM and MOD
-are the module's attenuverters: with no CV jacks, they scale the internal
-drift into pitch and timbre. Both bipolar, centre = none.
+The tables are `FM1_SHAPE_TIMBRE[]` / `FM1_SHAPE_COLOR[]` in
+`dsp/engine/fm1_shapes.h`, derived shape by shape from the vendored renderers
+rather than from Mutable's manual — `docs/BRAIDS_SHAPES.md` has the derivation
+and the line references. Same mechanism as a slot's P1 reading DRIVE or TUNE
+by type, and the same rule behind it: a knob labelled with something it does
+not do is a knob the player stops trusting.
+
+Deriving it from the source rather than the manual immediately paid for
+itself: the `STEPPED` and `CHORD` badges had been assigned per *category* and
+were wrong on five shapes. HARMONICS and TRIPLE RING MOD do not step, WAVE MAP
+and WAVE LINE do not step, and WAVE PARAPHONIC — which is a genuine chord
+generator — was not marked as either. The predicates are now per knob, because
+on FM only the ratio steps and the index does not.
 
 ### FX — Effect channels *(Subject: FX 1–4)*
 
