@@ -1,0 +1,656 @@
+<title>MD-One — Signal Flow</title>
+
+<style>
+  :root {
+    --ground:    #f4f4f6;
+    --panel:     #ffffff;
+    --panel-2:   #ececf1;
+    --ink:       #16161d;
+    --ink-soft:  #51515f;
+    --ink-faint: #85858f;
+    --rule:      #d6d6de;
+    --violet:    #6b3fd4;
+    --mint:      #0f8a5a;
+    --amber:     #a96a00;
+    --alert:     #c62828;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --measure: 68ch;
+    --maxw: 1120px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0c0c11;
+      --panel:     #14141c;
+      --panel-2:   #1c1c26;
+      --ink:       #e8e8f0;
+      --ink-soft:  #a6a6b5;
+      --ink-faint: #6e6e7e;
+      --rule:      #2a2a37;
+      --violet:    #b48cff;
+      --mint:      #78e6aa;
+      --amber:     #ffb93c;
+      --alert:     #ff6b6b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:    #0c0c11;
+    --panel:     #14141c;
+    --panel-2:   #1c1c26;
+    --ink:       #e8e8f0;
+    --ink-soft:  #a6a6b5;
+    --ink-faint: #6e6e7e;
+    --rule:      #2a2a37;
+    --violet:    #b48cff;
+    --mint:      #78e6aa;
+    --amber:     #ffb93c;
+    --alert:     #ff6b6b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+  }
+
+  header { display: flex; flex-direction: column; gap: 10px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--violet);
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(28px, 4.4vw, 42px);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst { max-width: var(--measure); color: var(--ink-soft); margin: 0; }
+
+  section { display: flex; flex-direction: column; gap: 16px; }
+  h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h3 { font-family: var(--mono); font-size: 14px; font-weight: 600; margin: 0; }
+  p { margin: 0; max-width: var(--measure); }
+
+  figure {
+    margin: 0;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 22px 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; min-width: 640px; height: auto; }
+  figcaption {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    border-top: 1px solid var(--rule);
+    padding-top: 12px;
+  }
+
+  code, .mono { font-family: var(--mono); font-size: 0.92em; }
+  code { background: var(--panel-2); padding: 0.1em 0.38em; border-radius: 2px; color: var(--ink); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 600;
+  }
+  td.k { font-family: var(--mono); white-space: nowrap; color: var(--violet); }
+  .tablewrap { overflow-x: auto; }
+
+  .note { border-left: 2px solid var(--amber); padding: 2px 0 2px 16px; color: var(--ink-soft); max-width: var(--measure); }
+  .gap  { border-left: 2px solid var(--alert); padding: 2px 0 2px 16px; color: var(--ink-soft); max-width: var(--measure); }
+  .note strong, .gap strong { color: var(--ink); font-weight: 600; }
+
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card p { font-size: 14px; color: var(--ink-soft); }
+
+  .ramp { display: flex; height: 10px; border-radius: 2px; overflow: hidden; }
+  .ramp span { flex: 1; }
+  .rampkey { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 18px; font-size: 13px; color: var(--ink-faint); max-width: var(--measure); }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">MD-One · M-VAVE FM-1 · read from the render loop</div>
+    <h1>Signal flow</h1>
+    <p class="standfirst">
+      Four always-on Braids voices into a four-channel patchbay with feedback, out through
+      one analogue jack and one USB capture endpoint. Everything here was taken from
+      <code>fm1_drone.cc</code>'s render loop rather than from the header comments — two of
+      which disagreed with it.
+    </p>
+  </header>
+
+  <section>
+    <h2>1 · One voice</h2>
+
+    <figure>
+      <svg viewBox="0 0 1000 250" role="img"
+           aria-label="The per-voice chain in order: oscillator, filter one, VCA, insert slot one, insert slot two, filter two, EQ, drive, pan.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g font-family="ui-monospace, monospace">
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="16" y="70" width="94" height="52" rx="2"/>
+            <rect x="126" y="70" width="94" height="52" rx="2"/>
+            <rect x="236" y="70" width="94" height="52" rx="2"/>
+            <rect x="346" y="70" width="94" height="52" rx="2"/>
+            <rect x="456" y="70" width="94" height="52" rx="2"/>
+            <rect x="566" y="70" width="94" height="52" rx="2"/>
+            <rect x="676" y="70" width="94" height="52" rx="2"/>
+            <rect x="786" y="70" width="94" height="52" rx="2"/>
+            <rect x="896" y="70" width="88" height="52" rx="2"/>
+          </g>
+          <g fill="currentColor" text-anchor="middle" font-size="13" font-weight="600">
+            <text x="63" y="94">OSC</text>
+            <text x="173" y="94">F1</text>
+            <text x="283" y="94">VCA</text>
+            <text x="393" y="94">SLOT 1</text>
+            <text x="503" y="94">SLOT 2</text>
+            <text x="613" y="94">F2</text>
+            <text x="723" y="94">EQ</text>
+            <text x="833" y="94">DRIVE</text>
+            <text x="940" y="94">PAN</text>
+          </g>
+          <g fill="currentColor" text-anchor="middle" font-size="10" opacity="0.6">
+            <text x="63" y="111">48 shapes</text>
+            <text x="173" y="111">LP BP HP NO</text>
+            <text x="283" y="111">env × level</text>
+            <text x="393" y="111">drive reso</text>
+            <text x="503" y="111">comb fold</text>
+            <text x="613" y="111">6/12/24 dB</text>
+            <text x="723" y="111">3 bands</text>
+            <text x="833" y="111">saturator</text>
+            <text x="940" y="111">or MONO</text>
+          </g>
+          <g stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)">
+            <line x1="110" y1="96" x2="124" y2="96"/>
+            <line x1="220" y1="96" x2="234" y2="96"/>
+            <line x1="330" y1="96" x2="344" y2="96"/>
+            <line x1="440" y1="96" x2="454" y2="96"/>
+            <line x1="550" y1="96" x2="564" y2="96"/>
+            <line x1="660" y1="96" x2="674" y2="96"/>
+            <line x1="770" y1="96" x2="784" y2="96"/>
+            <line x1="880" y1="96" x2="894" y2="96"/>
+          </g>
+          <g stroke="currentColor" stroke-width="1.1" stroke-dasharray="3 3" marker-end="url(#ar)" opacity="0.75">
+            <line x1="283" y1="42" x2="283" y2="68"/>
+          </g>
+          <text x="283" y="34" fill="currentColor" text-anchor="middle" font-size="11" opacity="0.75">AHDSR</text>
+          <g stroke="#8b5cf6" stroke-width="1.2" fill="none">
+            <path d="M283 128 L283 152 L503 152 L503 128"/>
+          </g>
+          <text x="393" y="170" fill="#8b5cf6" text-anchor="middle" font-size="11.5">the slots sit AFTER the VCA</text>
+          <text x="393" y="186" fill="currentColor" text-anchor="middle" font-size="10" opacity="0.6">
+            so a resonator rings on after the voice closes
+          </text>
+          <text x="16" y="224" fill="currentColor" font-size="11" opacity="0.6">
+            The envelope has exactly one consumer in the whole instrument: this multiply.
+          </text>
+        </g>
+      </svg>
+      <figcaption>
+        <code>OSC → F1 → VCA → SLOT 1 → SLOT 2 → F2 → EQ → DRIVE → PAN</code>. The VCA sits
+        <em>before</em> the slots, which is what lets a comb or resonator keep ringing after the
+        voice closes — and is the detail <code>fm1_slot.h</code>'s header had backwards.
+      </figcaption>
+    </figure>
+
+    <div class="gap">
+      <strong>MONO overrides PAN; it does not sum into it.</strong> A voice is one signal until
+      this stage — the insert slots deliberately exclude stereo effects — so MONO forces centre
+      and ignores the pan knob. That becomes a sum-then-place chain only if a voice ever turns
+      genuinely stereo.
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · Four voices, the patchbay, two outputs</h2>
+
+    <figure>
+      <svg viewBox="0 0 1000 400" role="img"
+           aria-label="Each voice routes to one effect channel or straight to the bus; effect channels can feed each other including backwards; the bus passes through Haas, master and a soft clipper to both the analogue jack and the USB capture endpoint.">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="arv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="#8b5cf6"/>
+          </marker>
+          <marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="#0f8a5a"/>
+          </marker>
+        </defs>
+        <g font-family="ui-monospace, monospace" font-size="12">
+
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="16" y="30" width="124" height="38" rx="2"/>
+            <rect x="16" y="86" width="124" height="38" rx="2"/>
+            <rect x="16" y="142" width="124" height="38" rx="2"/>
+            <rect x="16" y="198" width="124" height="38" rx="2"/>
+          </g>
+          <g fill="currentColor">
+            <text x="30" y="54">VOICE 1</text>
+            <text x="30" y="110">VOICE 2</text>
+            <text x="30" y="166">VOICE 3</text>
+            <text x="30" y="222">VOICE 4</text>
+          </g>
+          <text x="16" y="258" fill="currentColor" font-size="10" opacity="0.6">each one the chain above</text>
+
+          <text x="196" y="22" fill="currentColor" font-size="10" opacity="0.6" text-anchor="middle">DEST</text>
+          <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar2)">
+            <line x1="140" y1="49" x2="250" y2="49"/>
+            <line x1="140" y1="105" x2="250" y2="105"/>
+            <line x1="140" y1="161" x2="250" y2="161"/>
+            <line x1="140" y1="217" x2="250" y2="217"/>
+          </g>
+
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="252" y="30" width="152" height="38" rx="2"/>
+            <rect x="252" y="86" width="152" height="38" rx="2"/>
+            <rect x="252" y="142" width="152" height="38" rx="2"/>
+            <rect x="252" y="198" width="152" height="38" rx="2"/>
+          </g>
+          <g fill="currentColor">
+            <text x="266" y="54">FX 1</text>
+            <text x="266" y="110">FX 2</text>
+            <text x="266" y="166">FX 3</text>
+            <text x="266" y="222">FX 4</text>
+          </g>
+          <g fill="currentColor" font-size="10" opacity="0.6">
+            <text x="314" y="54">chorus · fold</text>
+            <text x="314" y="110">width · LP</text>
+            <text x="314" y="166">HP · none</text>
+            <text x="314" y="222">+ its own DEST</text>
+          </g>
+
+          <g stroke="#8b5cf6" stroke-width="1.3" fill="none" marker-end="url(#arv)">
+            <path d="M404 217 L428 217 L428 49 L406 49"/>
+          </g>
+          <text x="440" y="124" fill="#8b5cf6" font-size="11">feedback</text>
+          <text x="440" y="140" fill="currentColor" font-size="10" opacity="0.6">a channel may feed</text>
+          <text x="440" y="153" fill="currentColor" font-size="10" opacity="0.6">any other, including</text>
+          <text x="440" y="166" fill="currentColor" font-size="10" opacity="0.6">backwards</text>
+
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="574" y="104" width="112" height="46" rx="2"/>
+          </g>
+          <text x="630" y="126" fill="currentColor" text-anchor="middle" font-size="13" font-weight="600">BUS</text>
+          <text x="630" y="142" fill="currentColor" text-anchor="middle" font-size="10" opacity="0.6">int32, 4× headroom</text>
+
+          <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar2)">
+            <line x1="404" y1="49" x2="572" y2="114"/>
+            <line x1="404" y1="105" x2="572" y2="122"/>
+            <line x1="404" y1="161" x2="572" y2="132"/>
+            <line x1="404" y1="217" x2="572" y2="140"/>
+          </g>
+
+          <path d="M140 240 L320 286 L574 150" stroke="currentColor" stroke-width="1.1"
+                fill="none" stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+          <text x="300" y="304" fill="currentColor" font-size="10" opacity="0.6">
+            DEST = OUT bypasses the rack entirely
+          </text>
+
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="712" y="56" width="100" height="36" rx="2"/>
+            <rect x="712" y="104" width="100" height="36" rx="2"/>
+            <rect x="712" y="152" width="100" height="36" rx="2"/>
+          </g>
+          <g fill="currentColor" text-anchor="middle">
+            <text x="762" y="79">HAAS</text>
+            <text x="762" y="127">MASTER</text>
+            <text x="762" y="175">SOFT CLIP</text>
+          </g>
+          <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar2)">
+            <line x1="686" y1="124" x2="710" y2="78"/>
+            <line x1="762" y1="92" x2="762" y2="102"/>
+            <line x1="762" y1="140" x2="762" y2="150"/>
+          </g>
+
+          <g fill="none" stroke="#0f8a5a" stroke-width="1.4">
+            <rect x="856" y="56" width="128" height="44" rx="2"/>
+            <rect x="856" y="152" width="128" height="44" rx="2"/>
+          </g>
+          <g fill="#0f8a5a" text-anchor="middle">
+            <text x="920" y="78">ANALOGUE</text>
+            <text x="920" y="174">USB CAPTURE</text>
+          </g>
+          <g fill="currentColor" font-size="10" opacity="0.6" text-anchor="middle">
+            <text x="920" y="92">the jack</text>
+            <text x="920" y="188">what a DAW records</text>
+          </g>
+          <path d="M812 170 L834 170 L834 78 L854 78" stroke="#0f8a5a" stroke-width="1.4"
+                fill="none" marker-end="url(#arg)"/>
+          <line x1="834" y1="170" x2="854" y2="170" stroke="#0f8a5a" stroke-width="1.4" marker-end="url(#arg)"/>
+
+          <text x="16" y="340" fill="currentColor" font-size="11" opacity="0.72">
+            Both outputs carry the same post-master sample, and they fail independently:
+          </text>
+          <text x="16" y="358" fill="currentColor" font-size="11" opacity="0.72">
+            the jack sounded correct for days while USB streamed digital silence.
+          </text>
+        </g>
+      </svg>
+      <figcaption>
+        Every voice and every effect channel carries exactly one <code>DEST</code> — one cable
+        out. That single rule is what lets effects chain, feed back, or be bypassed without a
+        routing matrix. <code>DEST = OFF</code> still renders the voice and discards it.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>3 · Modulation</h2>
+
+    <figure>
+      <svg viewBox="0 0 1000 330" role="img"
+           aria-label="Four shared LFOs and a per-voice drift generator feed nine destinations through depth and source pairs. The envelope is not available as a source.">
+        <defs>
+          <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="ark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="#a96a00"/>
+          </marker>
+        </defs>
+        <g font-family="ui-monospace, monospace" font-size="12">
+
+          <text x="16" y="22" fill="currentColor" font-size="10" opacity="0.6">SOURCES</text>
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="16" y="32" width="156" height="74" rx="2"/>
+            <rect x="16" y="120" width="156" height="44" rx="2"/>
+          </g>
+          <text x="30" y="56" fill="currentColor" font-size="13" font-weight="600">LFO 1–4</text>
+          <text x="30" y="73" fill="currentColor" font-size="10" opacity="0.6">shared by all voices</text>
+          <text x="30" y="86" fill="currentColor" font-size="10" opacity="0.6">0.01–20 Hz · 6 shapes</text>
+          <text x="30" y="99" fill="currentColor" font-size="10" opacity="0.6">rate · amount · phase</text>
+          <text x="30" y="143" fill="currentColor" font-size="13" font-weight="600">DRIFT</text>
+          <text x="30" y="158" fill="currentColor" font-size="10" opacity="0.6">one per voice, free-running</text>
+
+          <g fill="none" stroke="#c62828" stroke-width="1.2" stroke-dasharray="4 3">
+            <rect x="16" y="180" width="156" height="44" rx="2"/>
+          </g>
+          <text x="30" y="203" fill="#c62828" font-size="13" font-weight="600">ENVELOPE</text>
+          <text x="30" y="218" fill="#c62828" font-size="10">not a source</text>
+          <g stroke="#c62828" stroke-width="1.7">
+            <line x1="196" y1="194" x2="216" y2="212"/>
+            <line x1="216" y1="194" x2="196" y2="212"/>
+          </g>
+
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="300" y="32" width="186" height="192" rx="2"/>
+          </g>
+          <text x="314" y="56" fill="currentColor" font-size="13" font-weight="600">MATRIX</text>
+          <text x="314" y="76" fill="currentColor" font-size="10" opacity="0.6">9 destinations, each a</text>
+          <text x="314" y="89" fill="currentColor" font-size="10" opacity="0.6">DEPTH + SOURCE pair</text>
+          <text x="314" y="114" fill="currentColor" font-size="10" opacity="0.6">depth is bipolar: centre</text>
+          <text x="314" y="127" fill="currentColor" font-size="10" opacity="0.6">is off, either side inverts</text>
+          <text x="314" y="152" fill="currentColor" font-size="10" opacity="0.6">per voice, so one LFO can</text>
+          <text x="314" y="165" fill="currentColor" font-size="10" opacity="0.6">reach four voices at four</text>
+          <text x="314" y="178" fill="currentColor" font-size="10" opacity="0.6">different depths</text>
+
+          <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar3)">
+            <line x1="172" y1="68" x2="298" y2="96"/>
+            <line x1="172" y1="142" x2="298" y2="130"/>
+          </g>
+
+          <text x="560" y="22" fill="currentColor" font-size="10" opacity="0.6">DESTINATIONS</text>
+          <g fill="none" stroke="currentColor" stroke-width="1.1">
+            <rect x="560" y="32" width="124" height="28" rx="2"/>
+            <rect x="560" y="66" width="124" height="28" rx="2"/>
+            <rect x="560" y="100" width="124" height="28" rx="2"/>
+            <rect x="560" y="134" width="124" height="28" rx="2"/>
+            <rect x="560" y="168" width="124" height="28" rx="2"/>
+            <rect x="700" y="32" width="124" height="28" rx="2"/>
+            <rect x="700" y="66" width="124" height="28" rx="2"/>
+            <rect x="700" y="100" width="124" height="28" rx="2"/>
+            <rect x="700" y="134" width="124" height="28" rx="2"/>
+          </g>
+          <g fill="currentColor">
+            <text x="574" y="51">PITCH</text>
+            <text x="574" y="85">TIMBRE</text>
+            <text x="574" y="119">COLOR</text>
+            <text x="574" y="153">LEVEL</text>
+            <text x="574" y="187">PAN</text>
+            <text x="714" y="51">F1 CUT</text>
+            <text x="714" y="85">F2 CUT</text>
+            <text x="714" y="119">SLOT 1</text>
+            <text x="714" y="153">SLOT 2</text>
+          </g>
+          <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar3)">
+            <line x1="486" y1="112" x2="558" y2="46"/>
+            <line x1="486" y1="116" x2="558" y2="80"/>
+            <line x1="486" y1="122" x2="558" y2="114"/>
+            <line x1="486" y1="128" x2="558" y2="148"/>
+            <line x1="486" y1="134" x2="558" y2="182"/>
+          </g>
+
+          <g fill="none" stroke="#a96a00" stroke-width="1.2">
+            <rect x="300" y="252" width="186" height="50" rx="2"/>
+          </g>
+          <text x="314" y="274" fill="#a96a00" font-size="12" font-weight="600">FM · MOD</text>
+          <text x="314" y="291" fill="currentColor" font-size="10" opacity="0.6">drift → pitch, drift → timbre</text>
+          <path d="M94 164 L94 277 L298 277" stroke="#a96a00" stroke-width="1.2" fill="none" marker-end="url(#ark)"/>
+          <text x="506" y="274" fill="currentColor" font-size="10.5" opacity="0.72">A second, finer route to two of the same</text>
+          <text x="506" y="289" fill="currentColor" font-size="10.5" opacity="0.72">destinations. Attenuverters — they add.</text>
+        </g>
+      </svg>
+      <figcaption>
+        The LFOs are deliberately <em>shared</em>, so four voices can move together; the drift is
+        per-voice, so they move independently. Both free-run.
+      </figcaption>
+    </figure>
+
+    <div class="gap">
+      <strong>There is no key-synchronous modulation anywhere in this instrument.</strong>
+      The drift free-runs with no reset entry point, the LFOs are shared so retriggering one
+      would jolt the other three, and the envelope — the only per-voice thing that <em>could</em>
+      be key-synced — is not a matrix source. "Press a key and have the filter open over twenty
+      seconds" is impossible by construction, with <code>F1 CUT</code> sitting right there.
+    </div>
+  </section>
+
+  <section>
+    <h2>4 · How a value reaches the engine</h2>
+    <p>
+      The path an editor has to join, worth drawing apart from the audio. Every parameter
+      carries three representations at once, and they are not redundant — they answer
+      different questions.
+    </p>
+
+    <figure>
+      <svg viewBox="0 0 1000 280" role="img"
+           aria-label="An encoder or MIDI CC sets a Q8 target; a slew walks an accumulator toward it each block; the renderer reads the accumulator for fine-capable parameters and a rounded byte for the rest.">
+        <defs>
+          <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="arp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="#8b5cf6"/>
+          </marker>
+        </defs>
+        <g font-family="ui-monospace, monospace" font-size="12">
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <rect x="16" y="56" width="150" height="44" rx="2"/>
+            <rect x="16" y="120" width="150" height="44" rx="2"/>
+            <rect x="240" y="88" width="150" height="44" rx="2"/>
+            <rect x="464" y="88" width="150" height="44" rx="2"/>
+            <rect x="688" y="56" width="150" height="44" rx="2"/>
+            <rect x="688" y="120" width="150" height="44" rx="2"/>
+          </g>
+          <g fill="currentColor">
+            <text x="30" y="78">ENCODER</text>
+            <text x="30" y="94" font-size="10" opacity="0.6">coarse · SHIFT = fine</text>
+            <text x="30" y="142">MIDI CC</text>
+            <text x="30" y="158" font-size="10" opacity="0.6">7-bit · ch 1–4 and 16</text>
+            <text x="254" y="110">tgt — Q8</text>
+            <text x="254" y="126" font-size="10" opacity="0.6">where it is heading</text>
+            <text x="478" y="110">acc — Q8</text>
+            <text x="478" y="126" font-size="10" opacity="0.6">slewed, one step a block</text>
+            <text x="702" y="78">acc</text>
+            <text x="702" y="94" font-size="10" opacity="0.6">timbre · colour · cutoffs</text>
+            <text x="702" y="142">p — byte</text>
+            <text x="702" y="158" font-size="10" opacity="0.6">everything else</text>
+          </g>
+          <g stroke="currentColor" stroke-width="1.1" marker-end="url(#ar4)">
+            <line x1="166" y1="78" x2="238" y2="104"/>
+            <line x1="166" y1="142" x2="238" y2="116"/>
+            <line x1="390" y1="110" x2="462" y2="110"/>
+            <line x1="614" y1="104" x2="686" y2="78"/>
+            <line x1="614" y1="116" x2="686" y2="142"/>
+          </g>
+          <path d="M315 88 L315 42 L540 42" stroke="#8b5cf6" stroke-width="1.2" fill="none"
+                stroke-dasharray="4 3" marker-end="url(#arp)"/>
+          <text x="548" y="39" fill="#8b5cf6" font-size="11">the screen reads tgt</text>
+          <text x="548" y="54" fill="currentColor" font-size="10" opacity="0.6">
+            what you asked for, not a number crawling toward it
+          </text>
+          <text x="16" y="212" fill="currentColor" font-size="11" opacity="0.72">
+            A coarse click moves tgt by 256. A fine click moves it by 1. The slew carries both unchanged —
+          </text>
+          <text x="16" y="230" fill="currentColor" font-size="11" opacity="0.72">
+            the encoder was never limited to 128 positions, only the storage was.
+          </text>
+          <text x="16" y="256" fill="currentColor" font-size="11" opacity="0.72">
+            Modulation is added after this, once per block, at full width.
+          </text>
+        </g>
+      </svg>
+      <figcaption>
+        <code>tgt</code> is the destination, <code>acc</code> the slewed value in Q8, and
+        <code>p</code> that value rounded to the byte the CC map, the patch format and the screen
+        all speak. Braids takes 15 bits, so the parameters that can use them read
+        <code>acc</code> directly.
+      </figcaption>
+    </figure>
+
+    <div class="note">
+      <strong>For the editor:</strong> the device's parameters are natively 7-bit, so a CC
+      <em>is</em> the parameter — not a lossy proxy for a wider internal value, which is what CC
+      is on most synths. A plugin control maps 1:1 with no conversion layer. The exception is the
+      handful above that carry a fine fraction, which is the argument for a SysEx path rather than
+      14-bit CC pairs.
+    </div>
+  </section>
+
+  <section>
+    <h2>5 · The parameter surface</h2>
+
+    <div class="cols">
+      <div class="card">
+        <h3>70 per voice</h3>
+        <p>MIDI channels 1–4. Oscillator, pitch, both filters, both slots, three EQ bands,
+           envelope, level, pan, destination, and nine modulation depth/source pairs.</p>
+      </div>
+      <div class="card">
+        <h3>39 global</h3>
+        <p>MIDI channel 16. Master, spread, Haas, the four effect channels with their routing,
+           and the four LFOs.</p>
+      </div>
+      <div class="card">
+        <h3>One table</h3>
+        <p><code>fm1_params.h</code> declares the label, range, default, display unit and CC
+           number once. The screen, the CC map, the patch bytes and the engine all read it, so
+           they cannot drift apart.</p>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Stage</th><th>Choices</th><th>Controls</th></tr></thead>
+        <tbody>
+          <tr><td class="k">OSC</td><td>48 Braids shapes</td><td>shape, timbre, colour, FM, MOD, drift rate</td></tr>
+          <tr><td class="k">PITCH</td><td>—</td><td>octave ±4, detune ±50 ¢, glide</td></tr>
+          <tr><td class="k">F1 · F2</td><td>off · LP · BP · HP · notch</td><td>cutoff, resonance, mix, slope 6/12/24 dB</td></tr>
+          <tr><td class="k">SLOT 1 · 2</td><td>off · drive · reso · comb · fold</td><td>P1, P2, mix — relabelled per type</td></tr>
+          <tr><td class="k">EQ</td><td>shelf/HP · peak/notch · shelf/LP</td><td>freq, gain, resonance, mix — per band</td></tr>
+          <tr><td class="k">VCA</td><td>—</td><td>attack, hold, decay, sustain, release</td></tr>
+          <tr><td class="k">OUT</td><td>off · FX 1–4 · main</td><td>level, pan, mono, drive</td></tr>
+          <tr><td class="k">FX ×4</td><td>none · chorus · fold · width · LP · HP</td><td>P1, P2, mix, destination</td></tr>
+          <tr><td class="k">LFO ×4</td><td>tri · saw · ramp · square · S&amp;H · smooth</td><td>rate, amount, phase</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>6 · The screen's colour code</h2>
+    <p>
+      Worth carrying into the plugin, because it answers a question a number doesn't. A value
+      becomes a colour on a thermal ramp — and a <em>bipolar</em> control is coloured by its
+      distance from centre, so a pan at centre, an attenuverter at its detent and a modulation
+      depth doing nothing all read cold.
+    </p>
+    <div class="ramp" aria-hidden="true">
+      <span style="background:#383a78"></span>
+      <span style="background:#7846b4"></span>
+      <span style="background:#dc3c6e"></span>
+      <span style="background:#fa7828"></span>
+      <span style="background:#fabe3c"></span>
+      <span style="background:#ffe6a0"></span>
+      <span style="background:#ffffff"></span>
+    </div>
+    <div class="rampkey"><span>at rest</span><span>at the stop</span></div>
+  </section>
+
+  <footer>
+    Drawn from <code>fm1_drone.cc</code>, <code>fm1_rack.h</code>, <code>fm1_slot.h</code>,
+    <code>fm1_filter.h</code> and <code>fm1_params.h</code> at commit <code>575b227</code>. Published as an artifact from the same source; this file is the canonical copy.
+    Where a header comment disagreed with the render loop, the render loop won.
+  </footer>
+
+</div>

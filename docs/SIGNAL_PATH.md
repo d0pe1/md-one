@@ -7,6 +7,17 @@ implementation has a signal path by accident rather than by design.
 **Status: built**, apart from the LFOs. Every `[OPEN]`
 decision has closed — see §7. Figures in §8 are measured, not estimated.
 
+> **Drawn version: [`SIGNAL_FLOW.html`](SIGNAL_FLOW.html)** — open it in a
+> browser. Four diagrams: the voice chain, the patchbay with its feedback
+> paths, the modulation matrix, and the path a value takes from an encoder or
+> a CC into the engine. That last one is what an editor or a plugin has to
+> join, and it is the reason the page exists as well as the manual.
+>
+> It was drawn from the render loop rather than from this document or from
+> the header comments, and the difference mattered: `fm1_slot.h` had the VCA
+> *after* F2 when it is actually before the insert slots. Where prose and
+> code disagree, the code is right and the prose is stale — including here.
+
 ---
 
 ## 1. What this replaced

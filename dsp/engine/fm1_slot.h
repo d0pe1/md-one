@@ -2,7 +2,12 @@
  *
  * Two insert slots per voice, between the filters.
  *
- *     OSC -> F1 -> [slot 1] -> [slot 2] -> F2 -> VCA -> EQ -> pan -> out
+ *     OSC -> F1 -> VCA -> [slot 1] -> [slot 2] -> F2 -> EQ -> DRIVE -> pan
+ *
+ * (This line used to put the VCA after F2, which is not where it is. The VCA
+ * sits BEFORE the slots -- fm1_drone.cc applies the envelope and LEVEL right
+ * after F1 -- and that ordering is the whole reason a resonator keeps ringing
+ * after a voice closes. fm1_filter.h had it right and this did not.)
  *
  * These exist because COMB and RESO used to be MODES of the filter. That was
  * a cost argument and a correct one -- the comb measured cheaper than the SVF

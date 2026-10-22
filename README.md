@@ -44,9 +44,9 @@ MIT and free of GPL code so the engine stays reusable — see
 | Emulator | **verified** — runs stock and our own builds, with audio and screen |
 | Host DSP harness | **verified** — 5 tests pass, target rule check clean |
 | Braids port | **verified** — all 48 shapes build for pi32v2, in tune at 44.1 kHz |
-| Drone engine | **working** — 4 voices + combs + drift, 14.5% of the audio budget |
-| Our firmware | not started — the engine runs on the host and in the emulator |
-| Physical hardware | none |
+| Drone engine | **working** — 4 voices, two filters, two insert slots, EQ, patchbay |
+| Our firmware | **running on the device** — 9 menus, every parameter reachable |
+| Physical hardware | **flashed and playing** — 42% CPU, peak 45%, measured on the unit |
 
 The instrument we are building is a **drone machine using Mutable Instruments'
 Braids engines**: several always-on voices with detune and slow spectral
@@ -98,7 +98,8 @@ derived from the vendored renderers.
 ```
 docs/          roadmap, UX design, environment, repo map, hardware,
                build+test, safety, licences, platform survey, Braids port,
-               shape reference, MIDI spec, drone engine, open questions
+               shape reference, MIDI spec, drone engine, open questions,
+               SIGNAL_FLOW.html -- the diagrams, open in a browser
 references/    upstream clones, read-only, pinned (gitignored)
 firmware/      our firmware -- empty, deliberately
 dsp/           shared/ (integer, ships) + host/ (float reference) + target/ + tests/
@@ -146,10 +147,17 @@ writing the USB stack, update path, rescue mode and HAL from scratch.
 
 `dsp/` is kept MIT and free of GPL code so the synthesis engine stays reusable.
 
-**2. No flashing.** Single flash bank, no recovery button, no test pads, no
-debug header, and updates authenticated by CRC-16 with no signature. One SysEx
-byte separates "upgrade" from "mask-ROM download mode". The gate that must be
-satisfied before any physical write is in `docs/FIRMWARE_SAFETY.md`.
+**2. Flashing, and how to come back.** Single flash bank, no recovery button,
+no test pads, no debug header, and updates authenticated by CRC-16 with no
+signature. One SysEx byte separates "upgrade" from "mask-ROM download mode".
+
+This section used to say *"No flashing"* and list the gate that had to be
+satisfied first. That gate has been satisfied and the device has been flashed
+many times since. What replaced it is a rescue reachable from a running
+firmware — OCT− and OCT+ held for five seconds — walked end to end on the
+device: `running → rescue → flash → running`. A build that boots but
+misbehaves is provably recoverable; a build that does not boot at all rests on
+a path nobody here has exercised. `docs/FIRMWARE_SAFETY.md` has both.
 
 ## The Braids vertical slice
 
