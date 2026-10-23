@@ -499,14 +499,18 @@ static void test_meters(void)
  * ask: did this band get louder or quieter? */
 static int32_t band_energy(const int16_t *buf, uint32_t n, uint8_t note)
 {
-    fm1_svf_t s;
-    fm1_svf_init(&s);
-    fm1_svf_set_note(&s, note);
-    fm1_svf_set_res(&s, 90);
+    /* Trapezoidal, like everything else now. This analyser was the last
+     * Chamberlin left anywhere, which is a nice illustration of why the
+     * sweep was worth doing: a measurement tool with the fs/6 ceiling would
+     * have reported a high band as quieter than it is. */
+    fm1_tpt_t s;
+    fm1_tpt_init(&s);
+    fm1_tpt_set_pitch(&s, (int32_t)note << 7);
+    fm1_tpt_set_res(&s, 90);
 
     int64_t sum = 0;
     for (uint32_t i = 0; i < n; i++) {
-        fm1_svf_out_t o = fm1_svf_tick(&s, buf[2 * i]);
+        fm1_tpt_out_t o = fm1_tpt_tick(&s, buf[2 * i]);
         sum += (int64_t)o.bp * o.bp;
     }
     return (int32_t)(sum >> 20);
@@ -1517,19 +1521,21 @@ static void test_detune_symmetry(void)
 
     /* THE FILTER TUNING, which had the same shape of fault one table over.
      *
-     * fm1_svf_f[] is indexed by whole MIDI note, so anything that reached it
-     * by flooring a pitch landed on a semitone grid: the resonator slot did
-     * (`key >> 7`, the comb's bug exactly) and the one-pole 6 dB branch did.
-     * braids::Svf never did, which is why only some paths stepped.
+     * The old fm1_svf_f[] was indexed by whole MIDI note, so anything that
+     * reached it by flooring a pitch landed on a semitone grid -- the
+     * resonator slot did (`key >> 7`, the comb's bug exactly) and so did the
+     * 6 dB branch.
      *
-     * Same test as the comb: no adjacent step may move the corner further
-     * than one pitch unit possibly can. */
+     * Everything is trapezoidal now, and fm1_tpt_g interpolates within the
+     * semitone, so this asks the same question of the tuning that actually
+     * ships: no adjacent step may move the coefficient further than one
+     * pitch unit possibly can. */
     {
-        uint32_t prev = (uint32_t)fm1_svf_cut_q15(60 * 128 - 64);
+        uint32_t prev = (uint32_t)fm1_tpt_g(60 * 128 - 64);
         uint32_t wn = 0, wd = 1;
         int c;
         for (c = -63; c <= 64; c++) {
-            uint32_t h = (uint32_t)fm1_svf_cut_q15(60 * 128 + c);
+            uint32_t h = (uint32_t)fm1_tpt_g(60 * 128 + c);
             uint32_t dd = h > prev ? h - prev : prev - h;
             if ((uint64_t)dd * wd > (uint64_t)wn * h) { wn = dd; wd = h; }
             prev = h;

@@ -5,7 +5,7 @@
  *     OSC -> F1 -> VCA -> F2 -> [ EQ ] -> DRIVE -> pan -> route
  *
  * Each band is a filter with a mode, and each mode is built from the taps of
- * one state-variable filter (fm1_svf.h), so a band costs the same whatever it
+ * one state-variable filter (fm1_tpt.h), so a band costs the same whatever it
  * is set to:
  *
  *     LOW    SHELF  in + g*lp        HIGHPASS  hp
@@ -24,6 +24,14 @@
  * notch, and resonance on a shelf is the difference between a tone control
  * and a character one. These are the controls that make three bands enough.
  *
+ * TRAPEZOIDAL, as of the sweep that replaced the last Chamberlin in the
+ * engine. A Chamberlin is only well behaved below about fs/6, so a band
+ * placed above roughly 7 kHz was not where the knob said it was -- the same
+ * ceiling that made the voice's 24 dB lowpass stop opening at 1909 Hz while
+ * its panel read 12.5 kHz. An EQ is the one place that matters quietly: a
+ * high shelf that is mistuned does not sound broken, it just never does
+ * what you asked.
+ *
  * This header is plain C -- fm1_svf.h replaced the braids::Svf an earlier
  * version used, so dsp/tests can exercise it directly.
  */
@@ -31,7 +39,7 @@
 #define FM1_EQ_H
 
 #include "../shared/fm1_fixed.h"
-#include "fm1_svf.h"
+#include "fm1_tpt.h"
 
 /* Band identity. Fixed roles, not three interchangeable bands: the mode list
  * differs per band, which is what keeps the whole EQ to one enum per band
@@ -49,7 +57,7 @@ static const char *const FM1_EQ_MODE_NAME[EQ_BANDS][2] = {
 };
 
 typedef struct {
-    fm1_svf_t svf;
+    fm1_tpt_t svf;
     uint8_t   mode;         /* 0 or 1, meaning per band */
     uint8_t   mix;          /* 0..127 dry/wet for this band alone */
     int32_t   gain;         /* Q12, bipolar; 0 is flat */
@@ -77,9 +85,9 @@ static inline void fm1_eq_init(fm1_eq_t *e)
 {
     static const uint8_t kDefaultNote[EQ_BANDS] = { 36, 72, 96 };
     for (int b = 0; b < EQ_BANDS; b++) {
-        fm1_svf_init(&e->band[b].svf);
-        fm1_svf_set_note(&e->band[b].svf, kDefaultNote[b]);
-        fm1_svf_set_res(&e->band[b].svf, 40);
+        fm1_tpt_init(&e->band[b].svf);
+        fm1_tpt_set_pitch(&e->band[b].svf, (int32_t)kDefaultNote[b] << 7);
+        fm1_tpt_set_res(&e->band[b].svf, 40);
         e->band[b].mode = 0;
         e->band[b].mix  = 127;
         e->band[b].gain = 0;
@@ -91,7 +99,7 @@ static inline void fm1_eq_init(fm1_eq_t *e)
  * when you are placing a bell on something -- the difference between sitting
  * on a resonance and sitting beside it. */
 static inline void fm1_eq_set_freq_p(fm1_eq_t *e, uint8_t b, int32_t pitch)
-{ if (b < EQ_BANDS) fm1_svf_set_pitch(&e->band[b].svf, pitch); }
+{ if (b < EQ_BANDS) fm1_tpt_set_pitch(&e->band[b].svf, pitch); }
 
 static inline void fm1_eq_set_freq(fm1_eq_t *e, uint8_t b, uint8_t v)
 { fm1_eq_set_freq_p(e, b, (int32_t)v << 7); }
@@ -100,7 +108,7 @@ static inline void fm1_eq_set_gain(fm1_eq_t *e, uint8_t b, uint8_t v)
 { if (b < EQ_BANDS) e->band[b].gain = fm1_eq_gain(v); }
 
 static inline void fm1_eq_set_res(fm1_eq_t *e, uint8_t b, uint8_t v)
-{ if (b < EQ_BANDS) fm1_svf_set_res(&e->band[b].svf, v); }
+{ if (b < EQ_BANDS) fm1_tpt_set_res(&e->band[b].svf, v); }
 
 static inline void fm1_eq_set_mix(fm1_eq_t *e, uint8_t b, uint8_t v)
 { if (b < EQ_BANDS) e->band[b].mix = v; }
@@ -142,7 +150,7 @@ static inline q15_t fm1_eq_tick(fm1_eq_t *e, q15_t x)
         fm1_eq_band_t *bd = &e->band[b];
         if (fm1_eq_band_idle(bd, b)) continue;
 
-        fm1_svf_out_t o = fm1_svf_tick(&bd->svf, s);
+        fm1_tpt_out_t o = fm1_tpt_tick(&bd->svf, s);
         int32_t wet;
 
         switch (b) {

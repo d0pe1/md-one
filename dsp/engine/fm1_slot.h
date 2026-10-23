@@ -32,7 +32,7 @@
 
 #include "../shared/fm1_fixed.h"
 #include "fm1_comb.h"
-#include "fm1_svf.h"
+#include "fm1_tpt.h"
 
 enum {
     SL_OFF = 0,     /* true bypass: not a multiply, not a branch in the loop */
@@ -83,7 +83,7 @@ typedef struct {
     int16_t     key;            /* the voice's pitch, 1/128 semitone */
 
     fm1_comb_t  comb;           /* SL_COMB */
-    fm1_svf_t   svf;            /* SL_RESO */
+    fm1_tpt_t   svf;            /* SL_RESO */
 } fm1_slot_t;
 
 static inline void fm1_slot_init(fm1_slot_t *s)
@@ -98,7 +98,7 @@ static inline void fm1_slot_init(fm1_slot_t *s)
     s->mix = 127;
     s->key = 0;
     fm1_comb_init(&s->comb);
-    fm1_svf_init(&s->svf);
+    fm1_tpt_init(&s->svf);
 }
 
 /* The wavefolder, O(1): a triangle of period 2^17 over the input, so a
@@ -176,7 +176,7 @@ static inline void fm1_slot_set_key(fm1_slot_t *s, int16_t key, uint32_t inc)
          * per Q8 count, exactly. */
         int32_t d8 = s->p1_q8 - (64 << 8);
         int32_t off = d8 >= 0 ? (d8 * 3 + 8) >> 4 : -(((-d8) * 3 + 8) >> 4);
-        fm1_svf_set_pitch(&s->svf, (int32_t)key + off);
+        fm1_tpt_set_pitch(&s->svf, (int32_t)key + off);
     }
 }
 
@@ -191,7 +191,7 @@ static inline void fm1_slot_set_type(fm1_slot_t *s, uint8_t t)
     /* A slot switching type must not play out what the previous one left in
      * its delay line -- that is a click and a fragment of the wrong sound. */
     fm1_comb_init(&s->comb);
-    fm1_svf_init(&s->svf);
+    fm1_tpt_init(&s->svf);
     /* ...but those Inits also reset the FEEDBACK and the RESONANCE to their
      * defaults, and P2 was never reapplied -- so switching COMB -> DRIVE ->
      * COMB silently dropped the feedback to zero while the panel still read
@@ -238,7 +238,7 @@ static inline void fm1_slot_set_p2(fm1_slot_t *s, uint8_t v)
         if (fb < -31000) fb = -31000;
         fm1_comb_set_feedback(&s->comb, fb);
     }
-    else if (s->type == SL_RESO) fm1_svf_set_res(&s->svf, v);
+    else if (s->type == SL_RESO) fm1_tpt_set_res(&s->svf, v);
 }
 static inline void fm1_slot_set_mix(fm1_slot_t *s, uint8_t v) { s->mix = v; }
 
@@ -272,7 +272,7 @@ static inline q15_t fm1_slot_tick(fm1_slot_t *s, q15_t in)
         /* The band pass IS the resonant peak: everything away from the
          * centre falls off, which is what makes it read as a struck body
          * rather than as a filter sweep. */
-        fm1_svf_out_t o = fm1_svf_tick(&s->svf, in);
+        fm1_tpt_out_t o = fm1_tpt_tick(&s->svf, in);
         wet = o.bp;
         break;
     }
