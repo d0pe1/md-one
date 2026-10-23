@@ -1450,6 +1450,115 @@ static void ui_body_rows(void)
     }
 }
 
+
+/* --- CHAN: the four mixer channels ---------------------------------------
+ *
+ * The four things that voices and effects point AT, not the four voices.
+ * This page used to draw voice strips, which is how it managed to look like
+ * a mixer without being one.
+ *
+ * ALGORITHM picks the channel; SELECT is idle here on purpose, because it
+ * moves the Subject globally and scrolling a mixer is not the same gesture
+ * as choosing what to edit.
+ */
+static void ui_body_chan(void)
+{
+    uint8_t act = fm1_nav_row_of(&ui_nav);
+    uint8_t ch;
+
+    for (ch = 0; ch < FD_MIX_CHANS; ch++) {
+        int32_t x = MTR_X0 + (int32_t)ch * MTR_PITCH;
+        uint8_t peak = fm1_drone_mix_meter(ch);
+        uint8_t lvl  = fm1_drone_get_global(FD_G_MIX(ch, FD_G_MIX_LEVEL));
+        uint8_t seg;
+        char lab[16];
+        uint32_t i = 0;
+
+        for (seg = 0; seg < FM1_METER_SEGS; seg++) {
+            int32_t y = MTR_BOT - (int32_t)(seg + 1) * (MTR_SEGH + MTR_GAP);
+            uint16_t col = C_TRACK;
+            if (peak >= FM1_METER_STEPS[seg])
+                col = (seg < FM1_METER_GREEN) ? C_GREEN : C_BLUE;
+            lcd_fill(x, y, 10, MTR_SEGH, col);
+        }
+        {
+            int32_t top = MTR_BOT - MTR_H;
+            int32_t cap = MTR_BOT - 4 - ((int32_t)lvl * (MTR_H - 8)) / 127;
+            if (cap > top)
+                lcd_fill((uint32_t)(x + 12), (uint32_t)top, 9u,
+                         (uint32_t)(cap - top), C_BLACK);
+            if (cap + 4 < MTR_BOT)
+                lcd_fill((uint32_t)(x + 12), (uint32_t)(cap + 4), 9u,
+                         (uint32_t)(MTR_BOT - cap - 4), C_BLACK);
+            lcd_fill(x + 15, top, 2, MTR_H, C_TRACK);
+            lcd_fill(x + 12, cap, 9, 4, ch == act ? C_ACC : C_MID);
+        }
+        lab[i++] = 'C'; lab[i++] = 'H'; lab[i++] = (char)('1' + ch);
+        lab[i] = 0;
+        draw_text_cached((uint8_t)(16 + ch), x - 8, MTR_NUM_Y, 38, &FONT_S,
+                         lab, ch == act ? C_ACC : C_GREY, 1);
+    }
+
+    /* The selected strip is boxed, as on every page where SELECT or
+     * ALGORITHM is choosing one of several. Every edge stays inside the
+     * body, or the clear will not reach it when the row moves. */
+    {
+        int32_t x = MTR_X0 + (int32_t)act * MTR_PITCH - 10;
+        int32_t y = Y_BODY;
+        int32_t h = MTR_DST_Y - Y_BODY - 2;
+        lcd_fill(x, y, 44, 1, C_RED);
+        lcd_fill(x, y + h, 44, 1, C_RED);
+        lcd_fill(x, y, 1, h, C_RED);
+        lcd_fill(x + 43, y, 1, h, C_RED);
+    }
+}
+
+/* --- SUM: the last stage -------------------------------------------------
+ *
+ * One channel, so it gets the page: a wide horizontal meter rather than a
+ * quarter-width strip, and the trace underneath.
+ *
+ * The trace is PEAK PER SLICE, not a waveform. 240 pixels cannot show
+ * 44,100 samples a second, and on a drone the shape of one cycle tells you
+ * nothing -- what you want to see is the envelope breathing. Drawn as one
+ * fill per column, which is 120 small transfers; it only runs on this page
+ * and only on the tick.
+ */
+static void ui_body_sum(void)
+{
+    const int32_t MX = 10, MW = 220, MY = Y_BODY + 6, MH = 14;
+    const int32_t SY = Y_BODY + 30, SH = 54;
+    uint8_t pk = fm1_drone_sum_meter();
+    int32_t fill = ((int32_t)pk * MW) / 127;
+    int32_t i;
+
+    /* The meter: a bar with its own track, so empty reads as empty rather
+     * than as the page having failed to draw. */
+    lcd_fill((uint32_t)MX, (uint32_t)MY, (uint32_t)MW, (uint32_t)MH, C_TRACK);
+    if (fill > 0)
+        lcd_fill((uint32_t)MX, (uint32_t)MY, (uint32_t)fill, (uint32_t)MH,
+                 pk >= 120 ? C_RED : (pk >= 96 ? C_BLUE : C_GREEN));
+
+    /* The trace, centred: each column is a peak mirrored about the middle,
+     * which is what makes a quiet passage read as a thin line rather than
+     * as a bar chart hugging the floor. */
+    for (i = 0; i < FD_SCOPE_POINTS; i++) {
+        int32_t x = MX + (i * MW) / FD_SCOPE_POINTS;
+        int32_t w = (((i + 1) * MW) / FD_SCOPE_POINTS) - ((i * MW) / FD_SCOPE_POINTS);
+        int32_t h = ((int32_t)fm1_drone_scope((uint8_t)i) * (SH / 2)) / 255;
+        int32_t mid = SY + SH / 2;
+
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
+        lcd_fill((uint32_t)x, (uint32_t)SY, (uint32_t)w,
+                 (uint32_t)(mid - h - SY), C_BLACK);
+        lcd_fill((uint32_t)x, (uint32_t)(mid - h), (uint32_t)w,
+                 (uint32_t)(h * 2), C_ACC);
+        lcd_fill((uint32_t)x, (uint32_t)(mid + h), (uint32_t)w,
+                 (uint32_t)(SY + SH - mid - h), C_BLACK);
+    }
+}
+
 static void ui_draw_body(int clear)
 {
     const fm1_page_t *p = fm1_nav_page(&ui_nav);
@@ -1457,8 +1566,12 @@ static void ui_draw_body(int clear)
 
     if (clear) ui_body_clear();
 
+    /* Named, not inferred. This used to test `menu == M_MIX`, which was
+     * true of BOTH mix pages -- so the bus page drew the voice mixer and
+     * showed four voice strips where the channels should have been. */
+    if (p->body == PB_CHAN)    { ui_body_chan(); return; }
+    if (p->body == PB_SUM)     { ui_body_sum();  return; }
     if (p->rows)               { ui_body_rows();  return; }
-    if (ui_nav.menu == M_MIX)  { ui_body_mixer(); return; }
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
     if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
     if (ui_nav.menu == M_LFO)  { ui_body_lfo();   return; }

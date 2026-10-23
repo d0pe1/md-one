@@ -69,6 +69,7 @@ static_assert(FD_DEST_OFF     == DEST_OFF,      "dest mirror drifted");
 static_assert(FD_DEST_FX1     == DEST_FX1,      "dest mirror drifted");
 static_assert(FD_DEST_MIX1    == DEST_MIX1,     "dest mirror drifted");
 static_assert(FD_MIX_CHANS    == FM1_MIX_CHANS, "mix channel count mirror drifted");
+static_assert(FD_SCOPE_POINTS == FM1_SCOPE_POINTS, "scope length mirror drifted");
 static_assert(FD_DEST_OUT     == DEST_OUT,      "dest mirror drifted");
 static_assert(FD_DEST_NDEST   == DEST_NDEST,    "dest mirror drifted");
 static_assert(FD_FX_CHORUS    == FX_CHORUS,     "effect type mirror drifted");
@@ -121,6 +122,8 @@ void fm1_drone_note_on(uint8_t v, uint8_t n) { g_drone.NoteOn(v, n); }
 void fm1_drone_note_off(uint8_t v)           { g_drone.NoteOff(v); }
 void fm1_drone_strike(uint8_t v)             { g_drone.Strike(v); }
 uint8_t fm1_drone_mix_meter(uint8_t c)       { return g_drone.MixMeter(c); }
+uint8_t fm1_drone_sum_meter(void)            { return g_drone.SumMeter(); }
+uint8_t fm1_drone_scope(uint8_t i)           { return g_drone.Scope(i); }
 void fm1_drone_set_gate(uint8_t v, uint8_t on) { g_drone.SetGate(v, on); }
 
 void fm1_drone_set_param(uint8_t v, uint8_t p, uint8_t val) { g_drone.SetParam(v, p, val); }

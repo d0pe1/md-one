@@ -172,4 +172,10 @@ static inline q15_t fm1_saturate(int32_t x)
     return (q15_t)(x < 0 ? -y : y);
 }
 
+/* The SUM page's rolling trace: one peak per slice of frames. 120 points
+ * across a 240 px screen is two pixels each, and 32 frames a point fills
+ * the window in about 93 ms. */
+#define FM1_SCOPE_POINTS 120
+#define FM1_SCOPE_SLICE   32
+
 #endif /* FM1_FIXED_H */

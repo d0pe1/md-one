@@ -20,6 +20,9 @@
 #include <stdint.h>
 
 #include "fm1_params.h"
+/* The CHAN page has one row per mixer channel, so it needs to know how
+ * many there are. fm1_route.h is plain C and carries no engine state. */
+#include "fm1_route.h"
 
 /* --- menus ---------------------------------------------------------------
  *
@@ -45,11 +48,11 @@ enum { SCOPE_VOICE, SCOPE_GLOBAL };
  * because both counters survive the page change.
  */
 enum { SUBJ_NONE, SUBJ_VOICE, SUBJ_FX, SUBJ_BAND, SUBJ_LFO,
-       SUBJ_SLOT, SUBJ_MIX, SUBJ_NKIND };
+       SUBJ_SLOT, SUBJ_NKIND };
 
-static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4, 2, 4 };
+static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4, 2 };
 static const char *const FM1_SUBJ_NAME[SUBJ_NKIND] = {
-    "", "VOICE", "FX", "BAND", "LFO", "SLOT", "BUS"
+    "", "VOICE", "FX", "BAND", "LFO", "SLOT"
 };
 
 #define FM1_KNOBS  4
@@ -99,7 +102,15 @@ typedef struct {
      * sit beside its cable table instead of being somewhere else entirely.
      * Only meaningful when rows is set. */
     uint8_t     rowknobs;
+    /* Which body draws this page, named rather than inferred. ui_draw_body
+     * used to test `menu == M_MIX`, which was true of BOTH mix pages -- so
+     * the bus page drew the voice mixer and showed four voice strips where
+     * the buses should have been. */
+    uint8_t     body;
 } fm1_page_t;
+
+/* Page bodies that are not inferable from the parameters on the page. */
+enum { PB_AUTO = 0, PB_CHAN, PB_SUM };
 
 /* SCOPE_VOICE is 0, which is what makes the trailing-zero default above mean
  * "inherit" rather than "force voice scope". */
@@ -154,6 +165,19 @@ static const fm1_page_t FM1_PG_EDIT[] = {
                   P_EQ(0, P_EQ_RES), P_EQ(0, P_EQ_MIX) },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       P_EQ(0, P_EQ_MODE), SUBJ_BAND, P_EQ_STRIDE },
+
+    /* The voice's own output stage. These lived on the mixer page while the
+     * mixer was a row of voice strips; when CHAN became the four mixer
+     * CHANNELS they had nowhere to be, which the reachability test said out
+     * loud. A voice's level, position, mono fold and drive are properties of
+     * the voice, so they belong in the menu that edits voices.
+     *
+     * LEVEL and PAN appear on ROUTE as well, deliberately: you want them to
+     * hand while patching. A parameter is declared once, so it has one CC
+     * and one patch byte however many knobs reach it. */
+    { "AMP",    { P_LEVEL, P_PAN, P_MONO, P_DRIVE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      PG_NONE, SUBJ_VOICE, 0 },
 
     /* Routing lives on the last page of the menu that owns the thing being
      * routed. FOUR cables now, one per row, with ALGORITHM choosing which --
@@ -251,15 +275,27 @@ static const fm1_page_t FM1_PG_MOD[] = {
  * so it has one CC and one patch byte no matter how many knobs reach it.
  */
 static const fm1_page_t FM1_PG_MIX[] = {
-    { "MIXER",  { P_LEVEL, P_PAN, P_MONO, P_DRIVE },
+    /* CHAN: the four MIXER CHANNELS. Not the four voices -- a voice has a
+     * level and a pan of its own on EDIT/ROUTE, and showing those here is
+     * what made this page read as a mixer without being one.
+     *
+     * ALGORITHM scrolls the channels, and the page has NO subject, so
+     * SELECT is idle here. That is deliberate: SELECT moves the Subject
+     * globally, so scrolling a mixer with it changed which voice every
+     * other page was editing. Scrolling a mixer is not choosing what to
+     * edit. */
+    { "CHAN",   { G_MIX(0, G_MIX_LEVEL), G_MIX(0, G_MIX_PAN),
+                  PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_VOICE, 0, 0 },
-    /* The four mix buses. GLOBAL parameters on a per-voice menu, which is
-     * what fm1_page_t::gscope exists for: a bus sums voices, so it belongs
-     * beside them rather than exiled to GLO. */
-    { "BUS",    { G_MIX(0, G_MIX_LEVEL), G_MIX(0, G_MIX_PAN), PG_NONE, PG_NONE },
+      PG_NONE, SUBJ_NONE, 0, FM1_PAGE_GLOBAL,
+      FM1_MIX_CHANS, G_MIX_STRIDE, 2, PB_CHAN },
+    /* SUM: where the four channels land, and the last stage. Nothing routes
+     * out of here -- it is the output. One channel, so it gets the page to
+     * itself: a wide horizontal meter instead of a quarter-width strip, and
+     * room underneath for the waveform. */
+    { "SUM",    { G_MASTER, PG_NONE, PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_MIX, G_MIX_STRIDE, FM1_PAGE_GLOBAL },
+      PG_NONE, SUBJ_NONE, 0, FM1_PAGE_GLOBAL, 0, 0, 0, PB_SUM },
 };
 
 /* --- GLO: global ---------------------------------------------------------

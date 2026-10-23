@@ -1268,11 +1268,30 @@ void Drone::Render(int16_t *out, uint32_t n)
         }
 
         int32_t m = g_[G_MASTER];
+        int32_t sumpk = 0, slice = 0;
+        uint32_t sl = 0;
         for (uint32_t i = 0; i < chunk * 2u; i++) {
-            int32_t s = bus_[i];
+            int32_t s = bus_[i], a;
             if (m != 127) s = (s * m) >> 7;
-            out[i] = fm1_q31_to_q15_sat((int32_t)out[i] + fm1_soft_clip(s));
+            s = fm1_soft_clip(s);
+            out[i] = fm1_q31_to_q15_sat((int32_t)out[i] + s);
+
+            /* The sum's own meter and trace, taken AFTER master and the
+             * limiter -- this is what actually leaves, so a master turned
+             * down has to show as a quieter meter or the meter is lying. */
+            a = s < 0 ? -s : s;
+            if (a > sumpk) sumpk = a;
+            if (a > slice) slice = a;
+            if (++sl >= FM1_SCOPE_SLICE * 2u) {
+                scope_[scope_w_] = (uint8_t)(slice >= Q15_ONE ? 255
+                                   : ((int32_t)slice * 255) / Q15_ONE);
+                scope_w_ = (uint8_t)((scope_w_ + 1u) % FM1_SCOPE_POINTS);
+                slice = 0;
+                sl = 0;
+            }
         }
+        summeter_ = (uint8_t)(sumpk >= Q15_ONE ? 127
+                              : ((int32_t)sumpk * 127) / Q15_ONE);
 
         out += chunk * 2u;
         n -= chunk;

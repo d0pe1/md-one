@@ -222,6 +222,12 @@ void fm1_drone_note_on(uint8_t voice, uint8_t note);
 void fm1_drone_note_off(uint8_t voice);
 void fm1_drone_strike(uint8_t voice);
 
+/* Metering and the SUM page's trace. */
+uint8_t fm1_drone_mix_meter(uint8_t ch);    /* a mixer channel, 0..127 */
+uint8_t fm1_drone_sum_meter(void);          /* the sum, after master, 0..127 */
+uint8_t fm1_drone_scope(uint8_t i);         /* oldest first, 0..255 */
+#define FD_SCOPE_POINTS 120
+
 /* Mute/unmute without re-striking -- what mute and solo need. */
 void fm1_drone_set_gate(uint8_t voice, uint8_t on);
 

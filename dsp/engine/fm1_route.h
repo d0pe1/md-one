@@ -34,12 +34,19 @@ static const char *const FM1_FXNAME[FX_NTYPES] = {
  * effect channels -- a voice routes exactly the way an effect does, which is
  * what makes the mental model one thing instead of two.
  *
- * MIX1..4 are the mix buses: four channels that sum whatever points at them,
- * apply a level and a pan, and go to the main output. They have no
- * destination of their own, deliberately -- a bus that could be routed into
- * an effect would make the graph cyclic in a way nothing else here is, and
- * the case it would serve (submix, then reverb) is already reachable by
- * pointing those voices at the same effect channel. */
+ * CH1..4 are the MIXER CHANNELS: each sums whatever points at it, applies a
+ * level and a pan, and lands in the SUM. The sum is the last stage and goes
+ * to the output; nothing routes out of it.
+ *
+ *     voices / FX  ->  CH1..4  ->  SUM  ->  OUT
+ *
+ * A channel has no destination of its own, deliberately -- one that could be
+ * routed into an effect would make the graph cyclic in a way nothing else
+ * here is, and the case it would serve (submix, then reverb) is already
+ * reachable by pointing those voices at the same effect channel.
+ *
+ * OUT is the sum reached directly, for a voice that wants no channel strip
+ * between it and the output. */
 enum {
     DEST_OFF = 0,   /* unplugged: this node is not heard, nor is anything
                      * whose only path to the output runs through it */
@@ -51,7 +58,7 @@ enum {
 
 static const char *const FM1_DESTNAME[DEST_NDEST] = {
     "---", "FX1", "FX2", "FX3", "FX4",
-    "MIX1", "MIX2", "MIX3", "MIX4", "OUT"
+    "CH1", "CH2", "CH3", "CH4", "SUM"
 };
 
 #define FM1_FX_CHANS   4

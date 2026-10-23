@@ -188,6 +188,13 @@ class Drone {
     uint8_t MixMeter(uint8_t ch) const
     { return ch < FM1_MIX_CHANS ? mixmeter_[ch] : 0; }
 
+    uint8_t SumMeter() const { return summeter_; }
+
+    /* Oldest-first, so the caller draws left to right without knowing where
+     * the write head is. */
+    uint8_t Scope(uint8_t i) const
+    { return scope_[(uint8_t)((scope_w_ + i) % FM1_SCOPE_POINTS)]; }
+
     /* Did this channel reach full scale recently? The meter turns entirely
      * red when it did.
      *
@@ -311,6 +318,17 @@ class Drone {
 
     int32_t    mixin_[FM1_MIX_CHANS][FM1_BLOCK * 2];
     uint8_t    mixmeter_[FM1_MIX_CHANS];
+
+    /* The SUM: one meter, and a rolling trace of what left the instrument.
+     *
+     * The trace is peak-per-slice rather than every sample -- 240 pixels
+     * cannot show 44,100 of them, and the thing worth seeing on a drone is
+     * the envelope of the sound, not its waveshape. One slice per 32 frames
+     * gives eight points a block and fills the window in about 93 ms, which
+     * reads as movement rather than as a strobe. */
+    uint8_t    summeter_;
+    uint8_t    scope_[FM1_SCOPE_POINTS];
+    uint8_t    scope_w_;
 };
 
 }  // namespace fm1
