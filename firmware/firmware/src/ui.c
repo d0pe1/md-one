@@ -1571,6 +1571,17 @@ static void ui_leds(void)
 /* --- encoders -------------------------------------------------------------
  * Returns non-zero if anything changed, so the caller can redraw and start
  * the save timer. */
+/* What a turn of the encoders actually changed.
+ *
+ * These were one flag, and SELECT set it -- so moving the Subject marked the
+ * PATCH dirty, and four seconds later the instrument erased and rewrote a
+ * flash sector because you had looked at a different voice. A flash erase
+ * stalls everything including the audio ISR. Nothing nav holds is saved in
+ * the patch (patch_store writes notes, parameters and globals, not where you
+ * were standing), so that write was always for nothing. */
+#define UI_CH_DRAW   1u         /* the screen is stale */
+#define UI_CH_PATCH  2u         /* a stored parameter moved */
+
 static int ui_encoders(void)
 {
     int changed = 0;
@@ -1581,7 +1592,16 @@ static int ui_encoders(void)
      * that is invariant 3, and the reason you can reach for it blind. */
     if ((e = fm1_enc_take(ENC_SELECT)) != 0) {
         fm1_nav_select(&ui_nav, e);
-        changed = 1;
+        changed |= UI_CH_DRAW;
+    }
+
+    /* PRESETS turns the page. It is reserved in UX_DESIGN section 2 for patch
+     * slots, which Phase 4 will build; until then it was taken and discarded
+     * every pass, which is a control that does nothing on an instrument whose
+     * other answer is pressing a menu button four times. */
+    if ((e = fm1_enc_take(ENC_PRESETS)) != 0) {
+        fm1_nav_page_turn(&ui_nav, e);
+        changed |= UI_CH_DRAW;
     }
 
     if ((e = fm1_enc_take(ENC_ALGORITHM)) != 0) {
@@ -1601,7 +1621,7 @@ static int ui_encoders(void)
                 ui_nudge(alg, ui_accel(ENC_ALGORITHM, e,
                                        fm1_page_def(&ui_nav, alg)));
             }
-            changed = 1;
+            changed |= UI_CH_DRAW | UI_CH_PATCH;
         }
     }
 
@@ -1653,22 +1673,16 @@ static int ui_encoders(void)
                 int32_t d = ui_accel((uint8_t)(ENC_KNOB1 + k), e, 0);
                 int32_t m = d < 0 ? -d : d;
                 fm1_drone_nudge_param(ui_voice(), (uint8_t)id, d * m, 0);
-                changed = 1;
+                changed |= UI_CH_DRAW | UI_CH_PATCH;
                 continue;
             }
             if (id != PG_NONE) {
                 ui_nudge(id, ui_accel((uint8_t)(ENC_KNOB1 + k), e,
                                       fm1_page_def(&ui_nav, id)));
-                changed = 1;
+                changed |= UI_CH_DRAW | UI_CH_PATCH;
             }
         }
     }
-
-    /* PRESETS is reserved for patch select (UX_DESIGN section 2) and stays
-     * unbound until Phase 4 builds slots. Binding it to something it is not
-     * would contradict the printed overlay, which is worse than a control
-     * that waits. */
-    (void)fm1_enc_take(ENC_PRESETS);
 
     return changed;
 }

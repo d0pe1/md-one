@@ -303,7 +303,13 @@ static void ui_pump(void)
     if (in_pump) return;                /* a pump must not pump itself */
     in_pump = 1;
     midi_service();
-    if (ui_encoders()) ui_touched();
+    {
+        /* A nav move repaints; only a parameter move is worth a flash
+         * sector four seconds later. */
+        int ch = ui_encoders();
+        if (ch & UI_CH_PATCH)   ui_touched();
+        else if (ch)            redraw_req = 1;
+    }
     in_pump = 0;
 }
 

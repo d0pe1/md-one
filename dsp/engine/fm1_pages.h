@@ -320,6 +320,25 @@ static inline void fm1_nav_press(fm1_nav_t *n, uint8_t menu, int shift)
 /* The SELECT encoder moved. Clamped, not wrapped: wrapping from voice 4 back
  * to voice 1 on a single nudge is a surprise while you are balancing, and the
  * panel already teaches clamping -- the OCT LEDs go dark at the limits. */
+/* Turn the page WITHIN the current menu.
+ *
+ * The menu buttons already do this by being pressed again, which means
+ * reaching page 4 of EDIT is four presses of the same key. An encoder is the
+ * better instrument for a thing with an order to it, and the PRESETS encoder
+ * was sitting unbound -- reserved for patch slots that do not exist yet, so
+ * it did nothing at all.
+ *
+ * Wraps, like the button does: these are a ring, not a list with ends. */
+static inline void fm1_nav_page_turn(fm1_nav_t *n, int delta)
+{
+    int np = (int)FM1_MENU[n->menu].npages, v;
+
+    if (np < 2) return;
+    v = ((int)n->page + delta) % np;
+    if (v < 0) v += np;
+    n->page = (uint8_t)v;
+}
+
 static inline void fm1_nav_select(fm1_nav_t *n, int delta)
 {
     uint8_t kind = fm1_nav_page(n)->subject;
