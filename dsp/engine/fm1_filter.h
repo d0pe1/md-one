@@ -17,13 +17,14 @@
  * gained it back, two per voice instead of two filters per voice. Net zero,
  * and now the RAM is where the resonators actually are.
  *
- * NOTE: this header is C++ only, because braids::Svf is a class.
+ * All three slopes are trapezoidal now (fm1_tpt.h). Nothing here embeds a
+ * Braids class any more; the header stays C++ only because it lives inside
+ * namespace fm1.
  */
 #ifndef FM1_FILTER_H
 #define FM1_FILTER_H
 
 #include "../shared/fm1_fixed.h"
-#include "../shared/fm1_svf_table.h"   /* the one-pole's coefficient, 6 dB only */
 #include "fm1_tpt.h"
 
 /* The mode list and its names. Deliberately at global scope, not inside
@@ -31,9 +32,8 @@
  * parameter indices in fm1_params.h, which are also global. Presets, tests
  * and probes name both in the same breath.
  *
- * They live in their own header because this one embeds braids::Svf and is
- * therefore C++ only, while the firmware's UI is C and has to put a mode name
- * on the screen. */
+ * They live in their own header because this one is C++ only while the
+ * firmware's UI is C and has to put a mode name on the screen. */
 #include "fm1_fmode.h"
 
 /* Slope: FP_6 / FP_12 / FP_24. Its own header for the same reason, and
@@ -63,11 +63,7 @@ struct fm1_filter_t {
      * numbers and the reasoning. */
     fm1_tpt_t   t1;
     fm1_tpt_t   t2;                 /* the second pair, for 24 dB */
-    int32_t     op;                 /* the one-pole's state, for 6 dB */
-    /* The one-pole's coefficient, derived with the two SVF frequencies in
-     * fm1_filter_apply_cut(). It belongs beside them: all three come from
-     * cut_p and all three change only when cut_p does. */
-    int32_t     fc;
+    fm1_tpt1_t  t0;                 /* one pole, for 6 dB */
 };
 
 
@@ -94,17 +90,7 @@ static inline void fm1_filter_apply_cut(fm1_filter_t *f)
     if (hz > 127 * 128) hz = 127 * 128;
     fm1_tpt_set_pitch(&f->t1, hz);
     fm1_tpt_set_pitch(&f->t2, hz);
-    /* Derived HERE, not in the sample loop.
-     *
-     * The 6 dB branch used to read it per sample -- originally one indexed
-     * flash load, and then, once the interpolation went in, two loads plus
-     * two clamps and a lerp. Flash stalls about 3x on this part, so the
-     * coefficient cost roughly four times the one-pole it feeds, on a branch
-     * whose own comment calls it the cheapest block in the voice.
-     *
-     * It depends only on cut_p, and every write to cut_p comes through this
-     * function -- init, reset, set_cut and set_cut_p all end here. */
-    f->fc = fm1_svf_cut_q15(hz);
+    fm1_tpt1_set_pitch(&f->t0, hz);
 }
 
 static inline void fm1_filter_set_res_raw(fm1_filter_t *f, uint8_t res)
@@ -131,8 +117,6 @@ static inline void fm1_filter_set_res_raw(fm1_filter_t *f, uint8_t res)
  *
  * fm1_tpt_clear() clears state and ONLY state; the coefficients survive it.
  * The failure mode is gone by construction, not by remembering to undo it. */
-static inline void fm1_filter_apply_cut(fm1_filter_t *f);
-
 static inline void fm1_filter_push(fm1_filter_t *f)
 {
     fm1_filter_apply_cut(f);
@@ -147,10 +131,10 @@ static inline void fm1_filter_init(fm1_filter_t *f)
     f->res  = 0;
     f->mix  = 127;          /* fully wet; OFF is how you bypass */
     f->poles = FP_12;       /* what it was before the knob existed */
-    f->op   = 0;
     f->key  = 60 * 128;
     fm1_tpt_init(&f->t1);
     fm1_tpt_init(&f->t2);
+    fm1_tpt1_init(&f->t0);
     fm1_filter_push(f);
 }
 
@@ -161,7 +145,7 @@ static inline void fm1_filter_reset(fm1_filter_t *f)
 {
     fm1_tpt_clear(&f->t1);
     fm1_tpt_clear(&f->t2);
-    f->op = 0;
+    fm1_tpt1_clear(&f->t0);
     fm1_filter_push(f);
 }
 
@@ -181,8 +165,10 @@ static inline void fm1_filter_set_poles(fm1_filter_t *f, uint8_t poles)
 {
     if (poles >= FP_NPOLES || poles == f->poles) return;
     f->poles = poles;
-    f->op = 0;              /* the one-pole's state means nothing at 12 or 24 */
-    fm1_tpt_clear(&f->t2);  /* state only: its tuning is already correct */
+    /* State only; every stage's tuning is already correct. The one-pole's
+     * state means nothing at 12 or 24 dB and vice versa. */
+    fm1_tpt1_clear(&f->t0);
+    fm1_tpt_clear(&f->t2);
 }
 
 /* Cutoff in 1/128 SEMITONE -- the unit the pitch, the comb and the key all
@@ -253,25 +239,22 @@ static inline q15_t fm1_filter_tick(fm1_filter_t *f, q15_t x)
     }
     case F_LP: case F_HP:
         if (f->poles == FP_6) {
-            /* One pole, from the same coefficient table the SVF reads, and
-             * once again the cheapest block in the voice: one multiply, one
-             * add, with the coefficient prepared at knob rate.
+            /* One pole, same bilinear transform as the other two slopes.
              *
-             * Interpolated, because the 12 and 24 dB paths are: braids::Svf
-             * runs its frequency through Interpolate824, so only this branch
-             * landed on whole semitones. Switching SLOPE from 12 to 6 dB used
-             * to move the corner by up to half a semitone as a side effect,
-             * which is not what that knob is for. */
-            /* ROUNDED, not floored. An arithmetic shift biases every step
-             * by half an LSB, and a one-pole INTEGRATES that: the state
-             * settles at -0.5 * 32768 / fc and stays there. Measured at CUT 0
-             * (fc = 38) it is -431 LSB, -37.6 dBFS of DC on every voice --
-             * and the sign inverts in HIGHPASS, where the output is x - op.
-             * Four voices of it is -25.6 dBFS going straight into the DAW,
-             * plus a thump whenever a gate opens. */
-            f->op += (f->fc * ((int32_t)x - f->op) + (1 << (Q15_BITS - 1)))
-                     >> Q15_BITS;
-            w = (f->mode == F_LP) ? f->op : ((int32_t)x - f->op);
+             * It used to be tuned from the CHAMBERLIN table, and it did not
+             * agree with them: at CUT 120 it measured a real 15116 Hz where
+             * 12 dB managed 2974 and 24 dB 1909. Three slopes, three
+             * different filters -- so changing SLOPE moved the corner by an
+             * octave and a half as a side effect, which is not what that
+             * knob is for.
+             *
+             * The high pass is the input minus the low pass, which is exact
+             * in this form. The rounding that the old one-pole needed -- an
+             * arithmetic shift biased every step by half an LSB and the
+             * integrator accumulated it into -37.6 dBFS of DC -- is handled
+             * inside fm1_tpt1_lp for the same reason. */
+            int32_t lp = fm1_tpt1_lp(&f->t0, x);
+            w = (f->mode == F_LP) ? lp : ((int32_t)x - lp);
             w = fm1_q31_to_q15_sat(w);
             break;
         }

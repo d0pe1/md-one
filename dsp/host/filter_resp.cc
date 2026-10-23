@@ -191,6 +191,7 @@ int main(void)
     tpt_sweep("24 dB (cascaded)",  1);
     sweep("12 dB (FP_12)", FP_12, 0);
     sweep("24 dB (FP_24)", FP_24, 0);
+    sweep("6 dB  (FP_6)",  FP_6,  0);
     top_end("24 dB (FP_24)", FP_24);
     top_end("12 dB (FP_12)", FP_12);
     top_end("6 dB  (FP_6)",  FP_6);

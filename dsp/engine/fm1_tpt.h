@@ -81,6 +81,22 @@ static inline int32_t fm1_tpt_recip(uint32_t den)
     return (int32_t)q;
 }
 
+/* tan(pi fc / fs) for a cutoff in 1/128 semitone, Q24, interpolated within
+ * the semitone so a modulated sweep is smooth rather than stepping. */
+static inline int32_t fm1_tpt_g(int32_t pitch)
+{
+    int32_t i, frac, g;
+
+    if (pitch < 0)         pitch = 0;
+    if (pitch > 127 * 128) pitch = 127 * 128;
+    i    = pitch >> 7;
+    frac = pitch & 127;
+    g    = fm1_tpt_g24[i];
+    if (frac)
+        g += (int32_t)((((int64_t)fm1_tpt_g24[i + 1] - g) * frac) >> 7);
+    return g;
+}
+
 /* Solve the loop for the tuning currently held.
  *
  * BOTH setters below end here, and that is the point: a1, a2 and a3 depend
@@ -95,14 +111,8 @@ static inline int32_t fm1_tpt_recip(uint32_t den)
  * multiply and add. */
 static inline void fm1_tpt_solve(fm1_tpt_t *t)
 {
-    int32_t i, frac, g;
+    int32_t g = fm1_tpt_g(t->pitch);
     uint32_t den;
-
-    i    = t->pitch >> 7;
-    frac = t->pitch & 127;
-    g    = fm1_tpt_g24[i];
-    if (frac)
-        g += (int32_t)((((int64_t)fm1_tpt_g24[i + 1] - g) * frac) >> 7);
 
     /* den = (1 + g*(g + k)) in Q24. k is Q12, so it is lifted to Q24 to meet
      * g; the product is Q48 and comes back down. */
@@ -113,14 +123,23 @@ static inline void fm1_tpt_solve(fm1_tpt_t *t)
     t->a3 = (int32_t)(((int64_t)t->a2 * g) >> 24);
 }
 
-/* RESONANCE -> damping. k is 1/Q, so it runs the other way from the knob:
- * 2.0 at the bottom (Q = 0.5, no peak at all) down to 0.025 at the top
- * (Q = 40). Stopping short of 0 keeps the filter a filter -- at k = 0 the
- * loss term vanishes and it becomes a sine oscillator. */
+/* RESONANCE -> damping. k is 1/Q, so it runs the other way from the knob.
+ *
+ * The bottom is BUTTERWORTH, k = sqrt(2), Q = 0.707 -- not the k = 2.0,
+ * Q = 0.5 it started at. That matters for a reason beyond taste: a
+ * Butterworth two-pole is maximally flat and its -3 dB point lands exactly
+ * on the cutoff it is tuned to, so at RES 0 the 12 dB slope now agrees with
+ * the 6 dB one instead of cornering a third of an octave lower. Q = 0.5 is
+ * over-damped; it reads as a filter that is slightly shut even when the
+ * resonance knob is all the way down.
+ *
+ * The top stops at 0.025 (Q = 40) rather than 0: at k = 0 the loss term
+ * vanishes and the filter stops being a filter and becomes a sine
+ * oscillator. */
 static inline void fm1_tpt_set_res(fm1_tpt_t *t, uint8_t res)
 {
     if (res > 127) res = 127;
-    t->k = 8192 - ((int32_t)res * 8090) / 127;      /* Q12: 2.0 .. 0.025 */
+    t->k = 5793 - ((int32_t)res * 5691) / 127;      /* Q12: 1.414 .. 0.025 */
     fm1_tpt_solve(t);
 }
 
@@ -173,6 +192,53 @@ static inline fm1_tpt_out_t fm1_tpt_tick(fm1_tpt_t *t, int32_t in)
     o.hp = ((x - (int32_t)(((int64_t)t->k * v1) >> 12) - v2)
             + (1 << (FM1_TPT_IN - 1))) >> FM1_TPT_IN;
     return o;
+}
+
+/* --- one pole, 6 dB per octave ------------------------------------------
+ *
+ * The same bilinear transform, one integrator instead of two. It is here
+ * because the 6 dB slope was the last thing in the instrument still tuned
+ * from the CHAMBERLIN table, and it did not agree with the other two: at
+ * CUT 120 it measured a real 15116 Hz where 12 dB managed 2974 and 24 dB
+ * 1909. Three slopes, three different filters. Changing SLOPE moved the
+ * corner by an octave and a half as a side effect, which is not what that
+ * knob is for.
+ *
+ * The coefficient is g / (1 + g), and it is derived from the reciprocal
+ * already written rather than from a second divide: fm1_tpt_recip(den)
+ * returns 2^48 / den, so with den = (1 + g) in Q24 that is Q24 of 1/(1 + g),
+ * and g/(1+g) is one minus it.
+ */
+typedef struct {
+    int32_t g1;             /* g / (1 + g), Q24 */
+    int32_t s;              /* the integrator, 3 bits hot like the SVF */
+} fm1_tpt1_t;
+
+static inline void fm1_tpt1_set_pitch(fm1_tpt1_t *t, int32_t pitch)
+{
+    int32_t g = fm1_tpt_g(pitch);
+    t->g1 = (1 << 24) - fm1_tpt_recip((uint32_t)((1 << 24) + g));
+}
+
+static inline void fm1_tpt1_clear(fm1_tpt1_t *t) { t->s = 0; }
+
+static inline void fm1_tpt1_init(fm1_tpt1_t *t)
+{
+    t->s = 0;
+    fm1_tpt1_set_pitch(t, 64 * 128);
+}
+
+/* Returns the LOW pass; the high pass is the input minus it, which is exact
+ * here in a way it is not for a Chamberlin. */
+static inline int32_t fm1_tpt1_lp(fm1_tpt1_t *t, int32_t in)
+{
+    int32_t x = in << FM1_TPT_IN;
+    int32_t v = (int32_t)(((int64_t)(x - t->s) * t->g1 + (1 << 23)) >> 24);
+    int32_t y = v + t->s;
+    int32_t s = y + v;
+
+    t->s = s > FM1_TPT_SMAX ? FM1_TPT_SMAX : (s < -FM1_TPT_SMAX ? -FM1_TPT_SMAX : s);
+    return (y + (1 << (FM1_TPT_IN - 1))) >> FM1_TPT_IN;
 }
 
 #endif /* FM1_TPT_H */
