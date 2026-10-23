@@ -448,6 +448,10 @@ static void ui_fmt(int id, char *out)
         ui_str(out, &i, v < ENT_NTRIG ? FM1_ENTRIG_NAME[v] : "?");
         out[i] = 0;
         return;
+    case K_LFOPOL:
+        ui_str(out, &i, v < LFP_NPOL ? FM1_LFOPOL_NAME[v] : "?");
+        out[i] = 0;
+        return;
     case K_ENVMODE:
         ui_str(out, &i, v < ENV_M_NMODES ? FM1_ENVMODE_NAME[v] : "?");
         out[i] = 0;
@@ -494,8 +498,15 @@ static const char *ui_label(int id)
 
     /* A slot's P1 and P2 are a tune, an offset, a drive or a bias depending
      * on its type. "P1" on a screen is a knob nobody trusts, which is the
-     * same reason the filter used to relabel CUT. */
-    {
+     * same reason the filter used to relabel CUT.
+     *
+     * GUARDED BY SCOPE, which it was not. These ids are indices into the
+     * VOICE table, and a GLOBAL parameter that happens to share a number
+     * got the slot's label: G_EN(0, G_EN_REL) is 71 and so is
+     * P_SL(0, P_SL_P2), so a modulation envelope's RELEASE knob read
+     * "FEEDBK". The FX block below was written with the guard; this one
+     * predates it and never got one. */
+    if (fm1_page_scope(&ui_nav) == SCOPE_VOICE) {
         uint8_t sn;
         for (sn = 0; sn < FM1_SLOTS; sn++) {
             uint8_t t = fm1_drone_get_param(ui_voice(),
@@ -1822,6 +1833,7 @@ static void ui_tick(void)
         break;
     case M_MIX:
     case M_LFO:     /* the modulator columns move without anyone touching a knob */
+    case M_ENV:
     case M_MOD:
         ui_draw_body(0);
         break;

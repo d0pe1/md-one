@@ -206,6 +206,25 @@ static const fm1_page_t FM1_PG_ENV[] = {
     { "HOLD",   { P_HOLD, P_ENV_MODE, PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
+
+    /* The four MODULATION envelopes, in the ENV menu beside the VCA one
+     * they are siblings of. They were briefly bolted onto the LFO menu,
+     * which made sense to nobody: an envelope is an envelope, and the only
+     * thing that differs is whether it is wired to the amplitude.
+     *
+     * SELECT picks which of the four. ALGORITHM carries TRIG on both pages,
+     * because it decides whether any of the rest ever runs. */
+    { "EN",     { G_EN(0, G_EN_ATK), G_EN(0, G_EN_DEC),
+                  G_EN(0, G_EN_SUS), G_EN(0, G_EN_REL) },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, FM1_PAGE_GLOBAL,
+      0, 0, 0, PB_MODS },
+
+    { "EN SHP", { G_EN(0, G_EN_HOLD), G_EN(0, G_EN_ACRV),
+                  G_EN(0, G_EN_RCRV), G_EN(0, G_EN_LOOP) },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, FM1_PAGE_GLOBAL,
+      0, 0, 0, PB_MODS },
 };
 
 /* --- FX: the patchbay's four effect channels -----------------------------
@@ -232,33 +251,20 @@ static const fm1_page_t FM1_PG_FX[] = {
  * or an FX channel, so there is nothing new to learn about navigating them.
  */
 static const fm1_page_t FM1_PG_LFO[] = {
-    { "SHAPE",  { G_LFO(0, G_LFO_RATE), G_LFO(0, G_LFO_AMT),
-                  G_LFO(0, G_LFO_PHASE), PG_NONE },
+    /* Eight controls over two pages, SELECT picking the LFO and ALGORITHM
+     * carrying the WAVE on both -- it is an enum, which is what that encoder
+     * is for, and it is the one control you want in sight while adjusting
+     * any of the others. */
+    { "LFO",    { G_LFO(0, G_LFO_RATE), G_LFO(0, G_LFO_AMT),
+                  G_LFO(0, G_LFO_PHASE), G_LFO(0, G_LFO_POL) },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE, 0, 0, 0, 0, PB_MODS },
 
-    /* The four MODULATION envelopes, which are not the VCA. SELECT picks
-     * one; PRESETS turns between the two halves.
-     *
-     * NOT a rows page, and the reason is worth keeping: the row mechanism
-     * offsets every knob by the same stride, which works for the routing
-     * table (four identical dest/gain pairs) and does not work here, where
-     * ATTACK -> HOLD is one step and DECAY -> A CURVE is three. Padding the
-     * parameter table to force a uniform stride would buy a mechanism with
-     * twelve dead globals.
-     *
-     * TRIG sits on ALGORITHM because it is an enum, which is what that
-     * encoder is for -- and it stays visible on both pages, which is right
-     * for the one control that decides whether any of the rest ever run. */
-    { "ENV",    { G_EN(0, G_EN_ATK), G_EN(0, G_EN_DEC),
-                  G_EN(0, G_EN_SUS), G_EN(0, G_EN_REL) },
+    { "MOVE",   { G_LFO(0, G_LFO_JIT), G_LFO(0, G_LFO_ENG),
+                  G_LFO(0, G_LFO_TRIG), PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, 0, 0, 0, 0, PB_MODS },
+      G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE, 0, 0, 0, 0, PB_MODS },
 
-    { "SHAPE",  { G_EN(0, G_EN_HOLD), G_EN(0, G_EN_ACRV),
-                  G_EN(0, G_EN_RCRV), G_EN(0, G_EN_LOOP) },
-      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, 0, 0, 0, 0, PB_MODS },
 };
 
 

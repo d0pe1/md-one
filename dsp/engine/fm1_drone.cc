@@ -40,7 +40,7 @@ static_assert(G_FX_OUT(0, FM1_NODE_OUTS - 1, 1) == G_FX(0, G_FX_STRIDE - 1),
 /* The global table is a stack of blocks and ApplyGlobal dispatches by
  * testing lower bounds from the top down, so each block must start exactly
  * where the one below it ends. These four asserts are the whole contract. */
-static_assert(G_LFO(FM1_LFOS - 1, G_LFO_MODE) + 1 == G_EN_BASE,
+static_assert(G_LFO(FM1_LFOS - 1, G_LFO_STRIDE - 1) + 1 == G_EN_BASE,
               "the LFO and modulation envelope blocks are no longer adjacent");
 static_assert(G_EN(FM1_MOD_ENVS - 1, G_EN_LOOP) + 1 == G_MIX_BASE,
               "the modulation envelope and mix bus blocks are no longer adjacent");
@@ -164,6 +164,8 @@ void Drone::Init(uint32_t seed)
     for (uint8_t n = 0; n < FM1_LFOS; n++) {
         fm1_lfo_init(&lfo_[n], 0x2545F491u + n * 0x9E3779B9u);
         lfo_out_[n] = 0;
+        lfo_trig_[n] = ENT_FREE;
+        lfo_gate_[n] = 0;
     }
     /* The meters and the SUM trace. Easy to forget because the engine lives
      * in .pool on the device, which the loader zeroes at boot -- so a field
@@ -511,6 +513,11 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
         fm1_lfo_t *l = &lfo_[n];
         switch (what) {
         case G_LFO_RATE:  fm1_lfo_set_rate_q8(l, gacc_[param]); break;
+        case G_LFO_JIT:   fm1_lfo_set_jitter(l, value); break;
+        case G_LFO_ENG:   fm1_lfo_set_energy(l, value); break;
+        case G_LFO_POL:   fm1_lfo_set_pol(l, value);    break;
+        case G_LFO_TRIG:  lfo_trig_[n] = value < ENT_NTRIG ? value : ENT_FREE;
+                          break;
         case G_LFO_AMT:   fm1_lfo_set_amount(l, value); break;
         case G_LFO_PHASE: fm1_lfo_set_phase(l, value);  break;
         case G_LFO_MODE:  fm1_lfo_set_mode(l, value);   break;
@@ -853,8 +860,17 @@ void Drone::Render(int16_t *out, uint32_t n)
         /* The modulators, once a block, before anything reads them. Four of
          * them is a few dozen cycles: they are shared, so unlike almost
          * everything else here the cost is paid once rather than per voice. */
-        for (uint8_t n = 0; n < FM1_LFOS; n++)
+        for (uint8_t n = 0; n < FM1_LFOS; n++) {
+            /* An LFO bound to a voice restarts when that voice opens. On
+             * the edge only: re-zeroing the phase every block would hold it
+             * at the start of its cycle for as long as the note sounded. */
+            if (lfo_trig_[n] != ENT_FREE) {
+                uint8_t g = v_[lfo_trig_[n] - ENT_V1].gate;
+                if (g && !lfo_gate_[n]) fm1_lfo_retrig(&lfo_[n]);
+                lfo_gate_[n] = g;
+            }
             lfo_out_[n] = fm1_lfo_block(&lfo_[n]);
+        }
 
         /* The four modulation envelopes.
          *

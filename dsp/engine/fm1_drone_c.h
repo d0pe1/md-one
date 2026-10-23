@@ -170,7 +170,7 @@ extern "C" {
 
 /* Four LFOs, four controls each. FD_G_LFO(n, j) addresses LFO n, control j. */
 #define FD_G_LFO_BASE    51
-#define FD_G_LFO_STRIDE   4
+#define FD_G_LFO_STRIDE   8
 #define FD_G_LFO(n, j)   (FD_G_LFO_BASE + (n) * FD_G_LFO_STRIDE + (j))
 #define FD_G_LFO_RATE     0
 #define FD_G_LFO_AMT      1
@@ -180,18 +180,18 @@ extern "C" {
 /* +8 for the four mix buses (LEVEL, PAN), appended after the LFOs. */
 /* Four modulation envelopes, nine controls each, between the LFOs and
  * the mix buses. */
-#define FD_G_EN_BASE     67
+#define FD_G_EN_BASE     83
 #define FD_G_EN_STRIDE    9
 #define FD_G_EN(n, j)    (FD_G_EN_BASE + (n) * FD_G_EN_STRIDE + (j))
 #define FD_MOD_ENVS       4
 
-#define FD_G_MIX_BASE    103
+#define FD_G_MIX_BASE    119
 #define FD_G_MIX_STRIDE   2
 #define FD_G_MIX(n, j)   (FD_G_MIX_BASE + (n) * FD_G_MIX_STRIDE + (j))
 #define FD_G_MIX_LEVEL    0
 #define FD_G_MIX_PAN      1
 
-#define FD_NGPARAM       111
+#define FD_NGPARAM       127
 
 /* LFO shapes, mirroring the LFO_* enum in fm1_lfo.h. */
 #define FD_LFO_TRI        0

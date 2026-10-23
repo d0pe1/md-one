@@ -639,11 +639,39 @@ static void test_bipolar(void)
           "the effect rack agrees about its own two", 0);
 }
 
+
+/* --- a label belongs to its own table ------------------------------------
+ *
+ * ui_label() relabels a slot's P1 and P2 by the slot's TYPE, because "P1" on
+ * a screen is a knob nobody trusts. Those ids index the VOICE table, and the
+ * check had no scope guard -- so a GLOBAL parameter that happened to share a
+ * number got the slot's name. G_EN(0, G_EN_REL) is 71 and so is
+ * P_SL(0, P_SL_P2), which is how a modulation envelope's RELEASE knob came
+ * to read "FEEDBK".
+ *
+ * The guard lives in the firmware, which this test cannot call. What it CAN
+ * do is prove the collision is real, so that the next person to drop a guard
+ * finds a test explaining why one is needed rather than a mystery.
+ */
+static void test_label_scope(void)
+{
+    int collide = 0, i, j;
+
+    for (i = 0; i < NGPARAM; i++)
+        for (j = 0; j < FM1_SLOTS; j++)
+            if (i == P_SL(j, P_SL_P1) || i == P_SL(j, P_SL_P2)) collide++;
+
+    printf("    %d global ids collide with a slot P1/P2 id\n", collide);
+    check(collide > 0,
+          "global and voice ids DO overlap, so scope must be checked", 0);
+}
+
 int main(void)
 {
     printf("menu and page map\n");
     test_reachable();
     test_bipolar();
+    test_label_scope();
     test_bipolar_centred();
     test_encoder_feel();
     test_shapes();

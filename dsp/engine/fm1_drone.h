@@ -288,6 +288,11 @@ class Drone {
      * envelope each voice carries -- that one has to stay per-voice because
      * every voice needs its own amplitude contour, which is exactly why it
      * could not double as a modulation source. */
+    /* What restarts each LFO, and the gate it last saw -- an LFO bound to a
+     * voice starts WITH the note rather than wherever it happened to be. */
+    uint8_t    lfo_trig_[FM1_LFOS];
+    uint8_t    lfo_gate_[FM1_LFOS];
+
     fm1_env_t  menv_[FM1_MOD_ENVS];
     q15_t      menv_out_[FM1_MOD_ENVS];
     uint8_t    menv_trig_[FM1_MOD_ENVS];    /* ENT_*, what gates it */

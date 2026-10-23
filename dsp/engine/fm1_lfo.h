@@ -19,6 +19,7 @@
 
 #include "../shared/fm1_fixed.h"
 #include "../shared/fm1_lfo_table.h"
+#include "fm1_params.h"   /* LFP_* */
 
 /* Order is the order the knob steps through: the four periodic shapes first,
  * then the two random ones. S&H is a MODE rather than a separate module --
@@ -46,8 +47,12 @@ typedef struct {
     uint32_t offset;        /* PHASE knob, as a fraction of a cycle */
     uint32_t rng;           /* per-LFO, or four S&H modes would agree */
     int16_t  cur, nxt;      /* the random modes' endpoints */
-    uint8_t  mode;
+    uint8_t  mode;          /* the WAVE */
     uint8_t  amount;        /* 0..127 */
+    uint32_t base_inc;      /* the rate asked for, before JITTER bends it */
+    uint8_t  jitter;        /* how far the period wanders, cycle to cycle */
+    uint8_t  energy;        /* how far the random modes jump */
+    uint8_t  pol;           /* LFP_* */
 } fm1_lfo_t;
 
 /* xorshift32. Cheap, and its only job is to sound unrelated to itself. */
@@ -68,6 +73,10 @@ static inline void fm1_lfo_init(fm1_lfo_t *l, uint32_t seed)
     l->offset = 0;
     l->rng = seed ? seed : 0x9E3779B9u;
     l->mode = LFO_TRI;
+    l->base_inc = l->inc;
+    l->jitter = 0;
+    l->energy = 127;
+    l->pol = LFP_BI;
     l->amount = 0;
     l->cur = 0;
     l->nxt = (int16_t)((int32_t)(fm1_lfo_rand(l) >> 16) - 32768);
@@ -96,7 +105,25 @@ static inline uint32_t fm1_lfo_inc_q8(int32_t q8)
 
 static inline void fm1_lfo_set_rate_q8(fm1_lfo_t *l, int32_t q8)
 {
-    l->inc = fm1_lfo_inc_q8(q8);
+    l->base_inc = fm1_lfo_inc_q8(q8);
+    if (!l->jitter) l->inc = l->base_inc;
+}
+static inline void fm1_lfo_set_jitter(fm1_lfo_t *l, uint8_t v)
+{
+    l->jitter = v;
+    if (!v) l->inc = l->base_inc;       /* straight back to the asked rate */
+}
+static inline void fm1_lfo_set_energy(fm1_lfo_t *l, uint8_t v) { l->energy = v; }
+static inline void fm1_lfo_set_pol(fm1_lfo_t *l, uint8_t v)
+{ l->pol = v < LFP_NPOL ? v : LFP_BI; }
+
+/* Restart the cycle. TRIG bound to a voice calls this when that voice
+ * opens, which is the difference between an LFO that happens to be
+ * somewhere and one that starts WITH the note. */
+static inline void fm1_lfo_retrig(fm1_lfo_t *l)
+{
+    l->phase = 0;
+    l->cur = l->nxt;
 }
 static inline void fm1_lfo_set_rate(fm1_lfo_t *l, uint8_t rate)
 {
@@ -138,8 +165,28 @@ static inline q15_t fm1_lfo_block(fm1_lfo_t *l)
     /* Unsigned wrap IS the cycle boundary: no counter, no compare against a
      * period, and it stays exact however long the LFO runs. */
     if (l->phase < before) {
+        int32_t nx;
         l->cur = l->nxt;
-        l->nxt = (int16_t)((int32_t)(fm1_lfo_rand(l) >> 16) - 32768);
+        nx = (int32_t)(fm1_lfo_rand(l) >> 16) - 32768;
+        /* ENERGY scales how far a random mode is willing to jump. At zero
+         * the levels collapse toward the middle and S&H becomes a slow
+         * shimmer rather than a staircase; at full it uses the whole
+         * range, which is what it always did. */
+        if (l->energy < 127) nx = (nx * (int32_t)l->energy) / 127;
+        l->nxt = (int16_t)nx;
+
+        /* JITTER bends the NEXT period, not this one -- a rate that changed
+         * mid-cycle would be a glitch rather than a wander. Chosen once per
+         * cycle, so a jittered LFO is still periodic, just not regular. */
+        if (l->jitter) {
+            uint32_t r = fm1_lfo_rand(l) >> 17;         /* 0..32767 */
+            int32_t  d = ((int32_t)r - 16384) * (int32_t)l->jitter / 127;
+            /* +-50% of the period at full jitter. Clamped above zero: an
+             * increment of 0 is an LFO that stops. */
+            int32_t  inc = (int32_t)(l->base_inc
+                         + (int32_t)(((int64_t)l->base_inc * d) >> 15));
+            l->inc = (uint32_t)(inc < 1 ? 1 : inc);
+        }
     }
 
     p = (l->phase + l->offset) >> 16;       /* 0..65535 within the cycle */
@@ -190,6 +237,17 @@ static inline q15_t fm1_lfo_block(fm1_lfo_t *l)
 
     if (v > Q15_ONE) v = Q15_ONE;
     if (v < Q15_MIN) v = Q15_MIN;
+
+    /* POLARITY: which half of the swing comes out.
+     *
+     * Folded rather than clipped -- POS maps the whole cycle into 0..+1
+     * instead of flattening its lower half, so the SHAPE survives and only
+     * the range changes. A clipped triangle would be a triangle for half a
+     * cycle and a flat line for the other, which is a different wave, not a
+     * different polarity. */
+    if (l->pol == LFP_POS)      v = (v + 32768) >> 1;
+    else if (l->pol == LFP_NEG) v = (v - 32768) >> 1;
+
     return (q15_t)((v * (int32_t)l->amount) >> 7);
 }
 

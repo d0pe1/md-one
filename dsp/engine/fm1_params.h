@@ -262,9 +262,13 @@ enum {
      * gives, and what these add is the opposite, all four voices moving
      * together (fm1_lfo.h). */
     G_LFO1_RATE, G_LFO1_AMT, G_LFO1_PHASE, G_LFO1_MODE,
+    G_LFO1_JIT,  G_LFO1_ENG,  G_LFO1_TRIG,  G_LFO1_POL,
     G_LFO2_RATE, G_LFO2_AMT, G_LFO2_PHASE, G_LFO2_MODE,
+    G_LFO2_JIT,  G_LFO2_ENG,  G_LFO2_TRIG,  G_LFO2_POL,
     G_LFO3_RATE, G_LFO3_AMT, G_LFO3_PHASE, G_LFO3_MODE,
+    G_LFO3_JIT,  G_LFO3_ENG,  G_LFO3_TRIG,  G_LFO3_POL,
     G_LFO4_RATE, G_LFO4_AMT, G_LFO4_PHASE, G_LFO4_MODE,
+    G_LFO4_JIT,  G_LFO4_ENG,  G_LFO4_TRIG,  G_LFO4_POL,
     /* The four mix buses. Each sums whatever points at it, applies a level
      * and a pan, and goes to the main output -- there is no DEST here on
      * purpose (fm1_route.h). Appended rather than placed beside the
@@ -304,12 +308,25 @@ enum {
 
 /* LFO n (0-based), control j. Same shape as G_FX(). */
 #define G_LFO_BASE   G_LFO1_RATE
-#define G_LFO_STRIDE 4
+#define G_LFO_STRIDE 8
 #define G_LFO(n, j)  (G_LFO_BASE + (n) * G_LFO_STRIDE + (j))
 #define G_LFO_RATE   0
 #define G_LFO_AMT    1
 #define G_LFO_PHASE  2
-#define G_LFO_MODE   3
+#define G_LFO_MODE   3      /* the WAVE: triangle, saw, square, S&H ... */
+#define G_LFO_JIT    4      /* how much the period wanders, cycle to cycle */
+#define G_LFO_ENG    5      /* how far the random modes jump */
+#define G_LFO_TRIG   6      /* FREE, or restart with a voice */
+#define G_LFO_POL    7      /* LFP_* -- which half of the swing comes out */
+
+/* POLARITY belongs to the SOURCE, not to the route. A negative depth in the
+ * matrix already inverts a route, so an invert switch here as well would be
+ * two controls that multiply -- and -1 x -1 = +1 is a bug report waiting to
+ * be filed. What is NOT reachable from the matrix is RANGE: an LFO swinging
+ * +-1 and one swinging 0..+1 are different signals, not the same signal
+ * routed differently, and every destination should see the same one. */
+enum { LFP_BI = 0, LFP_POS, LFP_NEG, LFP_NPOL };
+static const char *const FM1_LFOPOL_NAME[LFP_NPOL] = { "BI", "POS", "NEG" };
 
 /* Channel n (0-based) parameter j. The five-per-channel stride is relied on
  * by the engine's SetGlobal and by any UI that walks the patchbay. */
@@ -373,7 +390,8 @@ enum {
     K_SLOT,     /* an insert slot type, FM1_SLOT_NAME in fm1_slot.h */
     K_POLES,    /* a filter slope, FM1_FPOLE_NAME in fm1_filter.h */
     K_ENVMODE,  /* an envelope mode, FM1_ENVMODE_NAME in fm1_env.h */
-    K_ENTRIG    /* what starts a modulation envelope, FM1_ENTRIG_NAME */
+    K_ENTRIG,   /* what starts an envelope or an LFO, FM1_ENTRIG_NAME */
+    K_LFOPOL    /* an LFO's polarity, FM1_LFOPOL_NAME */
 };
 
 typedef struct {
@@ -616,18 +634,34 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_LFO1_AMT]   = {"LFO1 AMOUNT",127,   0, K_NUM,     0},
     [G_LFO1_PHASE] = {"LFO1 PHASE",127,   0, K_NUM,     0},
     [G_LFO1_MODE]  = {"LFO1 MODE",  5,   0, K_LFOMODE, 0},
+    [G_LFO1_JIT]   = {"LFO1 JITTER",127,  0, K_PCT,     0},
+    [G_LFO1_ENG]   = {"LFO1 ENERGY",127,127, K_PCT,     0},
+    [G_LFO1_TRIG]  = {"LFO1 TRIG",    4,   0, K_ENTRIG,  0},
+    [G_LFO1_POL]   = {"LFO1 POL",     2,   0, K_LFOPOL,  0},
     [G_LFO2_RATE]  = {"LFO2 RATE",127,  30, K_RATE,    0},
     [G_LFO2_AMT]   = {"LFO2 AMOUNT",127,   0, K_NUM,     0},
     [G_LFO2_PHASE] = {"LFO2 PHASE",127,  32, K_NUM,     0},
     [G_LFO2_MODE]  = {"LFO2 MODE",  5,   0, K_LFOMODE, 0},
+    [G_LFO2_JIT]   = {"LFO2 JITTER",127,  0, K_PCT,     0},
+    [G_LFO2_ENG]   = {"LFO2 ENERGY",127,127, K_PCT,     0},
+    [G_LFO2_TRIG]  = {"LFO2 TRIG",    4,   0, K_ENTRIG,  0},
+    [G_LFO2_POL]   = {"LFO2 POL",     2,   0, K_LFOPOL,  0},
     [G_LFO3_RATE]  = {"LFO3 RATE",127,  18, K_RATE,    0},
     [G_LFO3_AMT]   = {"LFO3 AMOUNT",127,   0, K_NUM,     0},
     [G_LFO3_PHASE] = {"LFO3 PHASE",127,  64, K_NUM,     0},
     [G_LFO3_MODE]  = {"LFO3 MODE",  5,   5, K_LFOMODE, 0},   /* SMOOTH */
+    [G_LFO3_JIT]   = {"LFO3 JITTER",127,  0, K_PCT,     0},
+    [G_LFO3_ENG]   = {"LFO3 ENERGY",127,127, K_PCT,     0},
+    [G_LFO3_TRIG]  = {"LFO3 TRIG",    4,   0, K_ENTRIG,  0},
+    [G_LFO3_POL]   = {"LFO3 POL",     2,   0, K_LFOPOL,  0},
     [G_LFO4_RATE]  = {"LFO4 RATE",127,  36, K_RATE,    0},
     [G_LFO4_AMT]   = {"LFO4 AMOUNT",127,   0, K_NUM,     0},
     [G_LFO4_PHASE] = {"LFO4 PHASE",127,  96, K_NUM,     0},
     [G_LFO4_MODE]  = {"LFO4 MODE",  5,   0, K_LFOMODE, 0},
+    [G_LFO4_JIT]   = {"LFO4 JITTER",127,  0, K_PCT,     0},
+    [G_LFO4_ENG]   = {"LFO4 ENERGY",127,127, K_PCT,     0},
+    [G_LFO4_TRIG]  = {"LFO4 TRIG",    4,   0, K_ENTRIG,  0},
+    [G_LFO4_POL]   = {"LFO4 POL",     2,   0, K_LFOPOL,  0},
 
     /* Last, because the mix buses are last in the enum and C++ wants
      * designated initialisers in declaration order. */
