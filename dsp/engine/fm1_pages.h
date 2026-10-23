@@ -241,10 +241,15 @@ static const fm1_page_t FM1_PG_LFO[] = {
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE, 0, 0, 0, 0, PB_MODS },
 
+    /* WAVE on the free knob here, and NOT also on ALGORITHM: a parameter
+     * twice on one page is two controls for one value, which invariant 1
+     * forbids and test_no_duplicate_on_page enforces. It stays on
+     * ALGORITHM on the page before this one, so it is reachable either
+     * way. */
     { "MOVE",   { G_LFO(0, G_LFO_JIT), G_LFO(0, G_LFO_ENG),
-                  G_LFO(0, G_LFO_TRIG), PG_NONE },
+                  G_LFO(0, G_LFO_TRIG), G_LFO(0, G_LFO_MODE) },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE, 0, 0, 0, 0, PB_MODS },
+      PG_NONE, SUBJ_LFO, G_LFO_STRIDE, 0, 0, 0, 0, PB_MODS },
 
     /* The four MODULATION envelopes. Here rather than in ENV because this
      * is the MODULATORS menu -- these and the LFOs are what move other

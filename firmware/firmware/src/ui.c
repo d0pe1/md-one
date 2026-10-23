@@ -587,6 +587,31 @@ static void ui_draw_header(void)
         }
         line[i] = 0;
     }
+
+    /* WHAT ALGORITHM IS HOLDING, in the header.
+     *
+     * The generic body prints it, but a page with its own body returns
+     * before that -- so every page with a picture (the modulator columns,
+     * the ADSR curve, the mixer) had an ALGORITHM encoder that visibly did
+     * something and no indication of what it had landed on. Turning WAVE
+     * repainted the screen and told you nothing.
+     *
+     * Here it is on every page at once, beside the subject it belongs to,
+     * which is also where you are already looking to see which LFO you are
+     * editing. */
+    {
+        int alg = fm1_page_alg(&ui_nav);
+        if (alg != PG_NONE) {
+            char val[20];
+            if (!i) i = 0;
+            while (i < 18u) line[i++] = ' ';
+            ui_str(line, &i, ui_label(alg));
+            line[i++] = ' ';
+            ui_fmt(alg, val);
+            ui_str(line, &i, val);
+            line[i] = 0;
+        }
+    }
     draw_text_cached(1, 4, Y_SUBJECT, 236, &FONT_S, line, C_MID, 0);
     lcd_fill(0, Y_RULE, 240, 1, C_GREY);
 }
@@ -1756,20 +1781,15 @@ static void ui_draw_body(int clear)
         if (d0 && d0->kind == K_DEST) { ui_body_route(k0); return; }
     }
 
-    /* Otherwise say what ALGORITHM is holding: an enum shown only as a number
-     * on the value row is an enum nobody can read. */
-    alg = fm1_page_alg(&ui_nav);
-    if (alg != PG_NONE) {
-        const fm1_pdef_t *d = fm1_page_def(&ui_nav, alg);
-        char line[40], val[20];
-        uint32_t i = 0;
-        ui_fmt(alg, val);
-        ui_str(line, &i, d ? d->name : "");
-        ui_str(line, &i, "   ");
-        ui_str(line, &i, val);
-        line[i] = 0;
-        draw_text_box(8, Y_BODY + 8, 232, &FONT_S, line, C_ON, 0);
-    }
+    /* Nothing generic left to draw. What ALGORITHM is holding used to be
+     * printed here, which only worked for the pages that reach this far --
+     * every page with a body of its own returned above it, so the modulator
+     * columns, the ADSR curve and the mixer all had an ALGORITHM encoder
+     * with no indication of where it had landed. It is in the header now,
+     * on every page at once, and printing it twice here would just be two
+     * places to disagree.
+     */
+    (void)alg;
 }
 
 /* What the body's LAYOUT depends on: which drawing function runs, and where
