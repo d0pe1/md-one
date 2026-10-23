@@ -1451,8 +1451,54 @@ static void ui_draw_body(int clear)
     }
 }
 
+/* What the body's LAYOUT depends on: which drawing function runs, and where
+ * it puts its cells. NOT the values in those cells.
+ *
+ * That distinction is what lets a knob turn stop costing a whole page.
+ * ui_draw cleared the body unconditionally, and ui_body_clear calls
+ * ui_tc_reset -- so every repaint wiped the text cache and forced every
+ * label, value and bar to repaint, about sixty milliseconds of blocking SPI
+ * per detent. The cache only ever helped ui_tick.
+ *
+ * Clearing is not needed for a redraw that only changed values, because
+ * nothing here leaves pixels behind: draw_text_box opens with cv_begin on
+ * black so every text cell erases its own background, the mixer's meters and
+ * faders write their whole column every frame, and ui_bipolar_bar fills the
+ * gaps either side of its own travel. The mixer, LFO and MOD pages have been
+ * proving this for a while -- ui_tick already repaints them with clear = 0.
+ *
+ * The ALGORITHM value is in the signature because it is a LAYOUT input, not
+ * a value: it scrolls the shape list and swaps the routing rows, changing
+ * how many cells there are and where. The four knob values are not. */
+static uint32_t ui_body_sig(void)
+{
+    const fm1_page_t *p = fm1_nav_page(&ui_nav);
+    int alg = fm1_page_alg(&ui_nav);
+    uint32_t sig = ((uint32_t)ui_nav.menu << 24)
+                 | ((uint32_t)ui_nav.page << 16)
+                 | ((uint32_t)(ui_shift ? 1u : 0u) << 8);
+
+    if (p && p->subject != SUBJ_NONE) sig |= (uint32_t)ui_nav.sel[p->subject];
+    if (alg != PG_NONE)               sig ^= (uint32_t)ui_get(alg) << 9;
+
+    /* A routing page's body is a list of who points where, so its ROW COUNT
+     * moves with the destination -- "IN < V1 V2" becoming "IN < V1" is one
+     * fewer row, and a row that disappears is the one thing on these pages
+     * that does not erase itself. The same test ui_draw_body uses to pick
+     * that body, so the two cannot disagree. */
+    {
+        int k0 = fm1_page_knob(&ui_nav, 0);
+        const fm1_pdef_t *d0 = fm1_page_def(&ui_nav, k0);
+        if (d0 && d0->kind == K_DEST) sig ^= (uint32_t)ui_get(k0) << 17;
+    }
+    return sig;
+}
+
 static void ui_draw(void)
 {
+    static uint32_t sig_drawn = ~0u;
+    uint32_t sig;
+
     if (rescue_count) {
         char line[24];
         uint32_t i = 0;
@@ -1464,11 +1510,16 @@ static void ui_draw(void)
         line[i] = 0;
         draw_text_box(0, 112, 240, &FONT_L, line, C_RED, 1);
         draw_text_box(0, 160, 240, &FONT_S, "LET GO TO CANCEL", C_GREY, 1);
+        sig_drawn = ~0u;        /* this painted over the body */
         return;
     }
+    /* The rescue screen paints over everything, so the next ordinary draw
+     * has to start from a clear whatever the signature says. */
+    sig = ui_body_sig();
     ui_draw_header();
     ui_draw_knobs();
-    ui_draw_body(1);
+    ui_draw_body(sig != sig_drawn);
+    sig_drawn = sig;
 }
 
 /* The part of the current page that moves on its own, redrawn on a timer.
