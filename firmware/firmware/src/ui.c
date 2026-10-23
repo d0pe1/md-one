@@ -705,7 +705,7 @@ static void ui_draw_knobs(void)
  * The cache is only valid while nothing else paints over the same pixels, so
  * every path that blanks a region invalidates it.
  */
-#define UI_TC_SLOTS 18
+#define UI_TC_SLOTS 26   /* 16..25: table rows */
 #define UI_TC_LEN   30
 
 typedef struct {
@@ -1404,6 +1404,47 @@ static void ui_body_home(void)
  * Everything those pages draw is now self-erasing -- text boxes always were,
  * since draw_text_box blits an opaque canvas, and the bars and the fader are
  * now too -- so a tick needs no clear to be correct. */
+/* A table page: every row at once, with the one ALGORITHM is pointing at
+ * picked out. Generic over the page rather than written per page -- the
+ * routing table and the modulation matrix are the same shape, and the
+ * second one is thirty-two rows that nobody wants to hand-format.
+ *
+ * Reads the row's first two knob parameters, which is what a table row is:
+ * the thing and the amount. */
+static void ui_body_rows(void)
+{
+    const fm1_page_t *p = fm1_nav_page(&ui_nav);
+    uint8_t act = fm1_nav_row_of(&ui_nav);
+    uint8_t r;
+
+    for (r = 0; r < p->rows && r < 10u; r++) {
+        char line[40], val[20];
+        uint32_t i = 0;
+        int off = (int)p->stride * (int)ui_nav.sel[p->subject]
+                + (int)p->rstride * (int)r;
+        int id0 = p->k[0] == PG_NONE ? PG_NONE : p->k[0] + off;
+        int id1 = p->k[1] == PG_NONE ? PG_NONE : p->k[1] + off;
+
+        line[i++] = (char)('1' + r);
+        ui_str(line, &i, r == act ? " > " : "   ");
+        if (id0 != PG_NONE) {
+            ui_fmt(id0, val);
+            ui_str(line, &i, val);
+        }
+        /* The amount is not worth showing on a cable that is unplugged --
+         * it says nothing and reads as if the row were live. */
+        if (id1 != PG_NONE && id0 != PG_NONE && ui_get(id0) != 0) {
+            while (i < 14u) line[i++] = ' ';
+            ui_fmt(id1, val);
+            ui_str(line, &i, val);
+        }
+        line[i] = 0;
+        draw_text_cached((uint8_t)(16 + r), 8, Y_BODY + 4 + (int32_t)r * 16,
+                         224, &FONT_S, line,
+                         r == act ? C_ACC : C_GREY, 0);
+    }
+}
+
 static void ui_draw_body(int clear)
 {
     const fm1_page_t *p = fm1_nav_page(&ui_nav);
@@ -1411,6 +1452,7 @@ static void ui_draw_body(int clear)
 
     if (clear) ui_body_clear();
 
+    if (p->rows)               { ui_body_rows();  return; }
     if (ui_nav.menu == M_MIX)  { ui_body_mixer(); return; }
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
     if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
@@ -1479,6 +1521,7 @@ static uint32_t ui_body_sig(void)
                  | ((uint32_t)(ui_shift ? 1u : 0u) << 8);
 
     if (p && p->subject != SUBJ_NONE) sig |= (uint32_t)ui_nav.sel[p->subject];
+    if (p && p->rows)                 sig ^= (uint32_t)fm1_nav_row_of(&ui_nav) << 13;
     if (alg != PG_NONE)               sig ^= (uint32_t)ui_get(alg) << 9;
 
     /* A routing page's body is a list of who points where, so its ROW COUNT
@@ -1606,7 +1649,14 @@ static int ui_encoders(void)
 
     if ((e = fm1_enc_take(ENC_ALGORITHM)) != 0) {
         int alg = fm1_page_alg(&ui_nav);
-        if (alg != PG_NONE) {
+
+        /* On a table page ALGORITHM chooses the LINE rather than editing a
+         * value. Nothing is stored by moving it -- it is where you are
+         * standing, like SELECT -- so it repaints and nothing more. */
+        if (fm1_nav_page(&ui_nav)->rows) {
+            fm1_nav_row_move(&ui_nav, e);
+            changed |= UI_CH_DRAW;
+        } else if (alg != PG_NONE) {
             /* SHIFT jumps whole categories, which is what makes 48 shapes
              * navigable: three detents instead of thirty to get from a saw
              * stack to a bowed string. */

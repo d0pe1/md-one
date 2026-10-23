@@ -744,10 +744,11 @@ void Drone::Render(int16_t *out, uint32_t n)
          * because clearing 2 KiB for a bus nobody feeds is exactly the kind
          * of idle cost the patchbay already learned about. */
         uint8_t mix_live[FM1_MIX_CHANS] = { 0, 0, 0, 0 };
-        for (uint8_t v = 0; v < FM1_VOICES; v++) {
-            uint8_t d = v_[v].p[P_DEST];
-            if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
-        }
+        for (uint8_t v = 0; v < FM1_VOICES; v++)
+            for (uint8_t c = 0; c < FM1_NODE_OUTS; c++) {
+                uint8_t d = v_[v].p[P_OUT(c, P_OUT_DEST)];
+                if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
+            }
         for (uint32_t k = 0; k < fx_n; k++) {
             uint8_t d = rack_.ch[fx_act[k]].dest;
             if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
@@ -1004,14 +1005,8 @@ void Drone::Render(int16_t *out, uint32_t n)
              * So the whole chain runs and only the BUS ADD is dropped, which
              * is what the paragraph above always claimed. A disconnected
              * voice now decays, reaches idle, and stops costing anything. */
-            uint8_t  dest = d.p[P_DEST];
-            /* DEST_OFF is 0 and DEST_FX1 is 1, so the channel arithmetic
-             * would index fxin_[-1]. Nothing is ever written through it --
-             * the add below is gated -- but forming the address at all is
-             * undefined, so it points at the bus and goes unused. */
-            int32_t *sink = bus_;
-            if      (DEST_IS_FX(dest))  sink = fxin_[DEST_FX_IDX(dest)];
-            else if (DEST_IS_MIX(dest)) sink = mixin_[DEST_MIX_IDX(dest)];
+            /* The cables are read after the sample loop; nothing in here
+             * needs to know where the voice is going any more. */
 
             /* Asked once per block, not once per sample. Both of these are
              * flat on most voices most of the time, and testing inside the
@@ -1062,10 +1057,33 @@ void Drone::Render(int16_t *out, uint32_t n)
 
                 /* No saturation here. The bus has room; limiting once at the
                  * end is the whole point. */
-                if (dest != DEST_OFF) {
-                    sink[2 * i]     += (s * gl_q12) >> Q12_BITS;
-                    sink[2 * i + 1] += (s * gr_q12) >> Q12_BITS;
-                }
+                vout_[2 * i]     = (s * gl_q12) >> Q12_BITS;
+                vout_[2 * i + 1] = (s * gr_q12) >> Q12_BITS;
+            }
+
+            /* --- the cables -----------------------------------------
+             *
+             * Up to four, each with its own gain, so one voice can be in a
+             * reverb and in the mix at the same time. A cable at DEST_OFF
+             * is unplugged and a cable at gain 0 is silent -- the same
+             * nothing reached two ways, and both cost one compare here
+             * rather than anything per sample. */
+            for (uint8_t c = 0; c < FM1_NODE_OUTS; c++) {
+                uint8_t dst = d.p[P_OUT(c, P_OUT_DEST)];
+                int32_t g   = d.p[P_OUT(c, P_OUT_GAIN)];
+                int32_t *sink;
+
+                if (dst == DEST_OFF || g == 0) continue;
+                sink = bus_;
+                if      (DEST_IS_FX(dst))  sink = fxin_[DEST_FX_IDX(dst)];
+                else if (DEST_IS_MIX(dst)) sink = mixin_[DEST_MIX_IDX(dst)];
+
+                if (g >= 127)
+                    for (uint32_t i = 0; i < chunk * 2u; i++)
+                        sink[i] += vout_[i];
+                else
+                    for (uint32_t i = 0; i < chunk * 2u; i++)
+                        sink[i] += (vout_[i] * g) >> 7;
             }
 
             /* Raise the meter; the fall already happened above. */

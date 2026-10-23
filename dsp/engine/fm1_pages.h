@@ -81,6 +81,18 @@ typedef struct {
      * and scope used to be a property of the menu alone. Trailing, so every
      * page literal that does not care keeps its zero. */
     uint8_t     gscope;
+    /* ROWS. A page with rows shows a short table and lets ALGORITHM pick
+     * which line the knobs are editing, instead of spending a whole page on
+     * each line. Four cables of routing, or thirty-two modulation slots, do
+     * not fit any other way -- and a page per cable would bury the one thing
+     * worth seeing, which is the whole table at once.
+     *
+     * ALGORITHM moves the row rather than editing a parameter, so a page
+     * with rows has no `alg`. rstride is what a row costs in the parameter
+     * table; it stacks with `stride`, which is what the SUBJECT costs, so
+     * the ROUTE page can be per-voice AND per-cable at the same time. */
+    uint8_t     rows;
+    uint8_t     rstride;
 } fm1_page_t;
 
 /* SCOPE_VOICE is 0, which is what makes the trailing-zero default above mean
@@ -138,10 +150,16 @@ static const fm1_page_t FM1_PG_EDIT[] = {
       P_EQ(0, P_EQ_MODE), SUBJ_BAND, P_EQ_STRIDE },
 
     /* Routing lives on the last page of the menu that owns the thing being
-     * routed. One cable out, and `---` is unplugged. */
-    { "ROUTE",  { P_DEST, P_LEVEL, P_PAN, P_MONO },
+     * routed. FOUR cables now, one per row, with ALGORITHM choosing which --
+     * `---` is how a cable is unplugged, so there is no separate switch to
+     * disagree with it.
+     *
+     * This page used to be DEST plus LEVEL, PAN and MONO, which is to say
+     * one cable and three things that were already on MIX. Where a voice
+     * goes is a whole subject; it gets the page. */
+    { "ROUTE",  { P_DEST, P_OUT1_GAIN, PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_VOICE, 0 },
+      PG_NONE, SUBJ_VOICE, 0, 0, FM1_NODE_OUTS, P_OUT_STRIDE },
 };
 
 /* --- ENV: AHDSR ----------------------------------------------------------
@@ -230,12 +248,6 @@ static const fm1_page_t FM1_PG_MIX[] = {
     { "MIXER",  { P_LEVEL, P_PAN, P_MONO, P_DRIVE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0, 0 },
-    /* Where a voice GOES, next to how loud it is. DEST was reachable only
-     * from the routing page before, which put "how much" and "where" in
-     * different menus. */
-    { "SEND",   { P_DEST, P_LEVEL, PG_NONE, PG_NONE },
-      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_VOICE, 0, 0 },
     /* The four mix buses. GLOBAL parameters on a per-voice menu, which is
      * what fm1_page_t::gscope exists for: a bus sums voices, so it belongs
      * beside them rather than exiled to GLO. */
@@ -299,6 +311,10 @@ typedef struct {
     uint8_t menu;
     uint8_t page;
     uint8_t sel[SUBJ_NKIND];
+    /* Which line of a table page ALGORITHM is pointing at. One value, not
+     * one per page: it is where you are standing now, and a page without
+     * rows ignores it. */
+    uint8_t row;
 } fm1_nav_t;
 
 static inline void fm1_nav_init(fm1_nav_t *n)
@@ -376,6 +392,30 @@ static inline void fm1_nav_select(fm1_nav_t *n, int delta)
 
 /* The parameter id under a knob, or PG_NONE. Index it into FM1_PDEF when the
  * menu's scope is SCOPE_VOICE, FM1_GDEF when it is SCOPE_GLOBAL. */
+/* The row this page is on, clamped -- `row` is shared across pages, so a
+ * page with fewer rows than the last one must not read past its own table. */
+static inline uint8_t fm1_nav_row_of(const fm1_nav_t *n)
+{
+    const fm1_page_t *p = fm1_nav_page(n);
+    if (!p->rows) return 0;
+    return n->row < p->rows ? n->row : (uint8_t)(p->rows - 1);
+}
+
+/* ALGORITHM, on a page that has rows. Clamps rather than wraps: a table has
+ * a top and a bottom you can feel, and wrapping from cable 4 to cable 1
+ * while looking for cable 5 reads as the control having slipped. */
+static inline void fm1_nav_row_move(fm1_nav_t *n, int delta)
+{
+    const fm1_page_t *p = fm1_nav_page(n);
+    int v;
+
+    if (!p->rows) return;
+    v = (int)fm1_nav_row_of(n) + delta;
+    if (v < 0) v = 0;
+    if (v >= (int)p->rows) v = p->rows - 1;
+    n->row = (uint8_t)v;
+}
+
 /* Which table a page's parameters live in. */
 static inline int fm1_page_scope(const fm1_nav_t *n)
 {
@@ -391,7 +431,8 @@ static inline int fm1_page_knob(const fm1_nav_t *n, uint8_t knob)
     if (knob >= FM1_KNOBS) return PG_NONE;
     id = p->k[knob];
     if (id == PG_NONE) return PG_NONE;
-    return id + (int)p->stride * (int)n->sel[p->subject];
+    return id + (int)p->stride * (int)n->sel[p->subject]
+              + (int)p->rstride * (int)fm1_nav_row_of(n);
 }
 
 /* What SHIFT + this knob edits, or PG_NONE. Same stride arithmetic as the
@@ -404,7 +445,8 @@ static inline int fm1_page_shift_knob(const fm1_nav_t *n, uint8_t knob)
     if (knob >= FM1_KNOBS) return PG_NONE;
     id = p->ks[knob];
     if (id == PG_NONE) return PG_NONE;
-    return id + (int)p->stride * (int)n->sel[p->subject];
+    return id + (int)p->stride * (int)n->sel[p->subject]
+              + (int)p->rstride * (int)fm1_nav_row_of(n);
 }
 
 /* The parameter id on the ALGORITHM encoder, or PG_NONE. */

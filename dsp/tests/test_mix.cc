@@ -1630,11 +1630,95 @@ static void test_mix_buses(void)
     }
 }
 
+
+/* --- parallel cables -----------------------------------------------------
+ *
+ * Four outputs per voice, each with a destination and a gain. The point is
+ * that one voice can be in two places at once -- a reverb and the dry mix --
+ * which a single cable could not express at all.
+ */
+static int32_t cables_peak(const uint8_t *dest, const uint8_t *gain)
+{
+    fm1::Drone d;
+    int16_t buf[FM1_BLOCK * 2];
+    int32_t pk = 0;
+
+    d.Init();
+    d.SetGlobal(G_SPREAD, 0);
+    for (uint8_t v = 1; v < FM1_VOICES; v++) d.SetGate(v, 0);
+    d.SetParam(0, P_SHAPE, braids::MACRO_OSC_SHAPE_CSAW);
+    /* Deliberately NOT full level. Two cables to the same place sum, and at
+     * LEVEL 127 the pair lands on the soft clipper -- the first version of
+     * this test read 1.79x instead of 2.0x and called the cables broken
+     * when what it had actually measured was the limiter doing its job. */
+    d.SetParam(0, P_LEVEL, 56);
+    d.SetParam(0, P_PAN,   64);
+    for (uint8_t c = 0; c < FM1_NODE_OUTS; c++) {
+        d.SetParam(0, (uint8_t)P_OUT(c, P_OUT_DEST), dest[c]);
+        d.SetParam(0, (uint8_t)P_OUT(c, P_OUT_GAIN), gain[c]);
+    }
+    d.NoteOn(0, 45);
+    d.SnapParams();
+
+    for (int b = 0; b < 40; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) {
+            int32_t a = buf[i] < 0 ? -(int32_t)buf[i] : (int32_t)buf[i];
+            if (a > pk) pk = a;
+        }
+    }
+    return pk;
+}
+
+static void test_cables(void)
+{
+    uint8_t dst[FM1_NODE_OUTS], gn[FM1_NODE_OUTS];
+    int32_t one, two, half, off;
+
+    printf("\nparallel cables\n");
+
+    dst[0] = DEST_OUT; dst[1] = DEST_OFF; dst[2] = DEST_OFF; dst[3] = DEST_OFF;
+    gn[0] = gn[1] = gn[2] = gn[3] = 127;
+    one = cables_peak(dst, gn);
+
+    /* The same voice down two cables, both to the output: twice the signal,
+     * because it is literally the same samples added to the same bus. */
+    dst[1] = DEST_OUT;
+    two = cables_peak(dst, gn);
+    printf("    one cable:  %6d\n", one);
+    printf("    two cables: %6d\n", two);
+    ok(two > one * 18 / 10 && two < one * 22 / 10,
+       "a second cable to the same place doubles it",
+       "the extra cable is not carrying");
+
+    /* And its gain is its own. */
+    gn[1] = 64;
+    half = cables_peak(dst, gn);
+    ok(half > one * 13 / 10 && half < one * 17 / 10,
+       "each cable has its own gain", "the gain is shared or ignored");
+
+    /* Unplugged means unplugged, whatever the gain says. */
+    dst[1] = DEST_OFF; gn[1] = 127;
+    off = cables_peak(dst, gn);
+    ok(off > one * 9 / 10 && off < one * 11 / 10,
+       "--- unplugs the cable regardless of its gain",
+       "an unplugged cable is still being heard");
+
+    /* Cable 1 off, cable 3 on: the cables are independent, not a chain that
+     * stops at the first gap. */
+    dst[0] = DEST_OFF; dst[2] = DEST_OUT;
+    ok(cables_peak(dst, gn) > one * 9 / 10,
+       "a later cable works with an earlier one unplugged",
+       "the cables are being treated as a list that ends at the first gap");
+}
+
 int main(void)
 {
     test_soft_clip();
     test_bus();
     test_mix_buses();
+    test_cables();
     test_rack();
     test_meters();
     test_eq();

@@ -40,8 +40,17 @@ static void sweep(uint8_t *voice_seen, uint8_t *global_seen)
         for (pg = 0; pg < FM1_MENU[m].npages; pg++) {
             uint8_t kind = FM1_MENU[m].pages[pg].subject;
             uint8_t nsub = FM1_SUBJ_COUNT[kind];
+            /* A table page reaches a different line of the parameter table
+             * on every ROW, and ALGORITHM is how a human gets to them --
+             * so the sweep has to walk rows as well, or every row but the
+             * first reads as unreachable. */
+            uint8_t nrow = FM1_MENU[m].pages[pg].rows;
+            uint8_t rw;
 
-            for (s = 0; s < nsub; s++) {
+            if (!nrow) nrow = 1;
+
+            for (s = 0; s < nsub; s++)
+            for (rw = 0; rw < nrow; rw++) {
                 /* Knobs, SHIFT + knobs, and the ALGORITHM encoder. The
                  * shift layer is part of the sweep because it is part of
                  * what a human can reach: the MOD pages put a destination's
@@ -55,6 +64,7 @@ static void sweep(uint8_t *voice_seen, uint8_t *global_seen)
                 n.menu = m;
                 n.page = pg;
                 n.sel[kind] = s;
+                n.row = rw;
 
                 for (k = 0; k < FM1_KNOBS; k++) {
                     ids[k] = fm1_page_knob(&n, k);

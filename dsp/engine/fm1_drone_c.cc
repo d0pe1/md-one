@@ -55,6 +55,8 @@ static_assert(FD_P_LEVEL      == P_LEVEL,       "param mirror drifted");
 static_assert(FD_P_PAN        == P_PAN,         "param mirror drifted");
 static_assert(FD_P_MONO       == P_MONO,        "param mirror drifted");
 static_assert(FD_P_DEST       == P_DEST,        "param mirror drifted");
+static_assert(FD_P_OUT(3, FD_P_OUT_GAIN) == P_OUT(3, P_OUT_GAIN), "cable mirror drifted");
+static_assert(FD_NODE_OUTS    == FM1_NODE_OUTS, "cable count mirror drifted");
 static_assert(FD_NPARAM       == NPARAM,        "param mirror drifted");
 static_assert(FD_NGPARAM      == NGPARAM,       "global mirror drifted");
 static_assert(FD_G_MIX_BASE   == G_MIX_BASE,    "mix bus base mirror drifted");

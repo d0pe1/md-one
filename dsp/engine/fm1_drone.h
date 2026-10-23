@@ -300,6 +300,15 @@ class Drone {
      * and goes to bus_. No destination of its own, so no cycle is possible
      * through a bus and none of the rack's feedback analysis applies to them.
      * 8 KiB. */
+    /* One voice's stereo output, before it is handed to its cables.
+     *
+     * The voice used to write straight into its single destination from
+     * inside the sample loop. With four cables that would mean up to four
+     * scattered writes per sample; rendering once here and distributing the
+     * BLOCK afterwards costs one buffer and turns the fan-out into the same
+     * cheap add-loop the patchbay uses. 2 KiB, reused by every voice. */
+    int32_t    vout_[FM1_BLOCK * 2];
+
     int32_t    mixin_[FM1_MIX_CHANS][FM1_BLOCK * 2];
     uint8_t    mixmeter_[FM1_MIX_CHANS];
 };

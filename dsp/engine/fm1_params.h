@@ -58,11 +58,18 @@ enum {
      * check you can hit while the DAW is recording -- and what the unison and
      * Haas work will need once a voice can be genuinely stereo. */
     P_MONO,
-    /* Where this voice's output goes: DEST_OFF, DEST_FX1..FX4, DEST_OUT.
-     * A voice routes exactly the way an effect channel does -- one value, one
-     * cable -- which is what keeps the routing model a single idea instead of
-     * two (fm1_rack.h). */
-    P_DEST,
+    /* Where this voice's output goes. FOUR cables, each a destination and a
+     * gain, so a voice can be sent to a reverb and to the mix at the same
+     * time -- parallel patching, which one cable could not express at all.
+     * DEST = OFF is how a cable is unplugged, so there is no separate
+     * "active" switch to disagree with it.
+     *
+     * The first one keeps the name P_DEST: it is still the primary cable,
+     * and every caller that only ever wanted one keeps working unchanged. */
+    P_DEST,       P_OUT1_GAIN,
+    P_OUT2_DEST,  P_OUT2_GAIN,
+    P_OUT3_DEST,  P_OUT3_GAIN,
+    P_OUT4_DEST,  P_OUT4_GAIN,
     /* The modulation matrix: nine destinations, each a DEPTH and a SOURCE.
      *
      * Nine rather than twelve because folding the comb into the filter did
@@ -112,6 +119,14 @@ enum {
     P_ENV_MODE,
     NPARAM
 };
+
+/* Output cable n (0..3), control j. Same shape as P_EQ() and G_FX(). */
+#define P_OUT_BASE   P_DEST
+#define P_OUT_STRIDE 2
+#define P_OUT(n, j)  (P_OUT_BASE + (n) * P_OUT_STRIDE + (j))
+#define P_OUT_DEST   0
+#define P_OUT_GAIN   1
+#define FM1_NODE_OUTS 4
 
 /* Slot n (0..1), control j. Same shape as P_EQ() and G_FX(). */
 #define P_SL_BASE    P_SL1_TYPE
@@ -383,7 +398,16 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * cable before anything is heard is correct for a modular and wrong for
      * an instrument you just switched on. max is DEST_NDEST-1 as a literal,
      * checked against the enum in fm1_drone.cc. */
-    [P_DEST]       = {"DEST",     9,   9, K_DEST,    0},
+    [P_DEST]       = {"OUT1 TO",  9,   9, K_DEST,    0},
+    [P_OUT1_GAIN]  = {"OUT1 LVL",127, 127, K_PCT,     0},
+    /* The other three start unplugged: a voice that suddenly came out of
+     * four places on boot would be a surprise, not a feature. */
+    [P_OUT2_DEST]  = {"OUT2 TO",  9,   0, K_DEST,    0},
+    [P_OUT2_GAIN]  = {"OUT2 LVL",127, 127, K_PCT,     0},
+    [P_OUT3_DEST]  = {"OUT3 TO",  9,   0, K_DEST,    0},
+    [P_OUT3_GAIN]  = {"OUT3 LVL",127, 127, K_PCT,     0},
+    [P_OUT4_DEST]  = {"OUT4 TO",  9,   0, K_DEST,    0},
+    [P_OUT4_GAIN]  = {"OUT4 LVL",127, 127, K_PCT,     0},
 
     /* Everything off: a new patch modulates nothing until asked. DEPTH is
      * bipolar so 64 is the centre detent, exactly as FM and MOD are on the

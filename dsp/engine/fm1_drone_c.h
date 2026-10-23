@@ -71,12 +71,21 @@ extern "C" {
 #define FD_P_LEVEL       38
 #define FD_P_PAN         39
 #define FD_P_MONO        40     /* collapse to centre, ignoring PAN */
+/* Four output cables per voice: DEST then GAIN, four times. The first
+ * keeps the name FD_P_DEST -- it is still the primary cable. */
+#define FD_P_OUT_BASE    FD_P_DEST
+#define FD_P_OUT_STRIDE   2
+#define FD_P_OUT(n, j)   (FD_P_OUT_BASE + (n) * FD_P_OUT_STRIDE + (j))
+#define FD_P_OUT_DEST     0
+#define FD_P_OUT_GAIN     1
+#define FD_NODE_OUTS      4
+
 #define FD_P_DEST        41     /* FD_DEST_* -- this voice's one cable out */
 
 /* The modulation matrix: nine destinations, each a DEPTH (bipolar, 64 = none)
  * and a SOURCE (FD_MD_SRC_NONE, or 1..4 for the LFOs).
  * FD_P_MD(n, j) addresses destination n, control j. */
-#define FD_P_MD_BASE     42
+#define FD_P_MD_BASE     49
 #define FD_P_MD_STRIDE    2
 #define FD_P_MD(n, j)    (FD_P_MD_BASE + (n) * FD_P_MD_STRIDE + (j))
 #define FD_P_MD_DEPTH     0
@@ -85,7 +94,7 @@ extern "C" {
 /* Two insert slots per voice, between the filters: TYPE, P1, P2, MIX.
  * FD_P_SL(n, j) addresses slot n (0..1), control j. This is where the comb
  * and the resonator went when they stopped being filter modes. */
-#define FD_P_SL_BASE     62
+#define FD_P_SL_BASE     69
 #define FD_P_SL_STRIDE    4
 #define FD_P_SL(n, j)    (FD_P_SL_BASE + (n) * FD_P_SL_STRIDE + (j))
 #define FD_P_SL_TYPE      0
@@ -103,8 +112,8 @@ extern "C" {
 #define FD_SL_NTYPES      5
 
 /* SLOPE, one per filter: 0 = 6 dB, 1 = 12 dB, 2 = 24 dB per octave. */
-#define FD_P_F1_POLE     60
-#define FD_P_F2_POLE     61
+#define FD_P_F1_POLE     67
+#define FD_P_F2_POLE     68
 #define FD_FP_6           0
 #define FD_FP_12          1
 #define FD_FP_24          2
@@ -124,9 +133,9 @@ extern "C" {
 #define FD_MD_NDEST       9
 
 /* Appended at the end of the enum on purpose -- see fm1_params.h. */
-#define FD_P_ENV_MODE    70
+#define FD_P_ENV_MODE    77
 
-#define FD_NPARAM        71
+#define FD_NPARAM        78
 
 /* Envelope modes, mirroring the ENV_M_* enum in fm1_env.h. DRONE ignores a
  * key release; the other two hand it back to the player. */
