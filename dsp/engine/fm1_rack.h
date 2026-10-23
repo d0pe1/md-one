@@ -44,13 +44,13 @@
  * that is not fun. Accumulators are clamped, so a runaway saturates into the
  * soft clip and screams instead.
  *
- * C++ only: FX_LP/FX_HP embed braids::Svf.
+ * C++ only: this header lives inside namespace fm1.
  */
 #ifndef FM1_RACK_H
 #define FM1_RACK_H
 
-#include "../mi/braids/svf.h"
 #include "../shared/fm1_fixed.h"
+#include "fm1_tpt.h"
 
 /* The effect types and the routing targets, with their names. They live in
  * their own header because this one embeds braids::Svf and is therefore C++
@@ -79,7 +79,25 @@ struct fx_chan_t {
     uint8_t  dest;          /* DEST_* -- the one cable out */
 
     uint32_t phase;         /* chorus LFO */
-    braids::Svf svf[2];     /* FX_LP / FX_HP, one per channel side */
+
+    /* Does this effect READ the delay line? Only the chorus does.
+     *
+     * The line was written on every sample by every active channel
+     * regardless of type, so a LOWPASS channel spent two stores a sample --
+     * 2 KiB a block -- filling an 8 KiB buffer it never looked at. That is
+     * pure plumbing, and plumbing is most of what an FX channel costs:
+     * measured, FX_LP came to 3.07% of the audio budget where two
+     * Svf.Process calls account for about 1.6% of it.
+     *
+     * Decided when the type changes, not tested per sample. */
+    uint8_t  taps;
+    /* TRAPEZOIDAL, like the voice filter. These were braids::Svf, which is a
+     * Chamberlin and is only well behaved below about fs/6 -- the same
+     * ceiling that made the voice's 24 dB lowpass stop opening at a real
+     * 1909 Hz while its panel read 12.5 kHz. The rack had it too, silently.
+     *
+     * Two of them, one per channel side, because the rack is stereo. */
+    fm1_tpt_t   tpt[2];
 
     /* Input accumulator. Persists ACROSS samples, which is what gives a
      * backward cable its one-sample delay for free. */
@@ -103,13 +121,14 @@ struct fx_rack_t {
 static inline void fx_chan_init(fx_chan_t *c)
 {
     c->type = FX_NONE;
+    c->taps = 0;
     c->p1 = 64; c->p2 = 64;
     c->mix = 127;
     c->dest = DEST_OFF;
     c->phase = 0;
     c->acc[0] = c->acc[1] = 0;
-    c->svf[0].Init();
-    c->svf[1].Init();
+    fm1_tpt_init(&c->tpt[0]);
+    fm1_tpt_init(&c->tpt[1]);
     for (uint32_t s = 0; s < 2; s++)
         for (uint32_t i = 0; i < FM1_FX_DELAY; i++) c->dl[s][i] = 0;
 }
@@ -126,13 +145,16 @@ static inline void fx_chan_set_type(fx_chan_t *c, uint8_t t)
     uint8_t p1 = c->p1, p2 = c->p2, mix = c->mix, dest = c->dest;
     fx_chan_init(c);            /* state across a type change is meaningless */
     c->type = t;
+    c->taps = (uint8_t)(t == FX_CHORUS);
     c->p1 = p1; c->p2 = p2; c->mix = mix; c->dest = dest;
     if (t == FX_LP || t == FX_HP) {
         for (int s = 0; s < 2; s++) {
-            c->svf[s].set_mode(t == FX_HP ? braids::SVF_MODE_HP
-                                          : braids::SVF_MODE_LP);
-            c->svf[s].set_frequency((int16_t)((int32_t)c->p1 << 7));
-            c->svf[s].set_resonance((int16_t)((int32_t)c->p2 * 258));
+            /* No mode to set: a trapezoidal SVF produces all three
+             * responses from the same state, so LP against HP is chosen at
+             * the output. Resonance BEFORE cutoff would be equivalent --
+             * both setters re-solve the loop (fm1_tpt.h). */
+            fm1_tpt_set_res(&c->tpt[s], c->p2);
+            fm1_tpt_set_pitch(&c->tpt[s], (int32_t)c->p1 << 7);
         }
     }
 }
@@ -142,7 +164,7 @@ static inline void fx_chan_set_p1(fx_chan_t *c, uint8_t v)
     c->p1 = v;
     if (c->type == FX_LP || c->type == FX_HP)
         for (int s = 0; s < 2; s++)
-            c->svf[s].set_frequency((int16_t)((int32_t)v << 7));
+            fm1_tpt_set_pitch(&c->tpt[s], (int32_t)v << 7);
 }
 
 static inline void fx_chan_set_p2(fx_chan_t *c, uint8_t v)
@@ -150,7 +172,7 @@ static inline void fx_chan_set_p2(fx_chan_t *c, uint8_t v)
     c->p2 = v;
     if (c->type == FX_LP || c->type == FX_HP)
         for (int s = 0; s < 2; s++)
-            c->svf[s].set_resonance((int16_t)((int32_t)v * 258));
+            fm1_tpt_set_res(&c->tpt[s], v);
 }
 
 static inline void fx_chan_set_dest(fx_chan_t *c, uint8_t d)
@@ -264,8 +286,18 @@ static inline void fx_chan_tick(fx_chan_t *c, uint32_t w,
          * at the top of the header -- "it saturated INSIDE the loop, before
          * any output gain, so it never showed as clipping in a rendered
          * file" -- and then repeats two lines later. */
-        wl = (int32_t)c->svf[0].Process(il >> 3) << 3;
-        wr = (int32_t)c->svf[1].Process(ir >> 3) << 3;
+        /* No >> 3 and << 3 any more. That scaling was there because
+         * braids::Svf clamps its integrators to int16 while this bus
+         * deliberately carries up to 8.0 -- an 18 dB hard clip inside the
+         * loop on a channel the panel calls LOWPASS. fm1_tpt_t clamps at
+         * 1 << 28 and runs the signal three bits hot internally, so the
+         * headroom the bus exists to provide survives the filter. */
+        {
+            fm1_tpt_out_t a = fm1_tpt_tick(&c->tpt[0], il);
+            fm1_tpt_out_t b = fm1_tpt_tick(&c->tpt[1], ir);
+            wl = (c->type == FX_LP) ? a.lp : a.hp;
+            wr = (c->type == FX_LP) ? b.lp : b.hp;
+        }
         break;
     default:
         break;      /* FX_NONE: the channel is a wire, wet is dry */
@@ -274,8 +306,10 @@ static inline void fx_chan_tick(fx_chan_t *c, uint32_t w,
     /* The delay line is written with the DRY input, always -- so a channel
      * switched on mid-patch reads recent audio rather than silence, or
      * whatever was sitting in it a minute ago. */
-    c->dl[0][w] = il;
-    c->dl[1][w] = ir;
+    if (c->taps) {
+        c->dl[0][w] = il;
+        c->dl[1][w] = ir;
+    }
 
     if (c->mix >= 127) { *ol = wl; *orr = wr; return; }
     *ol  = il + (((wl - il) * (int32_t)c->mix) >> 7);
@@ -332,6 +366,144 @@ static inline void fx_deposit(fx_rack_t *r, uint8_t dest, uint32_t visiting,
  * one-sample rule stays what the panel says it is even when the channels in
  * between are unplugged.
  */
+/* --- the fast path: a whole block, one channel at a time -----------------
+ *
+ * Everything above is evaluated per SAMPLE so that a cable pointing BACKWARD
+ * becomes a one-sample feedback loop rather than a 5.8 ms slapback. That is
+ * the right default and it is what makes the patchbay a patchbay.
+ *
+ * It is also expensive, and most patches never use it. A cable pointing
+ * FORWARD "lands in its target's accumulator before that target runs, so it
+ * arrives the same sample with no delay at all" -- which means that for a
+ * purely forward graph, per-sample and per-block produce the SAME SAMPLES.
+ * No feedback, no state crossing between channels, nothing to interleave.
+ *
+ * What the per-sample form costs for that unused generality, measured on
+ * pi32v2: switching on one channel of FX_WIDTH -- four adds and two shifts
+ * per sample -- cost 29,743 cycles, 2.0% of the audio budget. The mid/side
+ * arithmetic is perhaps 1,500 of that. The rest is the accumulate loop,
+ * fx_rack_sample, two clamps, four accumulator stores, a switch on the type
+ * and fx_deposit, all behind pointers, 256 times over.
+ *
+ * So: detect a backward cable, and only pay for the interleave when one
+ * exists. One loop per type with the state in locals, as the voice filter
+ * does and for the same reason.
+ */
+static inline int fx_rack_has_feedback(const fx_rack_t *r,
+                                       const uint8_t *act, uint32_t n_act)
+{
+    for (uint32_t k = 0; k < n_act; k++) {
+        uint8_t d = r->ch[act[k]].dest;
+        if (d >= DEST_FX1 && d < DEST_OUT &&
+            (uint32_t)(d - DEST_FX1) <= act[k])
+            return 1;                   /* backward, or pointing at itself */
+    }
+    return 0;
+}
+
+/* One channel, n stereo frames, IN PLACE. `w0` is the delay cursor at the
+ * first frame; only the chorus reads it. */
+static inline void fx_chan_block(fx_chan_t *c, uint32_t w0,
+                                 int32_t *buf, uint32_t n)
+{
+    const int32_t mix = (int32_t)c->mix;
+
+    /* Anything a backward cable left behind lands on the first frame. In a
+     * forward-only graph this is always zero; it is here so that switching a
+     * cable from backward to forward cannot strand a sample in the
+     * accumulator. */
+    if (c->acc[0] | c->acc[1]) {
+        buf[0] = fx_clamp(buf[0] + c->acc[0]);
+        buf[1] = fx_clamp(buf[1] + c->acc[1]);
+        c->acc[0] = c->acc[1] = 0;
+    }
+
+    if (c->type == FX_NONE) return;     /* a wire: wet IS dry */
+
+    /* The dry/wet blend is the same three lines in every loop below. Kept as
+     * a macro rather than a call so the state stays in registers, which is
+     * the entire point of processing a block at a time. */
+#define FX_BLK(...)                                                        \
+    for (uint32_t i = 0; i < n; i++) {                                      \
+        int32_t il = fx_clamp(buf[2 * i]), ir = fx_clamp(buf[2 * i + 1]);   \
+        int32_t wl, wr;                                                     \
+        __VA_ARGS__                                                         \
+        if (mix >= 127) { buf[2 * i] = wl; buf[2 * i + 1] = wr; }           \
+        else {                                                              \
+            buf[2 * i]     = il + (((wl - il) * mix) >> 7);                 \
+            buf[2 * i + 1] = ir + (((wr - ir) * mix) >> 7);                 \
+        }                                                                   \
+    }
+
+    switch (c->type) {
+    case FX_WIDTH: {
+        const int32_t p1 = (int32_t)c->p1;
+        FX_BLK({
+            int32_t m = (il + ir) >> 1, sd = ((il - ir) >> 1);
+            sd = (sd * p1) >> 6;
+            wl = m + sd; wr = m - sd;
+        })
+        break;
+    }
+    case FX_FOLD: {
+        const int32_t drive = Q12_ONE + (int32_t)c->p1 * 24;
+        const int32_t bias  = ((int32_t)c->p2 - 64) * 64;
+        FX_BLK({ wl = fx_fold1(il, drive, bias); wr = fx_fold1(ir, drive, bias); })
+        break;
+    }
+    case FX_LP: case FX_HP: {
+        fm1_tpt_t s0 = c->tpt[0], s1 = c->tpt[1];
+        const int lp = (c->type == FX_LP);
+        FX_BLK({
+            fm1_tpt_out_t a = fm1_tpt_tick(&s0, il);
+            fm1_tpt_out_t b = fm1_tpt_tick(&s1, ir);
+            wl = lp ? a.lp : a.hp;
+            wr = lp ? b.lp : b.hp;
+        })
+        c->tpt[0] = s0; c->tpt[1] = s1;
+        break;
+    }
+    case FX_CHORUS: {
+        const uint32_t inc   = 4870u + (uint32_t)c->p1 * 575u;
+        const int32_t  depth = (int32_t)c->p2;
+        uint32_t phase = c->phase;
+        for (uint32_t i = 0; i < n; i++) {
+            uint32_t w = (w0 + i) & FM1_FX_DMASK;
+            int32_t il = fx_clamp(buf[2 * i]), ir = fx_clamp(buf[2 * i + 1]);
+            int32_t wl = il, wr = ir;
+            phase += inc;
+            for (int sd = 0; sd < 2; sd++) {
+                uint32_t ph  = phase + (sd ? 0x40000000u : 0u);
+                uint32_t p16 = ph >> 16;
+                int32_t  tri = (int32_t)(p16 < 32768u ? p16 : 65535u - p16);
+                int32_t  d_q8 = (180 << 8) + ((tri * depth * 3) >> 8);
+                uint32_t di = (uint32_t)(d_q8 >> 8), df = (uint32_t)(d_q8 & 0xFF);
+                uint32_t r0, r1;
+                int32_t a, b, v;
+                if (di > FM1_FX_DELAY - 2u) di = FM1_FX_DELAY - 2u;
+                r0 = (w - di) & FM1_FX_DMASK;
+                r1 = (r0 - 1u) & FM1_FX_DMASK;
+                a = c->dl[sd][r0]; b = c->dl[sd][r1];
+                v = a + (((b - a) * (int32_t)df) >> 8);
+                if (sd) wr = v; else wl = v;
+            }
+            c->dl[0][w] = il;           /* the DRY input, as the per-sample path */
+            c->dl[1][w] = ir;
+            if (mix >= 127) { buf[2 * i] = wl; buf[2 * i + 1] = wr; }
+            else {
+                buf[2 * i]     = il + (((wl - il) * mix) >> 7);
+                buf[2 * i + 1] = ir + (((wr - ir) * mix) >> 7);
+            }
+        }
+        c->phase = phase;
+        break;
+    }
+    default:
+        break;
+    }
+#undef FX_BLK
+}
+
 static inline void fx_rack_sample(fx_rack_t *r, uint32_t w,
                                   const uint8_t *act, uint32_t n_act,
                                   int32_t *in_l, int32_t *in_r,

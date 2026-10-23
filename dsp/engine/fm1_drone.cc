@@ -1072,7 +1072,44 @@ void Drone::Render(int16_t *out, uint32_t n)
          *
          * It runs before master, while the headroom is still there: a folder
          * or a resonant filter needs room above the signal to work in. */
-        if (fx_n) {
+        /* FM1_FX_FORCE_SLOW takes the per-sample path unconditionally. It
+         * exists so the two can be rendered against each other and shown to
+         * agree, rather than the block form being claimed equivalent. */
+#ifdef FM1_FX_FORCE_SLOW
+        if (0) {
+#else
+        if (fx_n && !fx_rack_has_feedback(&rack_, fx_act, fx_n)) {
+#endif
+            /* No cable points backward, so nothing here is a feedback loop
+             * and the per-sample interleave buys nothing: channels are
+             * visited in index order and a forward cable already arrives
+             * within the same sample. Block form gives the SAME SAMPLES for
+             * a fraction of the plumbing (fm1_rack.h). */
+            uint8_t live[FM1_FX_CHANS] = { 0 };
+            for (uint32_t k = 0; k < fx_n; k++) live[fx_act[k]] = 1;
+
+            for (uint32_t k = 0; k < fx_n; k++) {
+                uint32_t n = fx_act[k];
+                uint8_t  d = rack_.ch[n].dest;
+
+                fx_chan_block(&rack_.ch[n], rack_.cursor, fxin_[n], chunk);
+
+                if (d == DEST_OUT) {
+                    for (uint32_t i = 0; i < chunk * 2u; i++)
+                        bus_[i] += fxin_[n][i];
+                } else {
+                    /* Into a channel that has not run yet. Only if it is
+                     * actually live: an unplugged target is never read, and
+                     * never cleared either, so depositing into one would
+                     * accumulate without bound for the sake of silence. */
+                    uint32_t t = (uint32_t)(d - DEST_FX1);
+                    if (t < FM1_FX_CHANS && live[t])
+                        for (uint32_t i = 0; i < chunk * 2u; i++)
+                            fxin_[t][i] = fx_clamp(fxin_[t][i] + fxin_[n][i]);
+                }
+            }
+            rack_.cursor = (rack_.cursor + chunk) & FM1_FX_DMASK;
+        } else if (fx_n) {
             int32_t in_l[FM1_FX_CHANS], in_r[FM1_FX_CHANS];
             for (uint32_t n = 0; n < FM1_FX_CHANS; n++) in_l[n] = in_r[n] = 0;
 
