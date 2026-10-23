@@ -14,9 +14,16 @@ at nine tenths: nearly all of the audible fade happens in the last fraction,
 so it sounds like the note hangs and then drops off a cliff. An exponential
 approach is roughly linear in dB, which is what fading sounds like.
 
-tau sweeps geometrically from 0.4 ms to 7 s. A one-pole is within 1% of its
-target after about 4.6 tau, so the top of the range is a ~32 second fade --
-the ~30 s that docs/SIGNAL_PATH.md section 3 promises.
+tau sweeps geometrically from 0.11 ms to 7 s. A one-pole is within 1% of its
+target after about 4.6 tau, so the range is a 0.5 ms snap to a ~32 second
+fade -- the ~30 s that docs/SIGNAL_PATH.md section 3 promises at the top, and
+at the bottom something short enough to be a CLICK.
+
+0.4 ms of tau was the old floor, which settles in 1.9 ms. That is a fast
+envelope but it is not a transient: a 1.9 ms attack on a struck sound
+rounds the leading edge off into a thud. 0.11 ms settles in 0.5 ms, which is
+about 22 samples -- still long enough to avoid a step discontinuity, short
+enough that the ear hears an edge.
 
 exp() is not available on the target: no FPU, no libm.
 
@@ -29,7 +36,7 @@ import pathlib
 import sys
 
 FS = 44100.0
-TAU_MIN = 0.0004          # seconds, knob 0   -- effectively instant
+TAU_MIN = 0.000109        # seconds, knob 0   -- 0.5 ms settle: a click
 TAU_MAX = 7.0             # seconds, knob 127 -- ~32 s to settle
 DEST = pathlib.Path(__file__).resolve().parent.parent / "dsp" / "shared" / "fm1_env_table.h"
 

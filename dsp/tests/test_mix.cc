@@ -1713,6 +1713,61 @@ static void test_cables(void)
        "the cables are being treated as a list that ends at the first gap");
 }
 
+
+/* --- fine editing, as a BEHAVIOUR ----------------------------------------
+ *
+ * The existing fine test asserts which parameters Drone::HasFine names. That
+ * is necessary and insufficient, and the gap shipped: ATTACK, HOLD, DECAY
+ * and RELEASE were added to the list while fm1_env_set_attack still took a
+ * uint8_t, so SHIFT offered a sub-step on a control that quantised to the
+ * byte. The list said yes; nothing moved.
+ *
+ * So this one measures. Two envelopes a single fine step apart have to take
+ * a DIFFERENT number of samples to get there, or the gesture is decoration.
+ */
+static long attack_samples(int32_t q8)
+{
+    fm1_env_t e;
+    long n = 0;
+
+    fm1_env_init(&e);
+    fm1_env_set_attack_q8(&e, q8);
+    fm1_env_set_sustain(&e, 127);
+    fm1_env_gate(&e, 1);
+    while (e.stage == ENV_ATTACK && n < 44100L * 60) { fm1_env_tick(&e); n++; }
+    return n;
+}
+
+static void test_fine_moves_something(void)
+{
+    printf("\nfine editing actually moves the engine\n");
+
+    /* Mid-knob, where one coarse step is a few tens of milliseconds and a
+     * 1/256 step is well inside what the integer rate can represent. */
+    {
+        long a = attack_samples(80 << 8);
+        long b = attack_samples((80 << 8) + 128);   /* half a coarse step */
+        long c = attack_samples(81 << 8);
+        printf("    ATTACK 80 = %ld, 80.5 = %ld, 81 = %ld samples\n", a, b, c);
+        ok(b != a, "half a step of ATTACK changes the attack time",
+           "the fine bits are being discarded");
+        ok(b > a && b < c,
+           "and lands between the two coarse steps either side",
+           "the interpolation is not monotonic");
+    }
+
+    /* The whole point of fine here: at the slow end one coarse step is
+     * SECONDS, which is why seven bits was too few to begin with. */
+    {
+        long a = attack_samples(120 << 8);
+        long b = attack_samples((120 << 8) + 128);
+        printf("    ATTACK 120 = %.2f s, 120.5 = %.2f s\n",
+               (double)a / 44100.0, (double)b / 44100.0);
+        ok(b != a, "and at the slow end, where a coarse step is seconds",
+           "the fine bits are being discarded");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -1729,6 +1784,7 @@ int main(void)
     test_mod_matrix();
     test_late_additions();
     test_fine();
+    test_fine_moves_something();
     test_detune_symmetry();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",

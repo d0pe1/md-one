@@ -149,14 +149,47 @@ static inline void fm1_env_init(fm1_env_t *e)
 static inline void fm1_env_set_mode(fm1_env_t *e, uint8_t m)
 { e->mode = m < ENV_M_NMODES ? m : ENV_M_DRONE; }
 
+/* The rate for a Q8 knob position -- the coarse byte plus its fraction.
+ *
+ * Fine editing only exists where the ENGINE reads the fraction. These four
+ * times were added to Drone::HasFine without this, so SHIFT offered a
+ * sub-step on a control that still quantised to the byte: a gesture with no
+ * effect, which is the one failure this project keeps paying for. The test
+ * missed it because it asserted the LIST rather than the behaviour.
+ *
+ * Geometric interpolation would be the exact thing -- the table is
+ * exponential -- but linear between adjacent entries is within 0.4% of it
+ * at this spacing, and 0.4% of a time constant is not audible. */
+static inline uint32_t fm1_env_rate_q8(int32_t q8)
+{
+    int32_t i, f;
+    uint32_t a, b;
+
+    if (q8 < 0) q8 = 0;
+    if (q8 > 127 << 8) q8 = 127 << 8;
+    i = q8 >> 8;
+    f = q8 & 255;
+    if (i >= 127 || !f) return fm1_env_a[i];
+    a = fm1_env_a[i];
+    b = fm1_env_a[i + 1];
+    /* The table FALLS as the knob rises, so this interpolates downward. */
+    return a - (uint32_t)(((uint64_t)(a - b) * (uint32_t)f) >> 8);
+}
+
+static inline void fm1_env_set_attack_q8(fm1_env_t *e, int32_t q8)
+{ e->a_attack = fm1_env_rate_q8(q8); e->l_attack = fm1_env_lin(e->a_attack); }
 static inline void fm1_env_set_attack(fm1_env_t *e, uint8_t v)
-{ e->a_attack = fm1_env_a[v & 127]; e->l_attack = fm1_env_lin(e->a_attack); }
+{ fm1_env_set_attack_q8(e, (int32_t)(v & 127) << 8); }
 
+static inline void fm1_env_set_decay_q8(fm1_env_t *e, int32_t q8)
+{ e->a_decay = fm1_env_rate_q8(q8); e->l_decay = fm1_env_lin(e->a_decay); }
 static inline void fm1_env_set_decay(fm1_env_t *e, uint8_t v)
-{ e->a_decay = fm1_env_a[v & 127]; e->l_decay = fm1_env_lin(e->a_decay); }
+{ fm1_env_set_decay_q8(e, (int32_t)(v & 127) << 8); }
 
+static inline void fm1_env_set_release_q8(fm1_env_t *e, int32_t q8)
+{ e->a_release = fm1_env_rate_q8(q8); e->l_release = fm1_env_lin(e->a_release); }
 static inline void fm1_env_set_release(fm1_env_t *e, uint8_t v)
-{ e->a_release = fm1_env_a[v & 127]; e->l_release = fm1_env_lin(e->a_release); }
+{ fm1_env_set_release_q8(e, (int32_t)(v & 127) << 8); }
 
 static inline void fm1_env_set_sustain(fm1_env_t *e, uint8_t v)
 { e->sustain = ((int32_t)(v & 127) * FM1_ENV_ONE) / 127; }
@@ -168,10 +201,13 @@ static inline void fm1_env_set_sustain(fm1_env_t *e, uint8_t v)
  * segments use -- which means HOLD's knob feels like theirs, for free. The
  * divide is 32-bit and happens on a knob turn, not per sample; only 64-bit
  * division is forbidden (docs/RULES.md). */
-static inline void fm1_env_set_hold(fm1_env_t *e, uint8_t v)
+static inline void fm1_env_set_hold_q8(fm1_env_t *e, int32_t q8)
 {
-    e->hold_len = v ? (uint32_t)FM1_ENV_ONE / fm1_env_a[v & 127] : 0u;
+    uint32_t a = fm1_env_rate_q8(q8);
+    e->hold_len = (q8 >= 256) ? (uint32_t)FM1_ENV_ONE / a : 0u;
 }
+static inline void fm1_env_set_hold(fm1_env_t *e, uint8_t v)
+{ fm1_env_set_hold_q8(e, (int32_t)(v & 127) << 8); }
 
 static inline void fm1_env_gate(fm1_env_t *e, uint8_t on)
 {

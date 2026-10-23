@@ -198,7 +198,27 @@ void Drone::ApplyPitch(uint8_t v)
      * knob offset as if a click were a pitch unit, which made the real range
      * +-50 cents while the screen said +-64: the knob was honest about
      * neither its span nor its step. */
-    pitch += fm1_cents_to_pitch((int32_t)d.p[P_DETUNE] - 50);
+    /* From the Q8 ACCUMULATOR, so a fine click is a FRACTION of a cent.
+     *
+     * One cent is 1.28 pitch units and the pitch unit is 1/128 semitone, so
+     * the representation underneath has always been finer than the knob --
+     * the knob was the limit, not the engine. At the slow beating this
+     * instrument is built around, a cent is a long way: two voices a cent
+     * apart at 110 Hz beat once a second and two voices a tenth of a cent
+     * apart beat once every ten, which is a different sound rather than a
+     * finer version of the same one. */
+    {
+        /* ROUNDED SYMMETRICALLY, like fm1_cents_to_pitch above and for the
+         * same reason: `>>` floors, so rounding half up makes the step below
+         * the centre detent bigger than the step above it. That is the
+         * original "0 => -1 cent has a very distinct jump" defect, and
+         * writing this in Q8 reintroduced it until the symmetry test said
+         * so. Sixth time in this project. */
+        int64_t n = (int64_t)((int32_t)d.acc[P_DETUNE] - (50 << 8))
+                  * kCentInPitch;
+        pitch += (int32_t)(n >= 0 ? (n + (1 << 14)) >> 15
+                                  : -(((-n) + (1 << 14)) >> 15));
+    }
 
     /* SPREAD fans the voices apart, voice 0 lowest */
     int32_t spread = (int32_t)g_[G_SPREAD];
@@ -361,11 +381,15 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
     case P_F2_MIX:  fm1_filter_set_mix(&d.f[1], value); break;
 
     case P_DRIVE:   d.drive_q12 = value ? fm1_drive_gain(value) : Q12_ONE; break;
-    case P_ATTACK:  fm1_env_set_attack(&d.env, value);  break;
-    case P_HOLD:    fm1_env_set_hold(&d.env, value);    break;
-    case P_DECAY:   fm1_env_set_decay(&d.env, value);   break;
+    /* From the Q8 ACCUMULATOR, not the byte. These four carry a fine
+     * fraction (HasFine), and a setter taking uint8_t would throw it away --
+     * which is exactly what happened when they were added to the fine list
+     * without this, giving SHIFT a gesture with no effect. */
+    case P_ATTACK:  fm1_env_set_attack_q8(&d.env,  d.acc[P_ATTACK]);  break;
+    case P_HOLD:    fm1_env_set_hold_q8(&d.env,    d.acc[P_HOLD]);    break;
+    case P_DECAY:   fm1_env_set_decay_q8(&d.env,   d.acc[P_DECAY]);   break;
+    case P_RELEASE: fm1_env_set_release_q8(&d.env, d.acc[P_RELEASE]); break;
     case P_SUSTAIN: fm1_env_set_sustain(&d.env, value); break;
-    case P_RELEASE: fm1_env_set_release(&d.env, value); break;
     case P_ENV_MODE: fm1_env_set_mode(&d.env, value);   break;
 
     default:
@@ -505,10 +529,17 @@ int Drone::HasFine(uint8_t param)
      * one click near the top moves a swell by seconds. SUSTAIN is a level
      * rather than a time and gets no finer treatment; ENV MODE is an enum
      * and has nowhere to slide to. */
+    /* The rule, since this list has twice been wrong in the same direction:
+     * a parameter belongs here only if the ENGINE reads its Q8 accumulator
+     * rather than its byte. Adding a name without doing that work gives
+     * SHIFT a gesture with no effect, which is worse than not offering it.
+     * dsp/tests/test_mix.cc asserts the behaviour for the envelope times,
+     * not just the membership. */
     return param == P_TIMBRE || param == P_COLOR ||
            param == P_F1_CUT || param == P_F2_CUT ||
            param == P_ATTACK || param == P_HOLD ||
-           param == P_DECAY  || param == P_RELEASE;
+           param == P_DECAY  || param == P_RELEASE ||
+           param == P_DETUNE;
 }
 
 /* The shared body of both nudges: walk a Q8 target by `delta`, either in
