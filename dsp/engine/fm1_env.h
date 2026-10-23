@@ -115,6 +115,18 @@ typedef struct {
     uint8_t  stage;
     uint8_t  gate;
     uint8_t  mode;          /* ENV_M_* */
+    /* SHAPE, per segment: 0 is a straight line, 127 is the exponential.
+     *
+     * ANALOG and DIGITAL are the two ends of this, which is why they are
+     * modes on the VCA envelope and knobs on the modulation ones -- the VCA
+     * envelope's mode is really about the GATE (whether note-off releases
+     * it) and takes a shape with it, while a modulation envelope has a
+     * trigger instead and only needs the shape.
+     *
+     * Attack gets its own because the two ends of an envelope want opposite
+     * things: a percussive attack wants the straight line (it ARRIVES), a
+     * percussive release wants the exponential (it trails). */
+    uint8_t  curve_a, curve_r;
 } fm1_env_t;
 
 /* The straight-line step that covers the same ground in the same time.
@@ -144,10 +156,14 @@ static inline void fm1_env_init(fm1_env_t *e)
     e->stage = ENV_IDLE;
     e->gate = 0;
     e->mode = ENV_M_DRONE;
+    e->curve_a = e->curve_r = 127;      /* exponential, as it always was */
 }
 
 static inline void fm1_env_set_mode(fm1_env_t *e, uint8_t m)
 { e->mode = m < ENV_M_NMODES ? m : ENV_M_DRONE; }
+
+static inline void fm1_env_set_curve_a(fm1_env_t *e, uint8_t v) { e->curve_a = v; }
+static inline void fm1_env_set_curve_r(fm1_env_t *e, uint8_t v) { e->curve_r = v; }
 
 /* The rate for a Q8 knob position -- the coarse byte plus its fraction.
  *
@@ -293,18 +309,24 @@ static inline int32_t fm1_env_tick(fm1_env_t *e)
      * shift -- detune, the comb's tuning, the resonator's, and now this. */
     int32_t diff = target - e->level;
     int32_t mag  = diff < 0 ? -diff : diff;
-    int32_t step;
-    int32_t delta;
+    int32_t step, se, sl, delta;
+    int32_t cv = (e->stage == ENV_ATTACK) ? e->curve_a : e->curve_r;
 
-    if (e->mode == ENV_M_DIGITAL) {
-        /* A straight line ARRIVES. Clamped to what is left so it lands
-         * exactly on the target rather than stepping past it and sawing
-         * back, and so the snap below still fires to end the segment. */
-        step = (int32_t)lin;
-        if (step > mag) step = mag;
-    } else {
-        step = (int32_t)(((int64_t)mag * (int64_t)a) >> FM1_ENV_BITS);
-    }
+    /* DIGITAL is the straight line, whatever the curves say -- it is a mode
+     * about what the envelope IS, and the VCA envelope has no curve knobs to
+     * contradict it with. */
+    if (e->mode == ENV_M_DIGITAL) cv = 0;
+
+    /* A straight line ARRIVES; clamped to what is left so it lands exactly
+     * on the target rather than stepping past it and sawing back, and so the
+     * snap below still fires to end the segment. */
+    sl = (int32_t)lin;
+    if (sl > mag) sl = mag;
+    se = (int32_t)(((int64_t)mag * (int64_t)a) >> FM1_ENV_BITS);
+
+    /* Blended, with both ends exact: at 127 the shift would leave 0.8% of
+     * the line in an envelope that says it is fully exponential. */
+    step = cv >= 127 ? se : (cv <= 0 ? sl : sl + (((se - sl) * cv) >> 7));
     delta = diff < 0 ? -step : step;
 
     /* An exponential approaches but never arrives, and in integer arithmetic
