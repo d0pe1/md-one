@@ -219,9 +219,11 @@ static const fm1_page_t FM1_PG_FX[] = {
                   G_FX(0, G_FX_MIX), PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       G_FX(0, G_FX_TYPE), SUBJ_FX, G_FX_STRIDE },
-    { "ROUTE",  { G_FX(0, G_FX_DEST), PG_NONE, PG_NONE, PG_NONE },
+    /* The same four-cable table a voice has, so an effect fans out the same
+     * way: SELECT picks the channel, ALGORITHM picks the cable. */
+    { "ROUTE",  { G_FX_OUT(0, 0, 0), G_FX_OUT(0, 0, 1), PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_FX, G_FX_STRIDE },
+      PG_NONE, SUBJ_FX, G_FX_STRIDE, 0, FM1_NODE_OUTS, 2, 2 },
 };
 
 /* --- LFO: four shaped modulators -----------------------------------------
@@ -364,6 +366,7 @@ static inline void fm1_nav_init(fm1_nav_t *n)
     uint8_t i;
     n->menu = M_HOME;
     n->page = 0;
+    n->row  = 0;
     for (i = 0; i < SUBJ_NKIND; i++) n->sel[i] = 0;
 }
 

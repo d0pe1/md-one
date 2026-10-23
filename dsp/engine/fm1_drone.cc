@@ -33,8 +33,10 @@ static_assert(DEST_MIX1 + FM1_MIX_CHANS == DEST_OUT,
  * tail. What still has to hold is that each block is CONTIGUOUS and that
  * ApplyGlobal's arithmetic dispatch can tell them apart: it tests
  * `>= G_LFO_BASE` before `>= G_FX_BASE`, so the order matters. */
-static_assert(G_FX(3, G_FX_DEST) + 1 == G_LFO_BASE,
+static_assert(G_FX(FM1_FX_CHANS - 1, G_FX_STRIDE - 1) + 1 == G_LFO_BASE,
               "the patchbay and LFO parameter blocks are no longer adjacent");
+static_assert(G_FX_OUT(0, FM1_NODE_OUTS - 1, 1) == G_FX(0, G_FX_STRIDE - 1),
+              "the FX cable block is not the tail of an FX channel");
 static_assert(G_LFO(3, G_LFO_MODE) + 1 == G_MIX_BASE,
               "the LFO and mix bus parameter blocks are no longer adjacent");
 static_assert(G_MIX(FM1_MIX_CHANS - 1, G_MIX_PAN) == NGPARAM - 1,
@@ -445,8 +447,18 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
         case G_FX_P1:   fx_chan_set_p1(c, value);   break;
         case G_FX_P2:   fx_chan_set_p2(c, value);   break;
         case G_FX_MIX:  c->mix = value;             break;
-        case G_FX_DEST: fx_chan_set_dest(c, value); break;
-        default: break;
+        default:
+            /* The cable block: DEST then GAIN, four times, starting at
+             * G_FX_DEST. Arithmetic rather than eight cases, because the
+             * layout is the thing that defines them. */
+            if (what >= G_FX_DEST) {
+                uint8_t o = (uint8_t)((what - G_FX_DEST) / 2u);
+                if (o < FM1_NODE_OUTS) {
+                    if ((what - G_FX_DEST) & 1u) c->gain[o] = value;
+                    else if (value < DEST_NDEST) c->dest[o] = value;
+                }
+            }
+            break;
         }
     }
 }
@@ -749,10 +761,11 @@ void Drone::Render(int16_t *out, uint32_t n)
                 uint8_t d = v_[v].p[P_OUT(c, P_OUT_DEST)];
                 if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
             }
-        for (uint32_t k = 0; k < fx_n; k++) {
-            uint8_t d = rack_.ch[fx_act[k]].dest;
-            if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
-        }
+        for (uint32_t k = 0; k < fx_n; k++)
+            for (uint32_t o = 0; o < FM1_NODE_OUTS; o++) {
+                uint8_t d = rack_.ch[fx_act[k]].dest[o];
+                if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
+            }
         for (uint32_t m = 0; m < FM1_MIX_CHANS; m++)
             if (mix_live[m])
                 for (uint32_t i = 0; i < chunk * 2u; i++) mixin_[m][i] = 0;
@@ -1130,26 +1143,31 @@ void Drone::Render(int16_t *out, uint32_t n)
 
             for (uint32_t k = 0; k < fx_n; k++) {
                 uint32_t n = fx_act[k];
-                uint8_t  d = rack_.ch[n].dest;
 
                 fx_chan_block(&rack_.ch[n], rack_.cursor, fxin_[n], chunk);
 
-                if (d == DEST_OUT) {
-                    for (uint32_t i = 0; i < chunk * 2u; i++)
-                        bus_[i] += fxin_[n][i];
-                } else if (DEST_IS_MIX(d)) {
-                    int32_t *mb = mixin_[DEST_MIX_IDX(d)];
-                    for (uint32_t i = 0; i < chunk * 2u; i++)
-                        mb[i] = fx_clamp(mb[i] + fxin_[n][i]);
-                } else {
-                    /* Into a channel that has not run yet. Only if it is
-                     * actually live: an unplugged target is never read, and
-                     * never cleared either, so depositing into one would
-                     * accumulate without bound for the sake of silence. */
-                    uint32_t t = DEST_FX_IDX(d);
-                    if (DEST_IS_FX(d) && live[t])
+                for (uint32_t o = 0; o < FM1_NODE_OUTS; o++) {
+                    uint8_t d = rack_.ch[n].dest[o];
+                    int32_t g = (int32_t)rack_.ch[n].gain[o];
+                    int32_t *sink = 0;
+
+                    if (d == DEST_OFF || g == 0) continue;
+                    if      (d == DEST_OUT)   sink = bus_;
+                    else if (DEST_IS_MIX(d))  sink = mixin_[DEST_MIX_IDX(d)];
+                    else if (DEST_IS_FX(d) && live[DEST_FX_IDX(d)])
+                        /* Into a channel that has not run yet. Only if it is
+                         * live: an unplugged target is never read and never
+                         * cleared, so depositing into one would accumulate
+                         * without bound for the sake of silence. */
+                        sink = fxin_[DEST_FX_IDX(d)];
+                    if (!sink) continue;
+
+                    if (g >= 127)
                         for (uint32_t i = 0; i < chunk * 2u; i++)
-                            fxin_[t][i] = fx_clamp(fxin_[t][i] + fxin_[n][i]);
+                            sink[i] = fx_clamp(sink[i] + fxin_[n][i]);
+                    else
+                        for (uint32_t i = 0; i < chunk * 2u; i++)
+                            sink[i] = fx_clamp(sink[i] + ((fxin_[n][i] * g) >> 7));
                 }
             }
             rack_.cursor = (rack_.cursor + chunk) & FM1_FX_DMASK;

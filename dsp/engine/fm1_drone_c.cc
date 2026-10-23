@@ -65,6 +65,7 @@ static_assert(FD_G_FX_BASE    == G_FX_BASE,     "patchbay base mirror drifted");
 static_assert(FD_G_FX_STRIDE  == G_FX_STRIDE,   "patchbay stride mirror drifted");
 static_assert(FD_G_FX(2, FD_G_FX_MIX) == G_FX(2, G_FX_MIX), "patchbay index mirror drifted");
 static_assert(FD_G_FX_DEST    == G_FX_DEST,     "patchbay dest mirror drifted");
+static_assert(FD_G_FX_OUT(3, 3, 1) == G_FX_OUT(3, 3, 1), "fx cable mirror drifted");
 static_assert(FD_DEST_OFF     == DEST_OFF,      "dest mirror drifted");
 static_assert(FD_DEST_FX1     == DEST_FX1,      "dest mirror drifted");
 static_assert(FD_DEST_MIX1    == DEST_MIX1,     "dest mirror drifted");

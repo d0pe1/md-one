@@ -217,10 +217,18 @@ enum {
      * DEST is what makes this a patchbay rather than an insert rack: set it
      * to OFF and everything feeding that channel goes silent, because the
      * cable is unplugged. */
-    G_FX1_TYPE, G_FX1_P1, G_FX1_P2, G_FX1_MIX, G_FX1_DEST,
-    G_FX2_TYPE, G_FX2_P1, G_FX2_P2, G_FX2_MIX, G_FX2_DEST,
-    G_FX3_TYPE, G_FX3_P1, G_FX3_P2, G_FX3_MIX, G_FX3_DEST,
-    G_FX4_TYPE, G_FX4_P1, G_FX4_P2, G_FX4_MIX, G_FX4_DEST,
+    G_FX1_TYPE, G_FX1_P1, G_FX1_P2, G_FX1_MIX,
+    G_FX1_DEST, G_FX1_O1GAIN, G_FX1_O2DEST, G_FX1_O2GAIN,
+    G_FX1_O3DEST, G_FX1_O3GAIN, G_FX1_O4DEST, G_FX1_O4GAIN,
+    G_FX2_TYPE, G_FX2_P1, G_FX2_P2, G_FX2_MIX,
+    G_FX2_DEST, G_FX2_O1GAIN, G_FX2_O2DEST, G_FX2_O2GAIN,
+    G_FX2_O3DEST, G_FX2_O3GAIN, G_FX2_O4DEST, G_FX2_O4GAIN,
+    G_FX3_TYPE, G_FX3_P1, G_FX3_P2, G_FX3_MIX,
+    G_FX3_DEST, G_FX3_O1GAIN, G_FX3_O2DEST, G_FX3_O2GAIN,
+    G_FX3_O3DEST, G_FX3_O3GAIN, G_FX3_O4DEST, G_FX3_O4GAIN,
+    G_FX4_TYPE, G_FX4_P1, G_FX4_P2, G_FX4_MIX,
+    G_FX4_DEST, G_FX4_O1GAIN, G_FX4_O2DEST, G_FX4_O2GAIN,
+    G_FX4_O3DEST, G_FX4_O3GAIN, G_FX4_O4DEST, G_FX4_O4GAIN,
     /* Four LFOs, four controls each -- exactly one Page. Global rather than
      * per-voice on purpose: per-voice independence is already what the drift
      * gives, and what these add is the opposite, all four voices moving
@@ -253,13 +261,18 @@ enum {
 /* Channel n (0-based) parameter j. The five-per-channel stride is relied on
  * by the engine's SetGlobal and by any UI that walks the patchbay. */
 #define G_FX_BASE    G_FX1_TYPE
-#define G_FX_STRIDE  5
+#define G_FX_STRIDE  12
 #define G_FX(n, j)   (G_FX_BASE + (n) * G_FX_STRIDE + (j))
 #define G_FX_TYPE    0
 #define G_FX_P1      1
 #define G_FX_P2      2
 #define G_FX_MIX     3
 #define G_FX_DEST    4
+/* Cable c (0..3) of effect channel n: DEST then GAIN, four times, starting
+ * where the single DEST used to be. An effect fans out exactly the way a
+ * voice does -- same four cables, same `---` for unplugged -- which is the
+ * point of having one routing model instead of two. */
+#define G_FX_OUT(n, c, j) (G_FX(n, G_FX_DEST) + (c) * 2 + (j))
 
 /* --- mixer meter ladder ---------------------------------------------------
  *
@@ -479,22 +492,50 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_FX1_P1]     = {"FX1 P1", 127,  64, K_NUM,     0},
     [G_FX1_P2]     = {"FX1 P2", 127,  64, K_NUM,     0},
     [G_FX1_MIX]    = {"FX1 MIX",127, 127, K_PCT,     0},
-    [G_FX1_DEST]   = {"FX1 OUT",  9,   0, K_DEST,    0},
+    [G_FX1_DEST]   = {"FX1 O1 TO",  9,   0, K_DEST,    0},
+    [G_FX1_O1GAIN] = {"FX1 O1 SEND",127, 127, K_PCT,     0},
+    [G_FX1_O2DEST] = {"FX1 O2 TO",  9,   0, K_DEST,    0},
+    [G_FX1_O2GAIN] = {"FX1 O2 SEND",127, 127, K_PCT,     0},
+    [G_FX1_O3DEST] = {"FX1 O3 TO",  9,   0, K_DEST,    0},
+    [G_FX1_O3GAIN] = {"FX1 O3 SEND",127, 127, K_PCT,     0},
+    [G_FX1_O4DEST] = {"FX1 O4 TO",  9,   0, K_DEST,    0},
+    [G_FX1_O4GAIN] = {"FX1 O4 SEND",127, 127, K_PCT,     0},
     [G_FX2_TYPE]   = {"FX2 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX2_P1]     = {"FX2 P1", 127,  64, K_NUM,     0},
     [G_FX2_P2]     = {"FX2 P2", 127,  64, K_NUM,     0},
     [G_FX2_MIX]    = {"FX2 MIX",127, 127, K_PCT,     0},
-    [G_FX2_DEST]   = {"FX2 OUT",  9,   0, K_DEST,    0},
+    [G_FX2_DEST]   = {"FX2 O1 TO",  9,   0, K_DEST,    0},
+    [G_FX2_O1GAIN] = {"FX2 O1 SEND",127, 127, K_PCT,     0},
+    [G_FX2_O2DEST] = {"FX2 O2 TO",  9,   0, K_DEST,    0},
+    [G_FX2_O2GAIN] = {"FX2 O2 SEND",127, 127, K_PCT,     0},
+    [G_FX2_O3DEST] = {"FX2 O3 TO",  9,   0, K_DEST,    0},
+    [G_FX2_O3GAIN] = {"FX2 O3 SEND",127, 127, K_PCT,     0},
+    [G_FX2_O4DEST] = {"FX2 O4 TO",  9,   0, K_DEST,    0},
+    [G_FX2_O4GAIN] = {"FX2 O4 SEND",127, 127, K_PCT,     0},
     [G_FX3_TYPE]   = {"FX3 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX3_P1]     = {"FX3 P1", 127,  64, K_NUM,     0},
     [G_FX3_P2]     = {"FX3 P2", 127,  64, K_NUM,     0},
     [G_FX3_MIX]    = {"FX3 MIX",127, 127, K_PCT,     0},
-    [G_FX3_DEST]   = {"FX3 OUT",  9,   0, K_DEST,    0},
+    [G_FX3_DEST]   = {"FX3 O1 TO",  9,   0, K_DEST,    0},
+    [G_FX3_O1GAIN] = {"FX3 O1 SEND",127, 127, K_PCT,     0},
+    [G_FX3_O2DEST] = {"FX3 O2 TO",  9,   0, K_DEST,    0},
+    [G_FX3_O2GAIN] = {"FX3 O2 SEND",127, 127, K_PCT,     0},
+    [G_FX3_O3DEST] = {"FX3 O3 TO",  9,   0, K_DEST,    0},
+    [G_FX3_O3GAIN] = {"FX3 O3 SEND",127, 127, K_PCT,     0},
+    [G_FX3_O4DEST] = {"FX3 O4 TO",  9,   0, K_DEST,    0},
+    [G_FX3_O4GAIN] = {"FX3 O4 SEND",127, 127, K_PCT,     0},
     [G_FX4_TYPE]   = {"FX4 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX4_P1]     = {"FX4 P1", 127,  64, K_NUM,     0},
     [G_FX4_P2]     = {"FX4 P2", 127,  64, K_NUM,     0},
     [G_FX4_MIX]    = {"FX4 MIX",127, 127, K_PCT,     0},
-    [G_FX4_DEST]   = {"FX4 OUT",  9,   0, K_DEST,    0},
+    [G_FX4_DEST]   = {"FX4 O1 TO",  9,   0, K_DEST,    0},
+    [G_FX4_O1GAIN] = {"FX4 O1 SEND",127, 127, K_PCT,     0},
+    [G_FX4_O2DEST] = {"FX4 O2 TO",  9,   0, K_DEST,    0},
+    [G_FX4_O2GAIN] = {"FX4 O2 SEND",127, 127, K_PCT,     0},
+    [G_FX4_O3DEST] = {"FX4 O3 TO",  9,   0, K_DEST,    0},
+    [G_FX4_O3GAIN] = {"FX4 O3 SEND",127, 127, K_PCT,     0},
+    [G_FX4_O4DEST] = {"FX4 O4 TO",  9,   0, K_DEST,    0},
+    [G_FX4_O4GAIN] = {"FX4 O4 SEND",127, 127, K_PCT,     0},
 
     /* AMOUNT defaults to 0: an LFO that is running but reaching nothing is
      * the right state to switch on in. RATE defaults slow -- 24 of 127 on an

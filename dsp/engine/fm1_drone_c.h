@@ -158,16 +158,18 @@ extern "C" {
 /* The FX patchbay: four effect channels, five controls each (TYPE, P1, P2,
  * MIX, DEST). FD_G_FX(n, j) addresses channel n, control j. */
 #define FD_G_FX_BASE      3
-#define FD_G_FX_STRIDE    5
+#define FD_G_FX_STRIDE   12
 #define FD_G_FX(n, j)     (FD_G_FX_BASE + (n) * FD_G_FX_STRIDE + (j))
 #define FD_G_FX_TYPE      0
 #define FD_G_FX_P1        1
 #define FD_G_FX_P2        2
 #define FD_G_FX_MIX       3
 #define FD_G_FX_DEST      4
+/* Cable c of effect channel n: DEST then GAIN, four times, from G_FX_DEST. */
+#define FD_G_FX_OUT(n, c, j) (FD_G_FX(n, FD_G_FX_DEST) + (c) * 2 + (j))
 
 /* Four LFOs, four controls each. FD_G_LFO(n, j) addresses LFO n, control j. */
-#define FD_G_LFO_BASE    23
+#define FD_G_LFO_BASE    51
 #define FD_G_LFO_STRIDE   4
 #define FD_G_LFO(n, j)   (FD_G_LFO_BASE + (n) * FD_G_LFO_STRIDE + (j))
 #define FD_G_LFO_RATE     0
@@ -176,13 +178,13 @@ extern "C" {
 #define FD_G_LFO_MODE     3
 #define FD_LFOS           4
 /* +8 for the four mix buses (LEVEL, PAN), appended after the LFOs. */
-#define FD_G_MIX_BASE    39
+#define FD_G_MIX_BASE    67
 #define FD_G_MIX_STRIDE   2
 #define FD_G_MIX(n, j)   (FD_G_MIX_BASE + (n) * FD_G_MIX_STRIDE + (j))
 #define FD_G_MIX_LEVEL    0
 #define FD_G_MIX_PAN      1
 
-#define FD_NGPARAM       47
+#define FD_NGPARAM       75
 
 /* LFO shapes, mirroring the LFO_* enum in fm1_lfo.h. */
 #define FD_LFO_TRI        0

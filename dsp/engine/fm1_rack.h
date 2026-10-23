@@ -76,7 +76,12 @@ struct fx_chan_t {
     uint8_t  type;
     uint8_t  p1, p2;        /* meaning is per type; see fx_chan_tick */
     uint8_t  mix;           /* dry/wet for this channel, 0..127 */
-    uint8_t  dest;          /* DEST_* -- the one cable out */
+    /* FOUR cables out, each a destination and a gain -- the same fan-out a
+     * voice has. An effect with one cable could only ever be in series;
+     * with four it can feed the mix and another effect at once, which is
+     * what "patchbay" was supposed to mean. `---` unplugs a cable. */
+    uint8_t  dest[FM1_NODE_OUTS];
+    uint8_t  gain[FM1_NODE_OUTS];
 
     uint32_t phase;         /* chorus LFO */
 
@@ -131,7 +136,10 @@ static inline void fx_chan_init(fx_chan_t *c)
     c->taps = 0;
     c->p1 = 64; c->p2 = 64;
     c->mix = 127;
-    c->dest = DEST_OFF;
+    for (uint32_t o = 0; o < FM1_NODE_OUTS; o++) {
+        c->dest[o] = DEST_OFF;
+        c->gain[o] = 127;
+    }
     c->phase = 0;
     c->acc[0] = c->acc[1] = 0;
     fm1_tpt_init(&c->tpt[0]);
@@ -150,11 +158,17 @@ static inline void fx_rack_init(fx_rack_t *r)
 static inline void fx_chan_set_type(fx_chan_t *c, uint8_t t)
 {
     if (t >= FX_NTYPES || t == c->type) return;
-    uint8_t p1 = c->p1, p2 = c->p2, mix = c->mix, dest = c->dest;
+    uint8_t p1 = c->p1, p2 = c->p2, mix = c->mix;
+    uint8_t dst[FM1_NODE_OUTS], gn[FM1_NODE_OUTS];
+    uint32_t o;
+    for (o = 0; o < FM1_NODE_OUTS; o++) { dst[o] = c->dest[o]; gn[o] = c->gain[o]; }
     fx_chan_init(c);            /* state across a type change is meaningless */
     c->type = t;
     c->taps = (uint8_t)(t == FX_CHORUS);
-    c->p1 = p1; c->p2 = p2; c->mix = mix; c->dest = dest;
+    c->p1 = p1; c->p2 = p2; c->mix = mix;
+    /* The cables survive a type change: where a channel goes is a patch
+     * decision, not a property of what it happens to contain. */
+    for (o = 0; o < FM1_NODE_OUTS; o++) { c->dest[o] = dst[o]; c->gain[o] = gn[o]; }
     if (t == FX_LP || t == FX_HP) {
         for (int s = 0; s < 2; s++) {
             /* No mode to set: a trapezoidal SVF produces all three
@@ -185,7 +199,7 @@ static inline void fx_chan_set_p2(fx_chan_t *c, uint8_t v)
 
 static inline void fx_chan_set_dest(fx_chan_t *c, uint8_t d)
 {
-    if (d < DEST_NDEST) c->dest = d;
+    if (d < DEST_NDEST) c->dest[0] = d;
 }
 
 /* --- the effects ----------------------------------------------------------- */
@@ -408,11 +422,12 @@ static inline void fx_deposit(fx_rack_t *r, uint8_t dest, uint32_t visiting,
 static inline int fx_rack_has_feedback(const fx_rack_t *r,
                                        const uint8_t *act, uint32_t n_act)
 {
-    for (uint32_t k = 0; k < n_act; k++) {
-        uint8_t d = r->ch[act[k]].dest;
-        if (DEST_IS_FX(d) && DEST_FX_IDX(d) <= act[k])
-            return 1;                   /* backward, or pointing at itself */
-    }
+    for (uint32_t k = 0; k < n_act; k++)
+        for (uint32_t o = 0; o < FM1_NODE_OUTS; o++) {
+            uint8_t d = r->ch[act[k]].dest[o];
+            if (DEST_IS_FX(d) && DEST_FX_IDX(d) <= act[k])
+                return 1;               /* backward, or pointing at itself */
+        }
     return 0;
 }
 
@@ -535,7 +550,14 @@ static inline void fx_rack_sample(fx_rack_t *r, uint32_t w,
 
         int32_t ol, orr;
         fx_chan_tick(c, w, il, ir, &ol, &orr);
-        fx_deposit(r, c->dest, n, in_l, in_r, ol, orr, out_l, out_r);
+        for (uint32_t o = 0; o < FM1_NODE_OUTS; o++) {
+            int32_t g = (int32_t)c->gain[o];
+            if (c->dest[o] == DEST_OFF || g == 0) continue;
+            fx_deposit(r, c->dest[o], n, in_l, in_r,
+                       g >= 127 ? ol  : (ol  * g) >> 7,
+                       g >= 127 ? orr : (orr * g) >> 7,
+                       out_l, out_r);
+        }
     }
 }
 
@@ -543,8 +565,11 @@ static inline void fx_rack_sample(fx_rack_t *r, uint32_t w,
 static inline uint32_t fx_rack_active(const fx_rack_t *r, uint8_t *act)
 {
     uint32_t n = 0;
-    for (uint32_t i = 0; i < FM1_FX_CHANS; i++)
-        if (r->ch[i].dest != DEST_OFF) act[n++] = (uint8_t)i;
+    for (uint32_t i = 0; i < FM1_FX_CHANS; i++) {
+        uint32_t o;
+        for (o = 0; o < FM1_NODE_OUTS; o++)
+            if (r->ch[i].dest[o] != DEST_OFF) { act[n++] = (uint8_t)i; break; }
+    }
     return n;
 }
 
