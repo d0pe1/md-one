@@ -396,6 +396,10 @@ static void ui_fmt(int id, char *out)
         ui_str(out, &i, FM1_LFO_MODE_NAME[v % LFO_NMODES]);
         out[i] = 0;
         break;
+    case K_ENVMODE:
+        ui_str(out, &i, v < ENV_M_NMODES ? FM1_ENVMODE_NAME[v] : "?");
+        out[i] = 0;
+        return;
     case K_POLES:
         ui_str(out, &i, FM1_FPOLE_NAME[v % FP_NPOLES]);
         out[i] = 0;

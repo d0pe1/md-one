@@ -27,8 +27,11 @@
  *               (docs/MIDI_SPEC.md)
  *   USB audio   the FM-1 is a stereo input: record it straight into a DAW
  *
- * A note-off never stops a voice. This is a drone machine: a note is a
- * decision to sound, not a gesture held down.
+ * A note-off stops a voice only if its envelope asks to be stopped. ENV MODE
+ * DRONE -- the default -- ignores key release entirely, because this is a
+ * drone machine and a note is a decision to sound, not a gesture held down.
+ * ANALOG and DIGITAL give the key back, which is the only way RELEASE is
+ * reachable without reaching for MUTE.
  *
  * Built on Dinghy by zvenson, whose platform is Felucca's (Leo Kuroshita,
  * Hugelton Instruments) as SLOOP carries it. Rules of the road: integers
@@ -93,6 +96,22 @@ static uint8_t ui_note_of(uint8_t v) { return v < NV ? st.note[v] : 0u; }
 /* A voice sounds if it is unmuted and nothing else is soloed. Applied with
  * SetGate so mute and solo never re-strike -- un-soloing a bowed voice should
  * bring it back as it was, not re-bow it. */
+/* Does this voice hand a key release back to the player?
+ *
+ * DRONE says no, which is the instrument's own idea of itself: "a note is a
+ * decision to sound, not a gesture held down". That is why RELEASE appeared
+ * dead for so long -- it was measured correct (0.01 s, 0.45 s and 32.11 s at
+ * 0, 64 and 127) and simply unreachable, because MUTE was the only gesture
+ * in the whole instrument that closed a gate.
+ *
+ * ANALOG and DIGITAL give the key back. Per voice, not global: a bed that
+ * latches underneath a part you play on top is the obvious patch, and it
+ * needs both behaviours at once. */
+static int voice_releases(uint8_t v)
+{
+    return v < NV && fm1_drone_get_param(v, FD_P_ENV_MODE) != FD_ENV_M_DRONE;
+}
+
 static void apply_gates(void)
 {
     uint8_t v;
@@ -262,9 +281,15 @@ static void midi_service(void)
              * updates itself from `lit != lit_drawn` whatever page is open,
              * so everywhere else a note costs no repaint. */
             if (ui_nav.menu == M_HOME) midi_dirty = 1;
-        } else if ((msg == 0x80u || msg == 0x90u) && ch < NV) {
-            /* A note-off does NOT silence a drone voice: holding a key is
-             * not how this instrument is played. Use MUTE or CC 123. */
+        } else if ((msg == 0x80u || (msg == 0x90u && !d2)) && ch < NV) {
+            /* A note-off silences the voice only in a releasing mode. In
+             * DRONE it is still ignored -- holding a key is not how that
+             * instrument is played, and MUTE or CC 123 is how you stop it. */
+            if (voice_releases(ch) && st.note[ch] == d1) {
+                st.on[ch] = 0;
+                apply_gates();
+                if (ui_nav.menu == M_HOME) midi_dirty = 1;
+            }
         }
     }
 }
@@ -334,7 +359,7 @@ static void app_main(void)
     lcd_fill(0, 0, 240, 240, C_BLACK);
 
     for (;;) {
-        uint32_t keys, down, b, rel, lit = 0;
+        uint32_t keys, down, up, b, rel, lit = 0;
 
         platform_poll();
 
@@ -351,7 +376,28 @@ static void app_main(void)
         /* --- keys: set the Subject voice's note and latch it on ---------- */
         keys = fm1_in.notes;
         down = keys & ~prev;
+        up   = prev & ~keys;
         prev = keys;
+
+        /* Letting go of a key releases the voice it was holding -- but only
+         * in a mode that asked for that. The note is NOT cleared: the panel
+         * keeps showing what was played, and pressing the key again
+         * re-attacks from wherever the release got to rather than from
+         * silence. */
+        if (up) {
+            uint32_t k;
+            for (k = 0; k < 27u; k++)
+                if (up >> k & 1u) {
+                    uint8_t sv = ui_voice();
+                    if (voice_releases(sv) && st.note[sv] == (uint8_t)(KEY0 + k)) {
+                        st.on[sv] = 0;
+                        apply_gates();
+                        midi_send(0x80u + sv, st.note[sv], 0);
+                        redraw_req = 1;
+                    }
+                    break;
+                }
+        }
         if (down) {
             uint32_t k;
             for (k = 0; k < 27u; k++)

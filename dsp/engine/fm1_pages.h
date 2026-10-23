@@ -145,7 +145,7 @@ static const fm1_page_t FM1_PG_ENV[] = {
     { "ADSR",   { P_ATTACK, P_DECAY, P_SUSTAIN, P_RELEASE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
-    { "HOLD",   { P_HOLD, PG_NONE, PG_NONE, PG_NONE },
+    { "HOLD",   { P_HOLD, P_ENV_MODE, PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
 };

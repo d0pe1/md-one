@@ -54,6 +54,46 @@ static const char *const FM1_ENV_STAGE_NAME[ENV_STAGES] = {
     "---", "ATK", "HLD", "DEC", "SUS", "REL"
 };
 
+/* What the envelope IS, which on this instrument is mostly a question about
+ * the gate rather than about the curve.
+ *
+ * RELEASE measured correct from the day it was written -- 0.01 s, 0.45 s and
+ * 32.11 s at 0, 64 and 127 -- and still appeared to do nothing, because
+ * nothing a player does closes the gate. A note-off is ignored by design
+ * ("a note is a decision to sound, not a gesture held down"), so MUTE was
+ * the only gesture in the instrument that could reach RELEASE. The knob was
+ * not broken; it was unreachable.
+ *
+ *   DRONE    a note latches. Note-off is ignored, as before, and RELEASE is
+ *            reached only by MUTE. This is the instrument's own idea of
+ *            itself and stays the default.
+ *   ANALOG   note-off releases. Exponential segments, roughly linear in dB,
+ *            which is what a fade sounds like.
+ *   DIGITAL  note-off releases. Straight-line segments -- it ARRIVES rather
+ *            than approaches, which is a sampler's envelope rather than an
+ *            RC curve.
+ *
+ * The two are matched by ear, not by stopwatch. At RELEASE 100 the straight
+ * line reaches silence in 4.05 s while the exponential takes 5.83 s, but the
+ * exponential spends the last 3.8 s of that below a tenth of full scale,
+ * inaudible. Measured against the -20 dB point instead -- 2.03 s -- the two
+ * fall over the same stretch of time, which is the comparison a player
+ * makes. make -C dsp envshape prints both.
+ *
+ * Only DIGITAL changes anything in here. DRONE and ANALOG differ purely in
+ * what the firmware does with a key release, so the engine does not need to
+ * tell them apart. */
+enum {
+    ENV_M_DRONE = 0,
+    ENV_M_ANALOG,
+    ENV_M_DIGITAL,
+    ENV_M_NMODES
+};
+
+static const char *const FM1_ENVMODE_NAME[ENV_M_NMODES] = {
+    "DRONE", "ANALOG", "DIGITAL"
+};
+
 typedef struct {
     int32_t  level;         /* current gain, Q24 */
     int32_t  sustain;       /* sustain level, Q24 */
@@ -62,32 +102,61 @@ typedef struct {
     uint32_t a_decay;
     uint32_t a_release;
 
+    /* The same three segments as STRAIGHT LINES, for ENV_M_DIGITAL. Kept
+     * beside the rates rather than derived in the sample loop: they change
+     * only when a knob moves, and a 64-bit multiply per sample to rediscover
+     * a constant is the block-rate lesson this project has relearned four
+     * times. */
+    uint32_t l_attack, l_decay, l_release;
+
     uint32_t hold_len;      /* samples */
     uint32_t held;
 
     uint8_t  stage;
     uint8_t  gate;
+    uint8_t  mode;          /* ENV_M_* */
 } fm1_env_t;
+
+/* The straight-line step that covers the same ground in the same time.
+ *
+ * A one-pole settles in about 4.6 time constants and its time constant is
+ * 2^24 / a samples, so a segment lasts 4.6 * 2^24 / a samples. A line
+ * crossing full scale in that many samples advances a / 4.6 each sample;
+ * 28494 / 2^17 is 1 / 4.6.
+ *
+ * Never zero while the rate is not, or the segment would stall for ever at
+ * the slow end -- the exponential path has the snap below to finish it, a
+ * line has nothing. */
+static inline uint32_t fm1_env_lin(uint32_t a)
+{
+    uint32_t l = (uint32_t)(((uint64_t)a * 28494u) >> 17);
+    return (a && !l) ? 1u : l;
+}
 
 static inline void fm1_env_init(fm1_env_t *e)
 {
     e->level = 0;
     e->sustain = FM1_ENV_ONE;
     e->a_attack = e->a_decay = e->a_release = fm1_env_a[0];
+    e->l_attack = e->l_decay = e->l_release = fm1_env_lin(fm1_env_a[0]);
     e->hold_len = 0;
     e->held = 0;
     e->stage = ENV_IDLE;
     e->gate = 0;
+    e->mode = ENV_M_DRONE;
 }
 
+static inline void fm1_env_set_mode(fm1_env_t *e, uint8_t m)
+{ e->mode = m < ENV_M_NMODES ? m : ENV_M_DRONE; }
+
 static inline void fm1_env_set_attack(fm1_env_t *e, uint8_t v)
-{ e->a_attack = fm1_env_a[v & 127]; }
+{ e->a_attack = fm1_env_a[v & 127]; e->l_attack = fm1_env_lin(e->a_attack); }
 
 static inline void fm1_env_set_decay(fm1_env_t *e, uint8_t v)
-{ e->a_decay = fm1_env_a[v & 127]; }
+{ e->a_decay = fm1_env_a[v & 127]; e->l_decay = fm1_env_lin(e->a_decay); }
 
 static inline void fm1_env_set_release(fm1_env_t *e, uint8_t v)
-{ e->a_release = fm1_env_a[v & 127]; }
+{ e->a_release = fm1_env_a[v & 127]; e->l_release = fm1_env_lin(e->a_release); }
 
 static inline void fm1_env_set_sustain(fm1_env_t *e, uint8_t v)
 { e->sustain = ((int32_t)(v & 127) * FM1_ENV_ONE) / 127; }
@@ -143,7 +212,7 @@ static inline int fm1_env_idle(const fm1_env_t *e)
 static inline int32_t fm1_env_tick(fm1_env_t *e)
 {
     int32_t target;
-    uint32_t a;
+    uint32_t a, lin;
 
     switch (e->stage) {
     case ENV_HOLD:
@@ -162,9 +231,9 @@ static inline int32_t fm1_env_tick(fm1_env_t *e)
     case ENV_IDLE:
         return 0;
 
-    case ENV_ATTACK:  target = FM1_ENV_ONE; a = e->a_attack;  break;
-    case ENV_DECAY:   target = e->sustain;  a = e->a_decay;   break;
-    default:          target = 0;           a = e->a_release; break;
+    case ENV_ATTACK:  target = FM1_ENV_ONE; a = e->a_attack;  lin = e->l_attack;  break;
+    case ENV_DECAY:   target = e->sustain;  a = e->a_decay;   lin = e->l_decay;   break;
+    default:          target = 0;           a = e->a_release; lin = e->l_release; break;
     }
 
     /* 64-bit multiply, then a shift. The chip has no 64-bit DIVIDE, which is
@@ -188,8 +257,19 @@ static inline int32_t fm1_env_tick(fm1_env_t *e)
      * shift -- detune, the comb's tuning, the resonator's, and now this. */
     int32_t diff = target - e->level;
     int32_t mag  = diff < 0 ? -diff : diff;
-    int32_t step = (int32_t)(((int64_t)mag * (int64_t)a) >> FM1_ENV_BITS);
-    int32_t delta = diff < 0 ? -step : step;
+    int32_t step;
+    int32_t delta;
+
+    if (e->mode == ENV_M_DIGITAL) {
+        /* A straight line ARRIVES. Clamped to what is left so it lands
+         * exactly on the target rather than stepping past it and sawing
+         * back, and so the snap below still fires to end the segment. */
+        step = (int32_t)lin;
+        if (step > mag) step = mag;
+    } else {
+        step = (int32_t)(((int64_t)mag * (int64_t)a) >> FM1_ENV_BITS);
+    }
+    delta = diff < 0 ? -step : step;
 
     /* An exponential approaches but never arrives, and in integer arithmetic
      * it stalls outright once the remaining distance times the coefficient

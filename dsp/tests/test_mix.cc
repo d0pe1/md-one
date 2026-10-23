@@ -1393,9 +1393,22 @@ static void test_fine(void)
        "TIMBRE and COLOR carry their fine bits", "not offered");
     ok(fm1::Drone::HasFine(P_F1_CUT) && fm1::Drone::HasFine(P_F2_CUT),
        "and the cutoffs, now the filter interpolates them", "not offered");
-    ok(!fm1::Drone::HasFine(P_SHAPE) && !fm1::Drone::HasFine(P_ATTACK) &&
-       !fm1::Drone::HasFine(P_F1_TYPE),
-       "an enum, a time and a mode do not", "offered where it does nothing");
+    /* The envelope TIMES joined too, and this assertion flipped with them.
+     * It used to read "an enum, a time and a mode do not", on the reasoning
+     * that a time does not need sub-step resolution. That is wrong here for
+     * the same reason it was wrong about the cutoffs: fm1_env_a[] sweeps
+     * 0.4 ms to 32 s in 128 steps, so near the top one click moves a swell
+     * by whole seconds. The range is what makes seven bits coarse, not the
+     * kind of thing being measured. */
+    ok(fm1::Drone::HasFine(P_ATTACK) && fm1::Drone::HasFine(P_DECAY) &&
+       fm1::Drone::HasFine(P_RELEASE) && fm1::Drone::HasFine(P_HOLD),
+       "and the envelope times, which span 0.4 ms to 32 s", "not offered");
+
+    /* SUSTAIN is a LEVEL, not a time -- 128 steps across it is plenty, and
+     * offering a 1/256 step would be a control that moves nothing audible. */
+    ok(!fm1::Drone::HasFine(P_SHAPE) && !fm1::Drone::HasFine(P_SUSTAIN) &&
+       !fm1::Drone::HasFine(P_ENV_MODE) && !fm1::Drone::HasFine(P_F1_TYPE),
+       "an enum, a level and a mode do not", "offered where it does nothing");
 
     /* The coarse readout must keep saying what was dialled, through a render
      * and through the slew. */

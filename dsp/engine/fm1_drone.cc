@@ -358,6 +358,7 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
     case P_DECAY:   fm1_env_set_decay(&d.env, value);   break;
     case P_SUSTAIN: fm1_env_set_sustain(&d.env, value); break;
     case P_RELEASE: fm1_env_set_release(&d.env, value); break;
+    case P_ENV_MODE: fm1_env_set_mode(&d.env, value);   break;
 
     default:
         /* The insert slots, dispatched arithmetically like the EQ below. A
@@ -481,8 +482,15 @@ int Drone::HasFine(uint8_t param)
      * filter: braids::Svf interpolates, and the one-pole does now too. The
      * conclusion was wrong because it looked at the table instead of at what
      * reads it. */
+    /* The envelope times joined because seven bits is genuinely coarse over
+     * a range this wide: fm1_env_a[] sweeps 0.4 ms to 32 s in 128 steps, so
+     * one click near the top moves a swell by seconds. SUSTAIN is a level
+     * rather than a time and gets no finer treatment; ENV MODE is an enum
+     * and has nowhere to slide to. */
     return param == P_TIMBRE || param == P_COLOR ||
-           param == P_F1_CUT || param == P_F2_CUT;
+           param == P_F1_CUT || param == P_F2_CUT ||
+           param == P_ATTACK || param == P_HOLD ||
+           param == P_DECAY  || param == P_RELEASE;
 }
 
 /* The shared body of both nudges: walk a Q8 target by `delta`, either in

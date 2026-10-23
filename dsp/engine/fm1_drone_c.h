@@ -123,7 +123,16 @@ extern "C" {
 #define FD_MD_PAN         8
 #define FD_MD_NDEST       9
 
-#define FD_NPARAM        70
+/* Appended at the end of the enum on purpose -- see fm1_params.h. */
+#define FD_P_ENV_MODE    70
+
+#define FD_NPARAM        71
+
+/* Envelope modes, mirroring the ENV_M_* enum in fm1_env.h. DRONE ignores a
+ * key release; the other two hand it back to the player. */
+#define FD_ENV_M_DRONE    0
+#define FD_ENV_M_ANALOG   1
+#define FD_ENV_M_DIGITAL  2
 
 /* Filter modes, mirroring the F_* enum in fm1_filter.h. */
 #define FD_F_OFF          0

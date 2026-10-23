@@ -39,7 +39,7 @@ ENG_DIR := engine
 ENG_SRC := $(ENG_DIR)/fm1_drone.cc
 ENG_HDR := $(wildcard $(ENG_DIR)/*.h) $(wildcard shared/*.h)
 
-.PHONY: all test bench demo target clean table braids braids-all braids-bench braids-ram drone drone-all gain fresp
+.PHONY: all test bench demo target clean table braids braids-all braids-bench braids-ram drone drone-all gain fresp envshape
 all: $(BUILD)/render $(BUILD)/bench $(BUILD)/test_osc $(BUILD)/render_braids
 
 $(BUILD):
@@ -162,3 +162,11 @@ $(BUILD)/filter_resp: host/filter_resp.cc $(ENG_SRC) $(ENG_HDR) $(MI_SRC) $(MI_H
 
 fresp: $(BUILD)/filter_resp
 	./$(BUILD)/filter_resp
+
+# ANALOG against DIGITAL: the fall itself, sampled every tenth of the way
+# down, so "same time, different shape" is checked rather than claimed.
+$(BUILD)/env_shape: host/env_shape.cc $(ENG_HDR) | $(BUILD)
+	$(CXX) $(MI_FLAGS) -o $@ host/env_shape.cc
+
+envshape: $(BUILD)/env_shape
+	./$(BUILD)/env_shape

@@ -4,6 +4,11 @@
 #include "fm1_drone.h"
 
 /* The C header mirrors the parameter indices; keep them honest. */
+static_assert(FD_P_ENV_MODE   == P_ENV_MODE,    "param mirror drifted");
+static_assert(FD_ENV_M_DRONE  == ENV_M_DRONE,   "env mode mirror drifted");
+static_assert(FD_ENV_M_DIGITAL == ENV_M_DIGITAL, "env mode mirror drifted");
+static_assert(ENV_M_NMODES - 1 == 2,
+              "envelope mode count changed -- update P_ENV_MODE max in fm1_params.h");
 static_assert(FD_P_SHAPE      == P_SHAPE,       "param mirror drifted");
 static_assert(FD_P_TIMBRE     == P_TIMBRE,      "param mirror drifted");
 static_assert(FD_P_COLOR      == P_COLOR,       "param mirror drifted");

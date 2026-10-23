@@ -102,6 +102,14 @@ enum {
      * modes -- they can be stacked now, and driven into each other. */
     P_SL1_TYPE, P_SL1_P1, P_SL1_P2, P_SL1_MIX,
     P_SL2_TYPE, P_SL2_P1, P_SL2_P2, P_SL2_MIX,
+
+    /* Appended, not slotted in beside the other envelope controls, for the
+     * reason given above: FD_P_LEVEL is the literal 38 in fm1_drone_c.h and
+     * thirty indices below it are literals too. Inserting this one where it
+     * reads best would silently renumber all of them, and the patch format
+     * and CC map with them. The HOLD page puts it next to its family on
+     * screen, which is where it actually matters. */
+    P_ENV_MODE,
     NPARAM
 };
 
@@ -266,7 +274,8 @@ enum {
     K_LFOMODE,  /* an LFO shape, FM1_LFO_MODE_NAME in fm1_lfo.h */
     K_MODSRC,   /* a modulation source, FM1_MODSRC_NAME above */
     K_SLOT,     /* an insert slot type, FM1_SLOT_NAME in fm1_slot.h */
-    K_POLES     /* a filter slope, FM1_FPOLE_NAME in fm1_filter.h */
+    K_POLES,    /* a filter slope, FM1_FPOLE_NAME in fm1_filter.h */
+    K_ENVMODE   /* an envelope mode, FM1_ENVMODE_NAME in fm1_env.h */
 };
 
 typedef struct {
@@ -398,6 +407,13 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
     [P_SL2_P1]     = {"SL2 P1", 127,  64, K_NUM,     0},
     [P_SL2_P2]     = {"SL2 P2", 127,   0, K_NUM,     0},
     [P_SL2_MIX]    = {"SL2 MIX",127, 127, K_PCT,     0},
+
+    /* Last, because P_ENV_MODE is last in the enum and C++ requires
+     * designated initialisers in declaration order -- putting this row
+     * beside its family read better and would not compile. DRONE is the
+     * default: a note latches and MUTE is what reaches RELEASE, which is the
+     * instrument this is. ANALOG and DIGITAL hand the key release back. */
+    [P_ENV_MODE]   = {"ENV MODE", 2,   0, K_ENVMODE, 0},
 };
 
 static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
@@ -491,6 +507,7 @@ static inline int fm1_param_is_smoothed(uint8_t p)
     switch (p) {
     case P_OCTAVE: case P_DRIFT_RATE:
     case P_ATTACK: case P_HOLD: case P_DECAY: case P_SUSTAIN: case P_RELEASE:
+    case P_ENV_MODE:
         return 0;
     default:
         break;
