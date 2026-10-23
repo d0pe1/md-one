@@ -22,9 +22,9 @@
 #ifndef FM1_FILTER_H
 #define FM1_FILTER_H
 
-#include "../mi/braids/svf.h"
 #include "../shared/fm1_fixed.h"
-#include "../shared/fm1_svf_table.h"
+#include "../shared/fm1_svf_table.h"   /* the one-pole's coefficient, 6 dB only */
+#include "fm1_tpt.h"
 
 /* The mode list and its names. Deliberately at global scope, not inside
  * namespace fm1: these are parameter VALUES, and they belong with the P_*
@@ -55,8 +55,14 @@ struct fm1_filter_t {
     uint8_t     poles;              /* FP_* -- 6, 12 or 24 dB per octave */
     int16_t     key;                /* the voice's pitch, 1/128 semitone */
 
-    braids::Svf svf;                /* a couple of dozen bytes */
-    braids::Svf svf2;               /* the second pair, for 24 dB */
+    /* TRAPEZOIDAL, not Chamberlin. The Chamberlin SVF this used to hold is
+     * only well behaved below about fs/6, so its tuning table clamped at
+     * note 114 and the top twelve steps of the CUT knob did nothing at all:
+     * measured at RES 0, the 12 dB lowpass stopped at a real 2974 Hz and the
+     * 24 dB at 1909 Hz, while the panel read 8372 Hz. fm1_tpt.h has the
+     * numbers and the reasoning. */
+    fm1_tpt_t   t1;
+    fm1_tpt_t   t2;                 /* the second pair, for 24 dB */
     int32_t     op;                 /* the one-pole's state, for 6 dB */
     /* The one-pole's coefficient, derived with the two SVF frequencies in
      * fm1_filter_apply_cut(). It belongs beside them: all three come from
@@ -86,8 +92,8 @@ static inline void fm1_filter_apply_cut(fm1_filter_t *f)
 
     if (hz < 0)         hz = 0;
     if (hz > 127 * 128) hz = 127 * 128;
-    f->svf.set_frequency((int16_t)hz);
-    f->svf2.set_frequency((int16_t)hz);
+    fm1_tpt_set_pitch(&f->t1, hz);
+    fm1_tpt_set_pitch(&f->t2, hz);
     /* Derived HERE, not in the sample loop.
      *
      * The 6 dB branch used to read it per sample -- originally one indexed
@@ -103,41 +109,32 @@ static inline void fm1_filter_apply_cut(fm1_filter_t *f)
 
 static inline void fm1_filter_set_res_raw(fm1_filter_t *f, uint8_t res)
 {
-    /* 0..127 -> 0..32766 for the SVF, which reads it through lut_svf_damp, so
-     * the curve is already shaped and a linear map here is correct. */
-    f->svf.set_resonance((int16_t)((int32_t)res * 258));
+    fm1_tpt_set_res(&f->t1, res);
     /* The second pair runs at LOWER resonance than the first. Two cascaded
      * filters each at full Q is not a steeper filter, it is an oscillator:
      * the peaks multiply and the pair screams well before the knob reaches
      * the top. Two thirds keeps 24 dB usable across the whole range. */
-    f->svf2.set_resonance((int16_t)(((int32_t)res * 258 * 2) / 3));
+    fm1_tpt_set_res(&f->t2, (uint8_t)(((int32_t)res * 2) / 3));
 }
 
-/* Push EVERY setting into both SVFs.
+/* Push the tuning into both stages.
  *
- * braids::Svf::Init() is a full factory reset, not a state clear: besides
- * zeroing the integrators it puts frequency back to 33 << 7 (about 55 Hz),
- * resonance to 16384, and MODE to SVF_MODE_BP. So anything that Inits an SVF
- * has to restore all three, or the filter silently becomes a different
- * filter.
+ * There is no mode to push. A trapezoidal SVF computes all three responses
+ * from the same two integrators, so LOWPASS, BANDPASS and HIGHPASS are a
+ * choice made at the OUTPUT, per sample, not a state the filter is
+ * configured into. That alone retires a whole bug: braids::Svf::Init() was a
+ * factory reset rather than a state clear -- it put frequency back to about
+ * 55 Hz, resonance to mid, and mode to BAND PASS -- and fm1_filter_set_poles
+ * called it to clear svf2's integrators while restoring none of that. Asking
+ * for 24 dB therefore cascaded the real filter into a band pass parked at
+ * 55 Hz, and a 24 dB lowpass passed almost nothing.
  *
- * Nothing did, and that is the 24 dB bug. fm1_filter_set_poles Init'd svf2 to
- * clear its integrators and restored none of it, so asking for 24 dB
- * cascaded the real filter into a BAND PASS parked at 55 Hz. A 24 dB LOWPASS
- * therefore passed almost nothing -- a none-pass filter, which is exactly
- * what it sounded like.
- *
- * NOTCH runs the SVF in BP and subtracts at the output, because braids::Svf
- * returns one response and has no notch of its own. */
+ * fm1_tpt_clear() clears state and ONLY state; the coefficients survive it.
+ * The failure mode is gone by construction, not by remembering to undo it. */
 static inline void fm1_filter_apply_cut(fm1_filter_t *f);
 
 static inline void fm1_filter_push(fm1_filter_t *f)
 {
-    braids::SvfMode m = f->mode == F_HP ? braids::SVF_MODE_HP
-                      : f->mode == F_LP ? braids::SVF_MODE_LP
-                                        : braids::SVF_MODE_BP;   /* BP, NOTCH */
-    f->svf.set_mode(m);
-    f->svf2.set_mode(m);
     fm1_filter_apply_cut(f);
     fm1_filter_set_res_raw(f, f->res);
 }
@@ -152,10 +149,9 @@ static inline void fm1_filter_init(fm1_filter_t *f)
     f->poles = FP_12;       /* what it was before the knob existed */
     f->op   = 0;
     f->key  = 60 * 128;
-    f->svf.Init();
-    f->svf2.Init();
-    fm1_filter_apply_cut(f);
-    fm1_filter_set_res_raw(f, f->res);
+    fm1_tpt_init(&f->t1);
+    fm1_tpt_init(&f->t2);
+    fm1_filter_push(f);
 }
 
 /* Reset the audio state without touching the settings. Called on a mode
@@ -163,8 +159,8 @@ static inline void fm1_filter_init(fm1_filter_t *f)
  * and letting it out is a click. */
 static inline void fm1_filter_reset(fm1_filter_t *f)
 {
-    f->svf.Init();
-    f->svf2.Init();
+    fm1_tpt_clear(&f->t1);
+    fm1_tpt_clear(&f->t2);
     f->op = 0;
     fm1_filter_push(f);
 }
@@ -186,9 +182,7 @@ static inline void fm1_filter_set_poles(fm1_filter_t *f, uint8_t poles)
     if (poles >= FP_NPOLES || poles == f->poles) return;
     f->poles = poles;
     f->op = 0;              /* the one-pole's state means nothing at 12 or 24 */
-    f->svf2.Init();
-    /* ...and Init() just threw away svf2's mode, cutoff and resonance. */
-    fm1_filter_push(f);
+    fm1_tpt_clear(&f->t2);  /* state only: its tuning is already correct */
 }
 
 /* Cutoff in 1/128 SEMITONE -- the unit the pitch, the comb and the key all
@@ -244,12 +238,19 @@ static inline q15_t fm1_filter_tick(fm1_filter_t *f, q15_t x)
     switch (f->mode) {
     case F_OFF:
         return x;
-    case F_NOTCH:
-        /* in - bp. The band pass is everything the notch removes, so the
-         * difference is the notch, and it costs one subtract. Always 12 dB:
-         * cascading a notch deepens it rather than steepening it. */
-        w = fm1_q31_to_q15_sat((int32_t)x - f->svf.Process(x));
+    case F_NOTCH: {
+        /* lp + hp, which is the notch by definition: everything the band
+         * pass keeps is what the notch removes. Always 12 dB -- cascading a
+         * notch deepens it rather than steepening it. */
+        fm1_tpt_out_t o = fm1_tpt_tick(&f->t1, x);
+        w = fm1_q31_to_q15_sat(o.lp + o.hp);
         break;
+    }
+    case F_BP: {
+        fm1_tpt_out_t o = fm1_tpt_tick(&f->t1, x);
+        w = fm1_q31_to_q15_sat(o.bp);
+        break;
+    }
     case F_LP: case F_HP:
         if (f->poles == FP_6) {
             /* One pole, from the same coefficient table the SVF reads, and
@@ -274,17 +275,21 @@ static inline q15_t fm1_filter_tick(fm1_filter_t *f, q15_t x)
             w = fm1_q31_to_q15_sat(w);
             break;
         }
-        if (f->poles == FP_24) {
-            w = fm1_q31_to_q15_sat(f->svf2.Process(
-                    fm1_q31_to_q15_sat(f->svf.Process(x))));
-            break;
+        {
+            /* 12 and 24 dB are the same stage, run once or twice. The
+             * response is picked at the output rather than configured into
+             * the filter, so a cascade is literally the same call again. */
+            fm1_tpt_out_t o = fm1_tpt_tick(&f->t1, x);
+            int32_t y = (f->mode == F_LP) ? o.lp : o.hp;
+            if (f->poles == FP_24) {
+                o = fm1_tpt_tick(&f->t2, fm1_q31_to_q15_sat(y));
+                y = (f->mode == F_LP) ? o.lp : o.hp;
+            }
+            w = fm1_q31_to_q15_sat(y);
         }
-        /* fall through: 12 dB is the plain SVF */
-    default:
-        /* The SVF clips its own integrators to int16 internally, but HP is a
-         * difference of two clipped terms and can land just outside. */
-        w = fm1_q31_to_q15_sat(f->svf.Process(x));
         break;
+    default:
+        return x;
     }
 
     if (f->mix >= 127) return (q15_t)w;

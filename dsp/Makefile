@@ -39,7 +39,7 @@ ENG_DIR := engine
 ENG_SRC := $(ENG_DIR)/fm1_drone.cc
 ENG_HDR := $(wildcard $(ENG_DIR)/*.h) $(wildcard shared/*.h)
 
-.PHONY: all test bench demo target clean table braids braids-all braids-bench braids-ram drone drone-all gain
+.PHONY: all test bench demo target clean table braids braids-all braids-bench braids-ram drone drone-all gain fresp
 all: $(BUILD)/render $(BUILD)/bench $(BUILD)/test_osc $(BUILD)/render_braids
 
 $(BUILD):
@@ -153,3 +153,12 @@ target:
 
 clean:
 	rm -rf $(BUILD)
+
+# What the voice filter actually does, against what the knob says: passband
+# gain and the real -3 dB corner per CUT setting, per slope. This is what
+# showed the Chamberlin SVF dying at note 115 with the panel reading 12.5 kHz.
+$(BUILD)/filter_resp: host/filter_resp.cc $(ENG_SRC) $(ENG_HDR) $(MI_SRC) $(MI_HDR) | $(BUILD)
+	$(CXX) $(MI_FLAGS) $(MI_INC) -o $@ host/filter_resp.cc $(ENG_SRC) $(MI_SRC) -lm
+
+fresp: $(BUILD)/filter_resp
+	./$(BUILD)/filter_resp
