@@ -93,6 +93,12 @@ typedef struct {
      * the ROUTE page can be per-voice AND per-cable at the same time. */
     uint8_t     rows;
     uint8_t     rstride;
+    /* How many knobs follow the row. The rest stay with the PAGE, so a
+     * table can carry the two or three controls that belong to the whole
+     * subject rather than to one line of it -- a voice's own level and pan
+     * sit beside its cable table instead of being somewhere else entirely.
+     * Only meaningful when rows is set. */
+    uint8_t     rowknobs;
 } fm1_page_t;
 
 /* SCOPE_VOICE is 0, which is what makes the trailing-zero default above mean
@@ -157,9 +163,9 @@ static const fm1_page_t FM1_PG_EDIT[] = {
      * This page used to be DEST plus LEVEL, PAN and MONO, which is to say
      * one cable and three things that were already on MIX. Where a voice
      * goes is a whole subject; it gets the page. */
-    { "ROUTE",  { P_DEST, P_OUT1_GAIN, PG_NONE, PG_NONE },
+    { "ROUTE",  { P_DEST, P_OUT1_GAIN, P_LEVEL, P_PAN },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_VOICE, 0, 0, FM1_NODE_OUTS, P_OUT_STRIDE },
+      PG_NONE, SUBJ_VOICE, 0, 0, FM1_NODE_OUTS, P_OUT_STRIDE, 2 },
 };
 
 /* --- ENV: AHDSR ----------------------------------------------------------
@@ -432,7 +438,8 @@ static inline int fm1_page_knob(const fm1_nav_t *n, uint8_t knob)
     id = p->k[knob];
     if (id == PG_NONE) return PG_NONE;
     return id + (int)p->stride * (int)n->sel[p->subject]
-              + (int)p->rstride * (int)fm1_nav_row_of(n);
+              + (knob < p->rowknobs
+                 ? (int)p->rstride * (int)fm1_nav_row_of(n) : 0);
 }
 
 /* What SHIFT + this knob edits, or PG_NONE. Same stride arithmetic as the
@@ -446,7 +453,8 @@ static inline int fm1_page_shift_knob(const fm1_nav_t *n, uint8_t knob)
     id = p->ks[knob];
     if (id == PG_NONE) return PG_NONE;
     return id + (int)p->stride * (int)n->sel[p->subject]
-              + (int)p->rstride * (int)fm1_nav_row_of(n);
+              + (knob < p->rowknobs
+                 ? (int)p->rstride * (int)fm1_nav_row_of(n) : 0);
 }
 
 /* The parameter id on the ALGORITHM encoder, or PG_NONE. */
