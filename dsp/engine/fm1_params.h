@@ -398,16 +398,21 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * cable before anything is heard is correct for a modular and wrong for
      * an instrument you just switched on. max is DEST_NDEST-1 as a literal,
      * checked against the enum in fm1_drone.cc. */
+    /* The knob row shows the LAST WORD of a name (fm1_label_fit), so these
+     * read as TO and SEND beside the voice's own LEVEL and PAN. They were
+     * OUTn LVL, which abbreviated to "LVL" and sat next to "LEVEL" meaning
+     * something else entirely -- how much goes down this cable, against how
+     * loud the voice is. A send is an amount; the voice has the level. */
     [P_DEST]       = {"OUT1 TO",  9,   9, K_DEST,    0},
-    [P_OUT1_GAIN]  = {"OUT1 LVL",127, 127, K_PCT,     0},
+    [P_OUT1_GAIN]  = {"OUT1 SEND",127, 127, K_PCT,     0},
     /* The other three start unplugged: a voice that suddenly came out of
      * four places on boot would be a surprise, not a feature. */
     [P_OUT2_DEST]  = {"OUT2 TO",  9,   0, K_DEST,    0},
-    [P_OUT2_GAIN]  = {"OUT2 LVL",127, 127, K_PCT,     0},
+    [P_OUT2_GAIN]  = {"OUT2 SEND",127, 127, K_PCT,     0},
     [P_OUT3_DEST]  = {"OUT3 TO",  9,   0, K_DEST,    0},
-    [P_OUT3_GAIN]  = {"OUT3 LVL",127, 127, K_PCT,     0},
+    [P_OUT3_GAIN]  = {"OUT3 SEND",127, 127, K_PCT,     0},
     [P_OUT4_DEST]  = {"OUT4 TO",  9,   0, K_DEST,    0},
-    [P_OUT4_GAIN]  = {"OUT4 LVL",127, 127, K_PCT,     0},
+    [P_OUT4_GAIN]  = {"OUT4 SEND",127, 127, K_PCT,     0},
 
     /* Everything off: a new patch modulates nothing until asked. DEPTH is
      * bipolar so 64 is the centre detent, exactly as FM and MOD are on the
