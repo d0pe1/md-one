@@ -37,8 +37,13 @@ static_assert(G_FX(FM1_FX_CHANS - 1, G_FX_STRIDE - 1) + 1 == G_LFO_BASE,
               "the patchbay and LFO parameter blocks are no longer adjacent");
 static_assert(G_FX_OUT(0, FM1_NODE_OUTS - 1, 1) == G_FX(0, G_FX_STRIDE - 1),
               "the FX cable block is not the tail of an FX channel");
-static_assert(G_LFO(3, G_LFO_MODE) + 1 == G_MIX_BASE,
-              "the LFO and mix bus parameter blocks are no longer adjacent");
+/* The global table is a stack of blocks and ApplyGlobal dispatches by
+ * testing lower bounds from the top down, so each block must start exactly
+ * where the one below it ends. These four asserts are the whole contract. */
+static_assert(G_LFO(FM1_LFOS - 1, G_LFO_MODE) + 1 == G_EN_BASE,
+              "the LFO and modulation envelope blocks are no longer adjacent");
+static_assert(G_EN(FM1_MOD_ENVS - 1, G_EN_LOOP) + 1 == G_MIX_BASE,
+              "the modulation envelope and mix bus blocks are no longer adjacent");
 static_assert(G_MIX(FM1_MIX_CHANS - 1, G_MIX_PAN) == NGPARAM - 1,
               "the mix bus parameters are not the tail of the global table");
 static_assert(LFO_NMODES - 1 == 5,
@@ -159,6 +164,23 @@ void Drone::Init(uint32_t seed)
     for (uint8_t n = 0; n < FM1_LFOS; n++) {
         fm1_lfo_init(&lfo_[n], 0x2545F491u + n * 0x9E3779B9u);
         lfo_out_[n] = 0;
+    }
+    /* The meters and the SUM trace. Easy to forget because the engine lives
+     * in .pool on the device, which the loader zeroes at boot -- so a field
+     * left out of here is correct on hardware and garbage anywhere else.
+     * scope_w_ was, and an index read from stack garbage wrote past the end
+     * of scope_[] every block. The host tests found it the moment one of
+     * them held a Drone as a local instead of a static. */
+    summeter_ = 0;
+    scope_w_  = 0;
+    for (uint32_t i = 0; i < FM1_SCOPE_POINTS; i++) scope_[i] = 0;
+    for (uint32_t i = 0; i < FM1_MIX_CHANS; i++)    mixmeter_[i] = 0;
+
+    for (uint8_t n = 0; n < FM1_MOD_ENVS; n++) {
+        fm1_env_init(&menv_[n]);
+        menv_out_[n] = 0;
+        menv_trig_[n] = ENT_FREE;
+        menv_loop_[n] = 0;
     }
 
     for (uint8_t v = 0; v < FM1_VOICES; v++) {
@@ -452,9 +474,38 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
     if (param == G_SPREAD)
         for (uint8_t v = 0; v < FM1_VOICES; v++) ApplyPitch(v);
 
-    /* Tested before the patchbay, because the LFO block sits above it and
-     * `>= G_FX_BASE` is true for both. */
-    if (param >= G_LFO_BASE) {
+    /* ONE chain, tested from the TOP down.
+     *
+     * Every test here is a lower bound, so each is true for all the blocks
+     * above it -- G_MIX_BASE, G_EN_BASE and G_LFO_BASE are all >= G_FX_BASE.
+     * The patchbay branch used to sit outside the chain and rely on the LFO
+     * branch returning, which worked for exactly as long as the LFOs were
+     * the only block above it: adding the mix buses and the envelopes sent
+     * both of them into the patchbay as well, where `(param - G_FX_BASE) /
+     * G_FX_STRIDE` indexed rack_.ch[] far off its end.
+     *
+     * Chained, the structure cannot be wrong again -- there is no
+     * fall-through to forget a return for. */
+    if (param >= G_MIX_BASE) {
+        /* Handled where the buses are summed; nothing to push. */
+    } else if (param >= G_EN_BASE) {
+        uint8_t n    = (uint8_t)((param - G_EN_BASE) / G_EN_STRIDE);
+        uint8_t what = (uint8_t)((param - G_EN_BASE) % G_EN_STRIDE);
+        fm1_env_t *e = &menv_[n];
+        switch (what) {
+        /* From gacc_, like the voice envelope: these carry a fraction. */
+        case G_EN_ATK:  fm1_env_set_attack_q8(e,  gacc_[param]); break;
+        case G_EN_HOLD: fm1_env_set_hold_q8(e,    gacc_[param]); break;
+        case G_EN_DEC:  fm1_env_set_decay_q8(e,   gacc_[param]); break;
+        case G_EN_REL:  fm1_env_set_release_q8(e, gacc_[param]); break;
+        case G_EN_SUS:  fm1_env_set_sustain(e, value); break;
+        case G_EN_ACRV: fm1_env_set_curve_a(e, value); break;
+        case G_EN_RCRV: fm1_env_set_curve_r(e, value); break;
+        case G_EN_TRIG: menv_trig_[n] = value < ENT_NTRIG ? value : ENT_FREE; break;
+        case G_EN_LOOP: menv_loop_[n] = value ? 1u : 0u; break;
+        default: break;
+        }
+    } else if (param >= G_LFO_BASE) {
         uint8_t n    = (uint8_t)((param - G_LFO_BASE) / G_LFO_STRIDE);
         uint8_t what = (uint8_t)((param - G_LFO_BASE) % G_LFO_STRIDE);
         fm1_lfo_t *l = &lfo_[n];
@@ -465,10 +516,7 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
         case G_LFO_MODE:  fm1_lfo_set_mode(l, value);   break;
         default: break;
         }
-        return;
-    }
-
-    if (param >= G_FX_BASE) {
+    } else if (param >= G_FX_BASE) {
         uint8_t slot = (uint8_t)((param - G_FX_BASE) / G_FX_STRIDE);
         uint8_t what = (uint8_t)((param - G_FX_BASE) % G_FX_STRIDE);
         fx_chan_t *c = &rack_.ch[slot];
@@ -743,8 +791,18 @@ int32_t Drone::ModOf(const DroneVoice &d, uint8_t n) const
      * means the same amount of movement whatever is plugged in. UNIPOLAR:
      * 0..32767 rather than +-32767, because an envelope has no negative half
      * -- a positive depth opens, a negative one closes. */
-    if (src == MD_SRC_ENV)
-        return ((d.env.level >> (FM1_ENV_BITS - 15)) * depth) >> 6;
+    if (src == MD_SRC_ENV) {
+        int32_t lv = d.env.level >> (FM1_ENV_BITS - 15);   /* 0..32768 */
+        if (lv > 32767) lv = 32767;
+        return (lv * depth) >> 6;
+    }
+
+    /* One of the four modulation envelopes. Global, so every voice sees the
+     * same shape -- which is the point: an envelope that opens all four
+     * filters together is a gesture, where four independent ones are four
+     * voices doing their own thing (that is what DRIFT is for). */
+    if (src >= MD_SRC_EN1 && src < MD_SRC_EN1 + FM1_MOD_ENVS)
+        return ((int32_t)menv_out_[src - MD_SRC_EN1] * depth) >> 6;
 
     /* lfo_out_ is +-32767 and depth is -64..+63, so >> 6 lands back in Q15.
      * Bipolar depth is what makes an inverted modulation possible without a
@@ -797,6 +855,53 @@ void Drone::Render(int16_t *out, uint32_t n)
          * everything else here the cost is paid once rather than per voice. */
         for (uint8_t n = 0; n < FM1_LFOS; n++)
             lfo_out_[n] = fm1_lfo_block(&lfo_[n]);
+
+        /* The four modulation envelopes.
+         *
+         * Advanced by a whole block, one tick per frame, because an envelope
+         * is defined per sample and running it once per block would make
+         * every time constant 256x too long. 256 ticks x 4 is about 10,000
+         * cycles, 0.7% of the budget, and only for the ones that are awake.
+         *
+         * What they FEED is still block rate -- modulation is applied once
+         * per block -- so their effective resolution is 5.8 ms however
+         * finely they run. That is the honest limit of a modulation
+         * envelope here, and the reason the VCA envelope stays per-voice and
+         * per-sample: a half-millisecond click is its job, not theirs. */
+        for (uint8_t n = 0; n < FM1_MOD_ENVS; n++) {
+            fm1_env_t *e = &menv_[n];
+            uint8_t want;
+
+            /* FREE means it runs on its own: gated once and then left to
+             * LOOP, or held at the end if it is not looping. */
+            want = menv_trig_[n] == ENT_FREE
+                 ? 1u
+                 : v_[menv_trig_[n] - ENT_V1].gate;
+            if (want != e->gate) fm1_env_gate(e, want);
+
+            /* LOOP restarts it when it arrives, which is what turns an
+             * envelope into a shape generator rather than a one-shot. A
+             * sustaining envelope never arrives, so a looped one with
+             * SUSTAIN up holds -- correct, and the way to stop a loop
+             * without switching it off. */
+            if (menv_loop_[n] && e->stage == ENV_IDLE) {
+                fm1_env_gate(e, 0);
+                fm1_env_gate(e, 1);
+            }
+
+            if (fm1_env_idle(e) && !menv_loop_[n]) { menv_out_[n] = 0; continue; }
+            {
+                int32_t lv = 0;
+                for (uint32_t i = 0; i < chunk; i++) lv = fm1_env_tick(e);
+                /* CLAMPED. A full envelope is exactly FM1_ENV_ONE, and
+                 * FM1_ENV_ONE >> 9 is 32768 -- one past Q15, which lands on
+                 * -32768 in an int16 and inverts the modulation at the top
+                 * of the stroke. The test read -32768 for a full envelope
+                 * on its first run. */
+                lv >>= (FM1_ENV_BITS - 15);
+                menv_out_[n] = (q15_t)(lv > 32767 ? 32767 : lv);
+            }
+        }
 
         for (uint32_t i = 0; i < chunk * 2u; i++) bus_[i] = 0;
 
@@ -1374,6 +1479,7 @@ void Drone::Render(int16_t *out, uint32_t n)
             if (a > sumpk) sumpk = a;
             if (a > slice) slice = a;
             if (++sl >= FM1_SCOPE_SLICE * 2u) {
+                if (scope_w_ >= FM1_SCOPE_POINTS) scope_w_ = 0;
                 scope_[scope_w_] = (uint8_t)(slice >= Q15_ONE ? 255
                                    : ((int32_t)slice * 255) / Q15_ONE);
                 scope_w_ = (uint8_t)((scope_w_ + 1u) % FM1_SCOPE_POINTS);

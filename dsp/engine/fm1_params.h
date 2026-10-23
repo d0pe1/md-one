@@ -187,12 +187,40 @@ enum {
 #define MD_SRC_LFO1  1
 #define MD_SRC_DRIFT 5
 #define MD_SRC_ENV   6
-#define MD_SRC_COUNT 7
+/* The four modulation envelopes. ENV above is the voice's own VCA contour,
+ * which is a different thing: it is whatever the amplitude is doing, and
+ * you cannot change it without changing how loud the voice is. These four
+ * are free to be shapes. */
+#define MD_SRC_EN1   7
+#define MD_SRC_COUNT 11
 static const char *const FM1_MODSRC_NAME[MD_SRC_COUNT] = {
-    "---", "LFO1", "LFO2", "LFO3", "LFO4", "DRIFT", "ENV"
+    "---", "LFO1", "LFO2", "LFO3", "LFO4", "DRIFT", "VCA",
+    "EN1", "EN2", "EN3", "EN4"
 };
 
 /* EQ band b (0..2), control j. Same shape as the patchbay's G_FX(). */
+/* Modulation envelope n (0..3), control j. */
+#define G_EN_BASE    G_EN1_ATK
+#define G_EN_STRIDE  9
+#define G_EN(n, j)   (G_EN_BASE + (n) * G_EN_STRIDE + (j))
+#define G_EN_ATK     0
+#define G_EN_HOLD    1
+#define G_EN_DEC     2
+#define G_EN_SUS     3
+#define G_EN_REL     4
+#define G_EN_ACRV    5
+#define G_EN_RCRV    6
+#define G_EN_TRIG    7
+#define G_EN_LOOP    8
+#define FM1_MOD_ENVS 4
+
+/* What starts one. FREE runs on its own; the rest follow a voice's gate, so
+ * an envelope can shadow the voice it is shaping without being wired to it. */
+enum { ENT_FREE = 0, ENT_V1, ENT_V2, ENT_V3, ENT_V4, ENT_NTRIG };
+static const char *const FM1_ENTRIG_NAME[ENT_NTRIG] = {
+    "FREE", "V1", "V2", "V3", "V4"
+};
+
 /* Mix bus n (0..3), control j. Same shape as G_FX() and P_EQ(). */
 #define G_MIX_BASE   G_MIX1_LEVEL
 #define G_MIX_STRIDE 2
@@ -242,6 +270,31 @@ enum {
      * purpose (fm1_route.h). Appended rather than placed beside the
      * patchbay, because fm1_drone_c.h mirrors the FX and LFO indices as
      * literals and inserting would renumber all of them. */
+    /* FOUR MODULATION ENVELOPES, global.
+     *
+     * The per-voice envelope is the VCA and cannot be anything else -- every
+     * voice needs its own amplitude contour. These are separate, and exist
+     * because a modulation matrix whose only non-LFO source is an amplitude
+     * envelope is a matrix with one interesting row: you could not open a
+     * filter without also shaping the level, because it was the same
+     * envelope.
+     *
+     * A TRIGGER rather than a gate: each one follows a chosen voice's gate,
+     * or free-runs. LOOP restarts it when it finishes, which is what turns
+     * an envelope into a shape generator.
+     *
+     * No MODE here. The VCA envelope's mode is about the GATE and takes a
+     * shape with it; these have a trigger instead, so they need only the
+     * curves. */
+    G_EN1_ATK, G_EN1_HOLD, G_EN1_DEC, G_EN1_SUS, G_EN1_REL,
+    G_EN1_ACRV, G_EN1_RCRV, G_EN1_TRIG, G_EN1_LOOP,
+    G_EN2_ATK, G_EN2_HOLD, G_EN2_DEC, G_EN2_SUS, G_EN2_REL,
+    G_EN2_ACRV, G_EN2_RCRV, G_EN2_TRIG, G_EN2_LOOP,
+    G_EN3_ATK, G_EN3_HOLD, G_EN3_DEC, G_EN3_SUS, G_EN3_REL,
+    G_EN3_ACRV, G_EN3_RCRV, G_EN3_TRIG, G_EN3_LOOP,
+    G_EN4_ATK, G_EN4_HOLD, G_EN4_DEC, G_EN4_SUS, G_EN4_REL,
+    G_EN4_ACRV, G_EN4_RCRV, G_EN4_TRIG, G_EN4_LOOP,
+
     G_MIX1_LEVEL, G_MIX1_PAN,
     G_MIX2_LEVEL, G_MIX2_PAN,
     G_MIX3_LEVEL, G_MIX3_PAN,
@@ -319,7 +372,8 @@ enum {
     K_MODSRC,   /* a modulation source, FM1_MODSRC_NAME above */
     K_SLOT,     /* an insert slot type, FM1_SLOT_NAME in fm1_slot.h */
     K_POLES,    /* a filter slope, FM1_FPOLE_NAME in fm1_filter.h */
-    K_ENVMODE   /* an envelope mode, FM1_ENVMODE_NAME in fm1_env.h */
+    K_ENVMODE,  /* an envelope mode, FM1_ENVMODE_NAME in fm1_env.h */
+    K_ENTRIG    /* what starts a modulation envelope, FM1_ENTRIG_NAME */
 };
 
 typedef struct {
@@ -577,6 +631,42 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
 
     /* Last, because the mix buses are last in the enum and C++ wants
      * designated initialisers in declaration order. */
+    [G_EN1_ATK]  = {"EN1 ATT",127,  8, K_MS,      0},
+    [G_EN1_HOLD] = {"EN1 HOLD", 127,   0, K_MS,      0},
+    [G_EN1_DEC]  = {"EN1 DEC",127,  40, K_MS,      0},
+    [G_EN1_SUS]  = {"EN1 SUS",127,127, K_NUM,    0},
+    [G_EN1_REL]  = {"EN1 REL",127, 20, K_MS,     0},
+    [G_EN1_ACRV] = {"EN1 ACURV",127,127, K_PCT,    0},
+    [G_EN1_RCRV] = {"EN1 RCURV",127,127, K_PCT,    0},
+    [G_EN1_TRIG] = {"EN1 TRIG",    4,  0, K_ENTRIG,  0},
+    [G_EN1_LOOP] = {"EN1 LOOP",    1,  0, K_ONOFF,   0},
+    [G_EN2_ATK]  = {"EN2 ATT",127,  8, K_MS,      0},
+    [G_EN2_HOLD] = {"EN2 HOLD", 127,   0, K_MS,      0},
+    [G_EN2_DEC]  = {"EN2 DEC",127,  40, K_MS,      0},
+    [G_EN2_SUS]  = {"EN2 SUS",127,127, K_NUM,    0},
+    [G_EN2_REL]  = {"EN2 REL",127, 20, K_MS,     0},
+    [G_EN2_ACRV] = {"EN2 ACURV",127,127, K_PCT,    0},
+    [G_EN2_RCRV] = {"EN2 RCURV",127,127, K_PCT,    0},
+    [G_EN2_TRIG] = {"EN2 TRIG",    4,  0, K_ENTRIG,  0},
+    [G_EN2_LOOP] = {"EN2 LOOP",    1,  0, K_ONOFF,   0},
+    [G_EN3_ATK]  = {"EN3 ATT",127,  8, K_MS,      0},
+    [G_EN3_HOLD] = {"EN3 HOLD", 127,   0, K_MS,      0},
+    [G_EN3_DEC]  = {"EN3 DEC",127,  40, K_MS,      0},
+    [G_EN3_SUS]  = {"EN3 SUS",127,127, K_NUM,    0},
+    [G_EN3_REL]  = {"EN3 REL",127, 20, K_MS,     0},
+    [G_EN3_ACRV] = {"EN3 ACURV",127,127, K_PCT,    0},
+    [G_EN3_RCRV] = {"EN3 RCURV",127,127, K_PCT,    0},
+    [G_EN3_TRIG] = {"EN3 TRIG",    4,  0, K_ENTRIG,  0},
+    [G_EN3_LOOP] = {"EN3 LOOP",    1,  0, K_ONOFF,   0},
+    [G_EN4_ATK]  = {"EN4 ATT",127,  8, K_MS,      0},
+    [G_EN4_HOLD] = {"EN4 HOLD", 127,   0, K_MS,      0},
+    [G_EN4_DEC]  = {"EN4 DEC",127,  40, K_MS,      0},
+    [G_EN4_SUS]  = {"EN4 SUS",127,127, K_NUM,    0},
+    [G_EN4_REL]  = {"EN4 REL",127, 20, K_MS,     0},
+    [G_EN4_ACRV] = {"EN4 ACURV",127,127, K_PCT,    0},
+    [G_EN4_RCRV] = {"EN4 RCURV",127,127, K_PCT,    0},
+    [G_EN4_TRIG] = {"EN4 TRIG",    4,  0, K_ENTRIG,  0},
+    [G_EN4_LOOP] = {"EN4 LOOP",    1,  0, K_ONOFF,   0},
     [G_MIX1_LEVEL] = {"MIX1 LVL",127, 100, K_NUM,     0},
     [G_MIX1_PAN]   = {"MIX1 PAN",127,  64, K_BIP,     0},
     [G_MIX2_LEVEL] = {"MIX2 LVL",127, 100, K_NUM,     0},

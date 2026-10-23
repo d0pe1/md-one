@@ -59,6 +59,9 @@ static_assert(FD_P_OUT(3, FD_P_OUT_GAIN) == P_OUT(3, P_OUT_GAIN), "cable mirror 
 static_assert(FD_NODE_OUTS    == FM1_NODE_OUTS, "cable count mirror drifted");
 static_assert(FD_NPARAM       == NPARAM,        "param mirror drifted");
 static_assert(FD_NGPARAM      == NGPARAM,       "global mirror drifted");
+static_assert(FD_G_EN_BASE    == G_EN_BASE,     "mod envelope base mirror drifted");
+static_assert(FD_G_EN(3, FD_G_EN_STRIDE - 1) == G_EN(3, G_EN_LOOP), "mod envelope index mirror drifted");
+static_assert(FD_MOD_ENVS     == FM1_MOD_ENVS,  "mod envelope count mirror drifted");
 static_assert(FD_G_MIX_BASE   == G_MIX_BASE,    "mix bus base mirror drifted");
 static_assert(FD_G_MIX(3, FD_G_MIX_PAN) == G_MIX(3, G_MIX_PAN), "mix bus index mirror drifted");
 static_assert(FD_G_FX_BASE    == G_FX_BASE,     "patchbay base mirror drifted");
@@ -124,6 +127,7 @@ void fm1_drone_note_off(uint8_t v)           { g_drone.NoteOff(v); }
 void fm1_drone_strike(uint8_t v)             { g_drone.Strike(v); }
 uint8_t fm1_drone_mix_meter(uint8_t c)       { return g_drone.MixMeter(c); }
 uint8_t fm1_drone_sum_meter(void)            { return g_drone.SumMeter(); }
+int32_t fm1_drone_env_value(uint8_t n)       { return g_drone.EnvValue(n); }
 uint8_t fm1_drone_scope(uint8_t i)           { return g_drone.Scope(i); }
 void fm1_drone_set_gate(uint8_t v, uint8_t on) { g_drone.SetGate(v, on); }
 

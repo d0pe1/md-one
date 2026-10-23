@@ -444,6 +444,10 @@ static void ui_fmt(int id, char *out)
         ui_str(out, &i, FM1_LFO_MODE_NAME[v % LFO_NMODES]);
         out[i] = 0;
         break;
+    case K_ENTRIG:
+        ui_str(out, &i, v < ENT_NTRIG ? FM1_ENTRIG_NAME[v] : "?");
+        out[i] = 0;
+        return;
     case K_ENVMODE:
         ui_str(out, &i, v < ENV_M_NMODES ? FM1_ENVMODE_NAME[v] : "?");
         out[i] = 0;
@@ -1619,6 +1623,63 @@ static void ui_body_sum(void)
     }
 }
 
+
+/* --- the modulators, as columns -------------------------------------------
+ *
+ * Four bipolar columns filled from a centre line, one per modulator, with
+ * the selected one picked out. Not a waveform: 240 pixels cannot draw an
+ * LFO cycle usefully, and the question you actually have while patching is
+ * not what shape it is -- you chose that -- but WHERE IT IS NOW, and
+ * whether the one you are about to route is moving at all.
+ *
+ * Seeing all four at once is the point. A modulator on its own tells you
+ * nothing about whether it is faster or deeper than the one next to it.
+ */
+static void ui_body_mods(void)
+{
+    const fm1_page_t *p = fm1_nav_page(&ui_nav);
+    int is_env = (p->subject == SUBJ_ENV);
+    uint8_t sel = ui_nav.sel[p->subject];
+    const int32_t X0 = 26, W = 26, PITCH = 52;
+    const int32_t TOP = Y_BODY + 10, H = 64;
+    const int32_t MID = TOP + H / 2;
+    uint8_t n;
+
+    for (n = 0; n < 4u; n++) {
+        int32_t x = X0 + (int32_t)n * PITCH;
+        /* Both are Q15; an envelope only ever climbs, so its column fills
+         * upward from the centre and an LFO's swings through it. */
+        int32_t v = is_env ? fm1_drone_env_value(n) : fm1_drone_lfo_value(n);
+        int32_t h = (v * (H / 2)) / 32768;
+        char lab[8];
+        uint32_t i = 0;
+
+        if (h >  H / 2) h =  H / 2;
+        if (h < -H / 2) h = -H / 2;
+
+        /* Self-erasing: the whole column is written every tick, so there is
+         * no trail to clear and the body never needs a wipe. */
+        lcd_fill((uint32_t)x, (uint32_t)TOP, (uint32_t)W,
+                 (uint32_t)(MID - (h > 0 ? h : 0) - TOP), C_BLACK);
+        lcd_fill((uint32_t)x, (uint32_t)(MID + (h < 0 ? -h : 0)), (uint32_t)W,
+                 (uint32_t)(TOP + H - MID - (h < 0 ? -h : 0)), C_BLACK);
+        if (h)
+            lcd_fill((uint32_t)x, (uint32_t)(h > 0 ? MID - h : MID),
+                     (uint32_t)W, (uint32_t)(h > 0 ? h : -h),
+                     n == sel ? C_ACC : C_BLUE);
+        /* The centre line last, so a column at rest still reads as a
+         * modulator sitting at zero rather than as a blank panel. */
+        lcd_fill((uint32_t)x, (uint32_t)MID, (uint32_t)W, 1u,
+                 n == sel ? C_ACC : C_TRACK);
+
+        lab[i++] = is_env ? 'E' : 'L';
+        lab[i++] = (char)('1' + n);
+        lab[i] = 0;
+        draw_text_cached((uint8_t)(16 + n), x - 6, TOP + H + 4, 38, &FONT_S,
+                         lab, n == sel ? C_ACC : C_GREY, 1);
+    }
+}
+
 static void ui_draw_body(int clear)
 {
     const fm1_page_t *p = fm1_nav_page(&ui_nav);
@@ -1631,6 +1692,7 @@ static void ui_draw_body(int clear)
      * showed four voice strips where the channels should have been. */
     if (p->body == PB_CHAN)    { ui_body_chan(); return; }
     if (p->body == PB_SUM)     { ui_body_sum();  return; }
+    if (p->body == PB_MODS)    { ui_body_mods(); return; }
     if (p->rows)               { ui_body_rows();  return; }
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
     if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
@@ -1759,7 +1821,7 @@ static void ui_tick(void)
         ui_draw_load(Y_BODY + (int32_t)UI_VOICES * 22 - 2);
         break;
     case M_MIX:
-    case M_LFO:
+    case M_LFO:     /* the modulator columns move without anyone touching a knob */
     case M_MOD:
         ui_draw_body(0);
         break;

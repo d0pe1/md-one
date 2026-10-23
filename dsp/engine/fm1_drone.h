@@ -219,6 +219,10 @@ class Drone {
     /* An LFO's output right now, Q15 bipolar and already scaled by AMOUNT.
      * The LFO page draws it moving: a modulator you cannot see is one you
      * have to guess at, and at 0.1 Hz guessing takes ten seconds a go. */
+    /* For the column meters on the modulator pages. */
+    q15_t EnvValue(uint8_t n) const
+    { return n < FM1_MOD_ENVS ? menv_out_[n] : 0; }
+
     q15_t LfoValue(uint8_t n) const
     { return n < FM1_LFOS ? lfo_out_[n] : 0; }
 
@@ -279,6 +283,15 @@ class Drone {
      * the opposite -- all four voices moving together. */
     fm1_lfo_t  lfo_[FM1_LFOS];
     q15_t      lfo_out_[FM1_LFOS];  /* this block's value, for the screen */
+
+    /* The four MODULATION envelopes. Global, and separate from the VCA
+     * envelope each voice carries -- that one has to stay per-voice because
+     * every voice needs its own amplitude contour, which is exactly why it
+     * could not double as a modulation source. */
+    fm1_env_t  menv_[FM1_MOD_ENVS];
+    q15_t      menv_out_[FM1_MOD_ENVS];
+    uint8_t    menv_trig_[FM1_MOD_ENVS];    /* ENT_*, what gates it */
+    uint8_t    menv_loop_[FM1_MOD_ENVS];
 
     /* HAAS: a few milliseconds of delay on one channel. Below the echo
      * threshold the ear fuses the two and localises toward the earlier one,

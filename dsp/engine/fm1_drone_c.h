@@ -178,13 +178,20 @@ extern "C" {
 #define FD_G_LFO_MODE     3
 #define FD_LFOS           4
 /* +8 for the four mix buses (LEVEL, PAN), appended after the LFOs. */
-#define FD_G_MIX_BASE    67
+/* Four modulation envelopes, nine controls each, between the LFOs and
+ * the mix buses. */
+#define FD_G_EN_BASE     67
+#define FD_G_EN_STRIDE    9
+#define FD_G_EN(n, j)    (FD_G_EN_BASE + (n) * FD_G_EN_STRIDE + (j))
+#define FD_MOD_ENVS       4
+
+#define FD_G_MIX_BASE    103
 #define FD_G_MIX_STRIDE   2
 #define FD_G_MIX(n, j)   (FD_G_MIX_BASE + (n) * FD_G_MIX_STRIDE + (j))
 #define FD_G_MIX_LEVEL    0
 #define FD_G_MIX_PAN      1
 
-#define FD_NGPARAM       75
+#define FD_NGPARAM       111
 
 /* LFO shapes, mirroring the LFO_* enum in fm1_lfo.h. */
 #define FD_LFO_TRI        0
@@ -226,7 +233,8 @@ void fm1_drone_strike(uint8_t voice);
 
 /* Metering and the SUM page's trace. */
 uint8_t fm1_drone_mix_meter(uint8_t ch);    /* a mixer channel, 0..127 */
-uint8_t fm1_drone_sum_meter(void);          /* the sum, after master, 0..127 */
+uint8_t fm1_drone_sum_meter(void);
+int32_t fm1_drone_env_value(uint8_t n);   /* Q15, a modulation envelope */          /* the sum, after master, 0..127 */
 uint8_t fm1_drone_scope(uint8_t i);         /* oldest first, 0..255 */
 #define FD_SCOPE_POINTS 120
 

@@ -48,11 +48,11 @@ enum { SCOPE_VOICE, SCOPE_GLOBAL };
  * because both counters survive the page change.
  */
 enum { SUBJ_NONE, SUBJ_VOICE, SUBJ_FX, SUBJ_BAND, SUBJ_LFO,
-       SUBJ_SLOT, SUBJ_NKIND };
+       SUBJ_SLOT, SUBJ_ENV, SUBJ_NKIND };
 
-static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4, 2 };
+static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4, 2, 4 };
 static const char *const FM1_SUBJ_NAME[SUBJ_NKIND] = {
-    "", "VOICE", "FX", "BAND", "LFO", "SLOT"
+    "", "VOICE", "FX", "BAND", "LFO", "SLOT", "ENV"
 };
 
 #define FM1_KNOBS  4
@@ -110,7 +110,7 @@ typedef struct {
 } fm1_page_t;
 
 /* Page bodies that are not inferable from the parameters on the page. */
-enum { PB_AUTO = 0, PB_CHAN, PB_SUM };
+enum { PB_AUTO = 0, PB_CHAN, PB_SUM, PB_MODS };
 
 /* SCOPE_VOICE is 0, which is what makes the trailing-zero default above mean
  * "inherit" rather than "force voice scope". */
@@ -235,7 +235,30 @@ static const fm1_page_t FM1_PG_LFO[] = {
     { "SHAPE",  { G_LFO(0, G_LFO_RATE), G_LFO(0, G_LFO_AMT),
                   G_LFO(0, G_LFO_PHASE), PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE },
+      G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE, 0, 0, 0, 0, PB_MODS },
+
+    /* The four MODULATION envelopes, which are not the VCA. SELECT picks
+     * one; PRESETS turns between the two halves.
+     *
+     * NOT a rows page, and the reason is worth keeping: the row mechanism
+     * offsets every knob by the same stride, which works for the routing
+     * table (four identical dest/gain pairs) and does not work here, where
+     * ATTACK -> HOLD is one step and DECAY -> A CURVE is three. Padding the
+     * parameter table to force a uniform stride would buy a mechanism with
+     * twelve dead globals.
+     *
+     * TRIG sits on ALGORITHM because it is an enum, which is what that
+     * encoder is for -- and it stays visible on both pages, which is right
+     * for the one control that decides whether any of the rest ever run. */
+    { "ENV",    { G_EN(0, G_EN_ATK), G_EN(0, G_EN_DEC),
+                  G_EN(0, G_EN_SUS), G_EN(0, G_EN_REL) },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, 0, 0, 0, 0, PB_MODS },
+
+    { "SHAPE",  { G_EN(0, G_EN_HOLD), G_EN(0, G_EN_ACRV),
+                  G_EN(0, G_EN_RCRV), G_EN(0, G_EN_LOOP) },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, 0, 0, 0, 0, PB_MODS },
 };
 
 

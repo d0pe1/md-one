@@ -1883,6 +1883,86 @@ static void test_fine_global(void)
     }
 }
 
+
+/* --- the four modulation envelopes ---------------------------------------
+ *
+ * They exist because the matrix needed a source that is not the amplitude.
+ * The VCA envelope could already be routed, but it IS the level, so opening
+ * a filter with it meant shaping the volume to match -- one envelope, two
+ * jobs, and they disagree.
+ */
+static void test_mod_envs(void)
+{
+    fm1::Drone d;
+    int16_t buf[FM1_BLOCK * 2];
+    int32_t rose = 0, fell = 0, idle_at_rest;
+
+    printf("\nmodulation envelopes\n");
+    d.Init();
+
+    /* Free-running, so it should climb on its own with nothing played. */
+    d.SetGlobal(G_EN(0, G_EN_TRIG), ENT_FREE);
+    d.SetGlobal(G_EN(0, G_EN_ATK),  60);
+    d.SetGlobal(G_EN(0, G_EN_SUS),  127);
+    d.SnapParams();
+    for (int b = 0; b < 60; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+    }
+    rose = d.EnvValue(0);
+    printf("    EN1 free-running after 60 blocks: %d / 32767\n", rose);
+    ok(rose > 30000, "a FREE envelope runs without a note",
+       "it never started");
+
+    /* One following a voice: silent until that voice is gated. */
+    {
+        fm1::Drone e;
+        e.Init();
+        e.SetGlobal(G_EN(1, G_EN_TRIG), ENT_V3);
+        e.SetGlobal(G_EN(1, G_EN_ATK),  40);
+        for (uint8_t v = 0; v < FM1_VOICES; v++) e.SetGate(v, 0);
+        e.SnapParams();
+        for (int b = 0; b < 40; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            e.Render(buf, FM1_BLOCK);
+        }
+        idle_at_rest = e.EnvValue(1);
+        ok(idle_at_rest < 1000, "one bound to a voice waits for it",
+           "it ran with the voice closed");
+
+        e.NoteOn(2, 45);                /* voice 3 */
+        e.SetGate(2, 1);
+        for (int b = 0; b < 60; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            e.Render(buf, FM1_BLOCK);
+        }
+        printf("    EN2 bound to V3: %d before the gate, %d after\n",
+               idle_at_rest, (int)e.EnvValue(1));
+        ok(e.EnvValue(1) > 20000, "and runs when it opens", "it never started");
+    }
+
+    /* And it reaches a destination: the same envelope on a filter cutoff
+     * has to move the cutoff, which is the whole reason these exist. */
+    {
+        fm1::Drone f;
+        f.Init();
+        f.SetGlobal(G_EN(2, G_EN_TRIG), ENT_FREE);
+        f.SetGlobal(G_EN(2, G_EN_ATK),  50);
+        f.SetParam(0, P_F1_TYPE, F_LP);
+        f.SetParam(0, P_F1_CUT,  30);
+        f.SetParam(0, P_MD(MD_F1CUT, P_MD_SRC),   MD_SRC_EN1 + 2);
+        f.SetParam(0, P_MD(MD_F1CUT, P_MD_DEPTH), 127);
+        f.NoteOn(0, 45);
+        f.SnapParams();
+        for (int b = 0; b < 80; b++) {
+            for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+            f.Render(buf, FM1_BLOCK);
+        }
+        fell = f.EnvValue(2);
+        ok(fell > 20000, "EN3 routed to a cutoff is live", "it is not running");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -1890,6 +1970,7 @@ int main(void)
     test_mix_buses();
     test_cables();
     test_comb_polarity();
+    test_mod_envs();
     test_rack();
     test_meters();
     test_eq();
