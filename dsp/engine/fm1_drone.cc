@@ -418,7 +418,10 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
             uint8_t band = (uint8_t)((param - P_EQ_BASE) / P_EQ_STRIDE);
             switch ((param - P_EQ_BASE) % P_EQ_STRIDE) {
             case P_EQ_MODE: fm1_eq_set_mode(&d.eq, band, value); break;
-            case P_EQ_FRQ:  fm1_eq_set_freq(&d.eq, band, value); break;
+            /* From the accumulator: the band frequency carries a fine
+             * fraction, and the byte would round it to the semitone. */
+            case P_EQ_FRQ:  fm1_eq_set_freq_p(&d.eq, band,
+                                              (int32_t)d.acc[param] >> 1); break;
             case P_EQ_GAIN: fm1_eq_set_gain(&d.eq, band, value); break;
             case P_EQ_RES:  fm1_eq_set_res(&d.eq, band, value);  break;
             case P_EQ_MIX:  fm1_eq_set_mix(&d.eq, band, value);  break;
@@ -456,7 +459,7 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
         uint8_t what = (uint8_t)((param - G_LFO_BASE) % G_LFO_STRIDE);
         fm1_lfo_t *l = &lfo_[n];
         switch (what) {
-        case G_LFO_RATE:  fm1_lfo_set_rate(l, value);   break;
+        case G_LFO_RATE:  fm1_lfo_set_rate_q8(l, gacc_[param]); break;
         case G_LFO_AMT:   fm1_lfo_set_amount(l, value); break;
         case G_LFO_PHASE: fm1_lfo_set_phase(l, value);  break;
         case G_LFO_MODE:  fm1_lfo_set_mode(l, value);   break;
@@ -471,8 +474,8 @@ void Drone::ApplyGlobal(uint8_t param, uint8_t value)
         fx_chan_t *c = &rack_.ch[slot];
         switch (what) {
         case G_FX_TYPE: fx_chan_set_type(c, value); break;
-        case G_FX_P1:   fx_chan_set_p1(c, value);   break;
-        case G_FX_P2:   fx_chan_set_p2(c, value);   break;
+        case G_FX_P1:   fx_chan_set_p1_q8(c, gacc_[param]); break;
+        case G_FX_P2:   fx_chan_set_p2_q8(c, gacc_[param]); break;
         case G_FX_MIX:  c->mix = value;             break;
         default:
             /* The cable block: DEST then GAIN, four times, starting at
@@ -543,7 +546,10 @@ int Drone::HasFine(uint8_t param)
            param == P_ATTACK || param == P_HOLD ||
            param == P_DECAY  || param == P_RELEASE ||
            param == P_DETUNE ||
-           param == P_SL(0, P_SL_P1) || param == P_SL(1, P_SL_P1);
+           param == P_SL(0, P_SL_P1) || param == P_SL(1, P_SL_P1) ||
+           param == P_DRIFT_RATE ||
+           param == P_EQ(0, P_EQ_FRQ) || param == P_EQ(1, P_EQ_FRQ) ||
+           param == P_EQ(2, P_EQ_FRQ);
 }
 
 /* The shared body of both nudges: walk a Q8 target by `delta`, either in
@@ -600,6 +606,32 @@ uint8_t Drone::NudgeGlobal(uint8_t param, int32_t delta, int snap)
         }
         return (uint8_t)(out >> 8);
     }
+}
+
+/* Globals that carry a fraction, by the same rule as HasFine: only where
+ * something reads gacc_ rather than the byte. */
+int Drone::HasFineGlobal(uint8_t param)
+{
+    if (param < G_FX_BASE) return 0;
+    if (param >= G_LFO_BASE) {
+        /* An LFO's RATE, from the same interpolated table the drift uses.
+         * PHASE wraps and MODE is an enum; neither has a between. */
+        uint32_t off = (uint32_t)(param - G_LFO_BASE) % G_LFO_STRIDE;
+        return off == G_LFO_RATE;
+    }
+    {
+        /* An effect's P1 and P2 are a cutoff and a resonance on the two
+         * filters and a rate and a depth on the chorus -- all continuous,
+         * all worth a fraction. */
+        uint32_t off = (uint32_t)(param - G_FX_BASE) % G_FX_STRIDE;
+        return off == G_FX_P1 || off == G_FX_P2;
+    }
+}
+
+uint8_t Drone::GetFineGlobal(uint8_t param) const
+{
+    if (param >= NGPARAM) return 0;
+    return (uint8_t)(gtgt_[param] & 255);
 }
 
 uint8_t Drone::GetFine(uint8_t voice, uint8_t param) const
@@ -826,7 +858,7 @@ void Drone::Render(int16_t *out, uint32_t n)
              * MODULATION, which on the module scale CV inputs. Run the drift
              * at full depth and scale per destination, so the two knobs are
              * independent and either can be closed. */
-            int32_t dr = fm1_drift_block(&d.drift, d.p[P_DRIFT_RATE], 127);
+            int32_t dr = fm1_drift_block(&d.drift, d.acc[P_DRIFT_RATE], 127);
             /* Published before ModOf is called, because the matrix can now
              * route it anywhere. FM and MOD below are unchanged: they are
              * Braids' own attenuverters and keep their hardwired reach. */

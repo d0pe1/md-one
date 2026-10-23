@@ -73,9 +73,34 @@ static inline void fm1_lfo_init(fm1_lfo_t *l, uint32_t seed)
     l->nxt = (int16_t)((int32_t)(fm1_lfo_rand(l) >> 16) - 32768);
 }
 
+/* The phase increment for a Q8 knob position -- the byte plus its fraction.
+ *
+ * Shared with the drift, which runs on the same table so the two speak the
+ * same hertz. Linear between adjacent entries: the table is exponential, but
+ * one step is a ratio of 1.062, and interpolating a 6% span linearly is
+ * within 0.1% of the geometric answer. Nobody hears 0.1% of an LFO rate. */
+static inline uint32_t fm1_lfo_inc_q8(int32_t q8)
+{
+    int32_t i, f;
+    uint32_t a, b;
+
+    if (q8 < 0) q8 = 0;
+    if (q8 > (FM1_LFO_RATES - 1) << 8) q8 = (FM1_LFO_RATES - 1) << 8;
+    i = q8 >> 8;
+    f = q8 & 255;
+    if (i >= FM1_LFO_RATES - 1 || !f) return fm1_lfo_inc[i];
+    a = fm1_lfo_inc[i];
+    b = fm1_lfo_inc[i + 1];
+    return a + (uint32_t)(((uint64_t)(b - a) * (uint32_t)f) >> 8);
+}
+
+static inline void fm1_lfo_set_rate_q8(fm1_lfo_t *l, int32_t q8)
+{
+    l->inc = fm1_lfo_inc_q8(q8);
+}
 static inline void fm1_lfo_set_rate(fm1_lfo_t *l, uint8_t rate)
 {
-    l->inc = fm1_lfo_inc[rate < FM1_LFO_RATES ? rate : FM1_LFO_RATES - 1];
+    fm1_lfo_set_rate_q8(l, (int32_t)rate << 8);
 }
 
 static inline void fm1_lfo_set_mode(fm1_lfo_t *l, uint8_t mode)

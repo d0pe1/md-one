@@ -1832,6 +1832,51 @@ static void test_comb_polarity(void)
     }
 }
 
+
+/* --- fine editing on GLOBAL parameters -----------------------------------
+ *
+ * It was voice-only, which meant the effect rack's cutoff sat on whole knob
+ * steps while the identical trapezoidal filter inside a voice had sub-step
+ * resolution -- the same filter, coarse on one side of the instrument
+ * because fine editing had been written for the other table.
+ */
+static void test_fine_global(void)
+{
+    printf("\nfine editing reaches the globals\n");
+
+    ok(fm1::Drone::HasFineGlobal(G_FX(0, G_FX_P1)) &&
+       fm1::Drone::HasFineGlobal(G_FX(3, G_FX_P2)),
+       "an effect's P1 and P2 carry a fraction", "they do not");
+    ok(fm1::Drone::HasFineGlobal(G_LFO(2, G_LFO_RATE)),
+       "and an LFO's rate", "it does not");
+    ok(!fm1::Drone::HasFineGlobal(G_FX(0, G_FX_TYPE)) &&
+       !fm1::Drone::HasFineGlobal(G_LFO(0, G_LFO_MODE)) &&
+       !fm1::Drone::HasFineGlobal(G_MASTER),
+       "an enum and a plain level do not", "offered where it does nothing");
+
+    /* And it MOVES something -- the rule this list has broken twice. */
+    {
+        fm1::fx_chan_t a, b;
+        fm1::fx_chan_init(&a); fm1::fx_chan_init(&b);
+        fm1::fx_chan_set_type(&a, FX_LP); fm1::fx_chan_set_type(&b, FX_LP);
+        fm1::fx_chan_set_p1_q8(&a, 80 << 8);
+        fm1::fx_chan_set_p1_q8(&b, (80 << 8) + 128);
+        printf("    FX cutoff 80 -> g %d, 80.5 -> g %d\n",
+               a.tpt[0].a2, b.tpt[0].a2);
+        ok(a.tpt[0].a2 != b.tpt[0].a2,
+           "half a step of FX cutoff retunes the filter",
+           "the fraction is being discarded");
+    }
+    {
+        fm1_lfo_t a, b;
+        fm1_lfo_init(&a, 1); fm1_lfo_init(&b, 1);
+        fm1_lfo_set_rate_q8(&a, 64 << 8);
+        fm1_lfo_set_rate_q8(&b, (64 << 8) + 128);
+        ok(a.inc != b.inc, "and half a step of LFO rate changes the rate",
+           "the fraction is being discarded");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
@@ -1850,6 +1895,7 @@ int main(void)
     test_late_additions();
     test_fine();
     test_fine_moves_something();
+    test_fine_global();
     test_detune_symmetry();
 
     printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "passed",

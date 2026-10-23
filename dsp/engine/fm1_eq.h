@@ -86,8 +86,15 @@ static inline void fm1_eq_init(fm1_eq_t *e)
     }
 }
 
+/* In 1/128 SEMITONE, so a fine click moves the band by a fraction of one.
+ * A 0..127 band frequency is a semitone a step, and a semitone is a long way
+ * when you are placing a bell on something -- the difference between sitting
+ * on a resonance and sitting beside it. */
+static inline void fm1_eq_set_freq_p(fm1_eq_t *e, uint8_t b, int32_t pitch)
+{ if (b < EQ_BANDS) fm1_svf_set_pitch(&e->band[b].svf, pitch); }
+
 static inline void fm1_eq_set_freq(fm1_eq_t *e, uint8_t b, uint8_t v)
-{ if (b < EQ_BANDS) fm1_svf_set_note(&e->band[b].svf, v); }
+{ fm1_eq_set_freq_p(e, b, (int32_t)v << 7); }
 
 static inline void fm1_eq_set_gain(fm1_eq_t *e, uint8_t b, uint8_t v)
 { if (b < EQ_BANDS) e->band[b].gain = fm1_eq_gain(v); }

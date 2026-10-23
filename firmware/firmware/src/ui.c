@@ -272,6 +272,19 @@ static uint8_t ui_voice(void) { return ui_nav.sel[SUBJ_VOICE]; }
  * One pair of functions for both scopes, so every page edits the same way and
  * no caller has to know whether it is looking at a voice or a global. */
 
+/* Does this knob carry a fraction? Asked of whichever table the page is
+ * editing, because fine editing is a property of the PARAMETER, not of
+ * which of the two tables it happens to live in -- it was voice-only, which
+ * left the rack's cutoff on whole steps while the identical filter in a
+ * voice had sub-step resolution. */
+static int ui_has_fine(int id)
+{
+    if (id == PG_NONE) return 0;
+    return fm1_page_scope(&ui_nav) == SCOPE_GLOBAL
+         ? fm1_drone_has_fine_global((uint8_t)id)
+         : fm1_drone_has_fine((uint8_t)id);
+}
+
 static uint8_t ui_get(int id)
 {
     if (id == PG_NONE) return 0;
@@ -313,9 +326,11 @@ static void ui_nudge(int id, int32_t delta)
      * truncates, so from 64 + 90/256 a click down reads 64 and lands on 63 --
      * skipping the grid point it was sitting just above. Up happens to be
      * right by accident. The engine knows the fraction; this does not. */
-    if (fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
-        fm1_drone_has_fine((uint8_t)id)) {
-        fm1_drone_nudge_param(ui_voice(), (uint8_t)id, delta, 1);
+    if (ui_has_fine(id)) {
+        if (fm1_page_scope(&ui_nav) == SCOPE_GLOBAL)
+            fm1_drone_nudge_global((uint8_t)id, delta, 1);
+        else
+            fm1_drone_nudge_param(ui_voice(), (uint8_t)id, delta, 1);
         return;
     }
 
@@ -663,11 +678,11 @@ static void ui_draw_knobs(void)
          * at all, and only once it is non-zero or SHIFT is held, so the
          * ordinary pages are unchanged. */
         {
-            int finecap = id != PG_NONE &&
-                          fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
-                          fm1_drone_has_fine((uint8_t)id);
-            uint8_t frac = finecap
-                         ? fm1_drone_get_fine(ui_voice(), (uint8_t)id) : 0u;
+            int finecap = ui_has_fine(id);
+            uint8_t frac = !finecap ? 0u
+                         : (fm1_page_scope(&ui_nav) == SCOPE_GLOBAL
+                            ? fm1_drone_get_fine_global((uint8_t)id)
+                            : fm1_drone_get_fine(ui_voice(), (uint8_t)id));
 
             if (finecap && (frac || ui_shift)) {
                 uint32_t i = 0, pct = ((uint32_t)frac * 100u) / 256u;
@@ -1866,9 +1881,7 @@ static int ui_encoders(void)
                  * spoken for there, picking the modulation source, and a
                  * modifier that means two things depending on the page is
                  * the invariant this surface is built on. */
-                fine = ui_shift && id != PG_NONE &&
-                       fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
-                       fm1_drone_has_fine((uint8_t)id);
+                fine = ui_shift && ui_has_fine(id);
             }
             if (fine) {
                 /* SQUARED acceleration, which the coarse turn does not get.
@@ -1885,7 +1898,10 @@ static int ui_encoders(void)
                  * sign has to survive. */
                 int32_t d = ui_accel((uint8_t)(ENC_KNOB1 + k), e, 0);
                 int32_t m = d < 0 ? -d : d;
-                fm1_drone_nudge_param(ui_voice(), (uint8_t)id, d * m, 0);
+                if (fm1_page_scope(&ui_nav) == SCOPE_GLOBAL)
+                    fm1_drone_nudge_global((uint8_t)id, d * m, 0);
+                else
+                    fm1_drone_nudge_param(ui_voice(), (uint8_t)id, d * m, 0);
                 changed |= UI_CH_DRAW | UI_CH_PATCH;
                 continue;
             }

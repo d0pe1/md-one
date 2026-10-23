@@ -244,7 +244,10 @@ uint8_t fm1_drone_nudge_param(uint8_t voice, uint8_t param, int32_t delta,
 /* Would fine editing reach anything here? False for enums, for times, and
  * for the filters, whose table is indexed by MIDI note and so already has
  * exactly seven bits of resolution. */
+uint8_t fm1_drone_nudge_global(uint8_t param, int32_t delta, int snap);
 int     fm1_drone_has_fine(uint8_t param);
+int     fm1_drone_has_fine_global(uint8_t param);
+uint8_t fm1_drone_get_fine_global(uint8_t param);
 uint8_t fm1_drone_get_fine(uint8_t voice, uint8_t param);
 void    fm1_drone_set_fine(uint8_t voice, uint8_t param, uint8_t frac);
 void    fm1_drone_set_global(uint8_t param, uint8_t value);

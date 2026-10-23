@@ -131,7 +131,14 @@ void fm1_drone_set_param(uint8_t v, uint8_t p, uint8_t val) { g_drone.SetParam(v
 uint8_t fm1_drone_get_param(uint8_t v, uint8_t p)           { return g_drone.GetParam(v, p); }
 uint8_t fm1_drone_nudge_param(uint8_t v, uint8_t p, int32_t d, int snap)
 { return g_drone.NudgeParam(v, p, d, snap); }
+/* NudgeGlobal has existed since the globals did and was never exposed, so
+ * the UI had no way to move one by anything but a whole step. */
+uint8_t fm1_drone_nudge_global(uint8_t p, int32_t d, int snap)
+{ return g_drone.NudgeGlobal(p, d, snap); }
+
 int fm1_drone_has_fine(uint8_t p)                           { return fm1::Drone::HasFine(p); }
+int fm1_drone_has_fine_global(uint8_t p)                    { return fm1::Drone::HasFineGlobal(p); }
+uint8_t fm1_drone_get_fine_global(uint8_t p)                { return g_drone.GetFineGlobal(p); }
 uint8_t fm1_drone_get_fine(uint8_t v, uint8_t p)            { return g_drone.GetFine(v, p); }
 void fm1_drone_set_fine(uint8_t v, uint8_t p, uint8_t f)    { g_drone.SetFine(v, p, f); }
 void fm1_drone_set_global(uint8_t p, uint8_t val)           { g_drone.SetGlobal(p, val); }

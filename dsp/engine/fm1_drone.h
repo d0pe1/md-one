@@ -136,6 +136,12 @@ class Drone {
      * Only where the extra bits reach something -- offering precision that
      * changes nothing is the same lie as a mislabelled knob. */
     static int HasFine(uint8_t param);
+    /* The same question for a GLOBAL. Fine editing was voice-only, which
+     * left the effect rack's cutoff -- a trapezoidal filter, interpolated,
+     * with exactly the argument the voice cutoffs have -- stuck on whole
+     * knob steps because it happens to live in the other table. */
+    static int HasFineGlobal(uint8_t param);
+    uint8_t GetFineGlobal(uint8_t param) const;
 
     /* The fractional part of a target, 0..255, and a way to put it back.
      * The patch saves these: without them a fine edit survives until the

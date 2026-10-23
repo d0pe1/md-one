@@ -14,7 +14,7 @@
 #define FM1_DRIFT_H
 
 #include "../shared/fm1_fixed.h"
-#include "../shared/fm1_lfo_table.h"
+#include "fm1_lfo.h"
 
 typedef struct {
     uint32_t rng;
@@ -33,9 +33,9 @@ static inline void fm1_drift_init(fm1_drift_t *d, uint32_t seed)
 
 /* Advance one block. rate 0..127 sets how often a new target is chosen;
  * depth 0..127 scales the result. Returns the current value in Q15, bipolar. */
-static inline int32_t fm1_drift_block(fm1_drift_t *d, uint8_t rate, uint8_t depth)
+static inline int32_t fm1_drift_block(fm1_drift_t *d, int32_t rate_q8, uint8_t depth)
 {
-    uint32_t inc = fm1_lfo_inc[rate & 127u];
+    uint32_t inc = fm1_lfo_inc_q8(rate_q8);
     uint32_t prev = d->phase;
     int32_t  k;
 

@@ -96,6 +96,8 @@ struct fx_chan_t {
      *
      * Decided when the type changes, not tested per sample. */
     uint8_t  taps;
+    /* P1 again, Q8 -- the chorus reads the byte, the filters read this. */
+    int32_t  p1_q8;
     /* TRAPEZOIDAL, like the voice filter. These were braids::Svf, which is a
      * Chamberlin and is only well behaved below about fs/6 -- the same
      * ceiling that made the voice's 24 dB lowpass stop opening at a real
@@ -134,7 +136,7 @@ static inline void fx_chan_init(fx_chan_t *c)
 {
     c->type = FX_NONE;
     c->taps = 0;
-    c->p1 = 64; c->p2 = 64;
+    c->p1 = 64; c->p1_q8 = 64 << 8; c->p2 = 64;
     c->mix = 127;
     for (uint32_t o = 0; o < FM1_NODE_OUTS; o++) {
         c->dest[o] = DEST_OFF;
@@ -181,21 +183,34 @@ static inline void fx_chan_set_type(fx_chan_t *c, uint8_t t)
     }
 }
 
+/* Q8, so the rack's filter gets the same sub-step cutoff the voice filters
+ * have. It is the same trapezoidal filter with the same interpolation
+ * underneath; it was coarse only because fine editing had been written for
+ * voice parameters and this one lives in the other table. */
+static inline void fx_chan_set_p1_q8(fx_chan_t *c, int32_t q8)
+{
+    if (q8 < 0) q8 = 0;
+    if (q8 > 127 << 8) q8 = 127 << 8;
+    c->p1 = (uint8_t)(q8 >> 8);
+    c->p1_q8 = q8;
+    if (c->type == FX_LP || c->type == FX_HP)
+        for (int s = 0; s < 2; s++)
+            fm1_tpt_set_pitch(&c->tpt[s], q8 >> 1);
+}
 static inline void fx_chan_set_p1(fx_chan_t *c, uint8_t v)
-{
-    c->p1 = v;
-    if (c->type == FX_LP || c->type == FX_HP)
-        for (int s = 0; s < 2; s++)
-            fm1_tpt_set_pitch(&c->tpt[s], (int32_t)v << 7);
-}
+{ fx_chan_set_p1_q8(c, (int32_t)v << 8); }
 
-static inline void fx_chan_set_p2(fx_chan_t *c, uint8_t v)
+static inline void fx_chan_set_p2_q8(fx_chan_t *c, int32_t q8)
 {
-    c->p2 = v;
+    if (q8 < 0) q8 = 0;
+    if (q8 > 127 << 8) q8 = 127 << 8;
+    c->p2 = (uint8_t)(q8 >> 8);
     if (c->type == FX_LP || c->type == FX_HP)
         for (int s = 0; s < 2; s++)
-            fm1_tpt_set_res(&c->tpt[s], v);
+            fm1_tpt_set_res(&c->tpt[s], c->p2);
 }
+static inline void fx_chan_set_p2(fx_chan_t *c, uint8_t v)
+{ fx_chan_set_p2_q8(c, (int32_t)v << 8); }
 
 static inline void fx_chan_set_dest(fx_chan_t *c, uint8_t d)
 {
