@@ -150,12 +150,23 @@ enum {
  * It differs from an LFO in the way that matters: every voice has its OWN
  * drift, seeded differently, so routing drift to four voices gives four
  * unrelated movements where routing an LFO gives one shared movement. */
+/* ENV is the one UNIPOLAR source. An LFO and a drift both swing either side
+ * of zero, so their centre detent is "no modulation"; the envelope only ever
+ * rises from silence, so a positive depth opens a filter as the voice swells
+ * and a negative one closes it. That asymmetry is the point -- it is what
+ * makes a filter track the amplitude contour, which is the single most
+ * ordinary patch in subtractive synthesis and was unreachable here.
+ *
+ * The destinations were never the gap: MD_F1CUT and MD_F2CUT have existed
+ * since the matrix was written and already work from any LFO. Only the
+ * source was missing. */
 #define MD_SRC_NONE  0
 #define MD_SRC_LFO1  1
 #define MD_SRC_DRIFT 5
-#define MD_SRC_COUNT 6
+#define MD_SRC_ENV   6
+#define MD_SRC_COUNT 7
 static const char *const FM1_MODSRC_NAME[MD_SRC_COUNT] = {
-    "---", "LFO1", "LFO2", "LFO3", "LFO4", "DRIFT"
+    "---", "LFO1", "LFO2", "LFO3", "LFO4", "DRIFT", "ENV"
 };
 
 /* EQ band b (0..2), control j. Same shape as the patchbay's G_FX(). */

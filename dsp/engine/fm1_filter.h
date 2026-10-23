@@ -113,6 +113,35 @@ static inline void fm1_filter_set_res_raw(fm1_filter_t *f, uint8_t res)
     f->svf2.set_resonance((int16_t)(((int32_t)res * 258 * 2) / 3));
 }
 
+/* Push EVERY setting into both SVFs.
+ *
+ * braids::Svf::Init() is a full factory reset, not a state clear: besides
+ * zeroing the integrators it puts frequency back to 33 << 7 (about 55 Hz),
+ * resonance to 16384, and MODE to SVF_MODE_BP. So anything that Inits an SVF
+ * has to restore all three, or the filter silently becomes a different
+ * filter.
+ *
+ * Nothing did, and that is the 24 dB bug. fm1_filter_set_poles Init'd svf2 to
+ * clear its integrators and restored none of it, so asking for 24 dB
+ * cascaded the real filter into a BAND PASS parked at 55 Hz. A 24 dB LOWPASS
+ * therefore passed almost nothing -- a none-pass filter, which is exactly
+ * what it sounded like.
+ *
+ * NOTCH runs the SVF in BP and subtracts at the output, because braids::Svf
+ * returns one response and has no notch of its own. */
+static inline void fm1_filter_apply_cut(fm1_filter_t *f);
+
+static inline void fm1_filter_push(fm1_filter_t *f)
+{
+    braids::SvfMode m = f->mode == F_HP ? braids::SVF_MODE_HP
+                      : f->mode == F_LP ? braids::SVF_MODE_LP
+                                        : braids::SVF_MODE_BP;   /* BP, NOTCH */
+    f->svf.set_mode(m);
+    f->svf2.set_mode(m);
+    fm1_filter_apply_cut(f);
+    fm1_filter_set_res_raw(f, f->res);
+}
+
 static inline void fm1_filter_init(fm1_filter_t *f)
 {
     f->mode = F_OFF;
@@ -137,8 +166,7 @@ static inline void fm1_filter_reset(fm1_filter_t *f)
     f->svf.Init();
     f->svf2.Init();
     f->op = 0;
-    fm1_filter_apply_cut(f);
-    fm1_filter_set_res_raw(f, f->res);
+    fm1_filter_push(f);
 }
 
 static inline void fm1_filter_set_mode(fm1_filter_t *f, uint8_t mode)
@@ -146,15 +174,11 @@ static inline void fm1_filter_set_mode(fm1_filter_t *f, uint8_t mode)
     if (mode >= F_NMODES || mode == f->mode) return;
     f->mode = mode;
     /* State is per-algorithm and meaningless across a switch; resetting also
-     * avoids a click from whatever the integrators were holding. */
+     * avoids a click from whatever the integrators were holding. The mode
+     * itself goes in through fm1_filter_push, which reset calls -- it used to
+     * be applied here, AFTER reset, and that ordering was the only reason the
+     * 12 dB path survived Init() clobbering the mode. */
     fm1_filter_reset(f);
-    /* NOTCH runs the SVF in BP and subtracts at the output, because
-     * braids::Svf returns one response and has no notch of its own. */
-    braids::SvfMode m = mode == F_HP ? braids::SVF_MODE_HP
-                      : mode == F_LP ? braids::SVF_MODE_LP
-                                     : braids::SVF_MODE_BP;   /* BP, NOTCH */
-    f->svf.set_mode(m);
-    f->svf2.set_mode(m);
 }
 
 static inline void fm1_filter_set_poles(fm1_filter_t *f, uint8_t poles)
@@ -163,6 +187,8 @@ static inline void fm1_filter_set_poles(fm1_filter_t *f, uint8_t poles)
     f->poles = poles;
     f->op = 0;              /* the one-pole's state means nothing at 12 or 24 */
     f->svf2.Init();
+    /* ...and Init() just threw away svf2's mode, cutoff and resonance. */
+    fm1_filter_push(f);
 }
 
 /* Cutoff in 1/128 SEMITONE -- the unit the pitch, the comb and the key all

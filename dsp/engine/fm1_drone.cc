@@ -640,6 +640,19 @@ int32_t Drone::ModOf(const DroneVoice &d, uint8_t n) const
     if (src == MD_SRC_DRIFT)
         return (d.drift_now * depth) >> 6;
 
+    /* The voice's own envelope, read where the LFOs are read: once per block.
+     * Per-sample would be the obvious thing and is wrong here -- these
+     * destinations are block-rate by construction (a filter coefficient, a
+     * pan gain), so sampling the envelope faster than the thing it drives
+     * would only cost cycles.
+     *
+     * Q24 down to Q15, then the same >> 6 every other source uses, so depth
+     * means the same amount of movement whatever is plugged in. UNIPOLAR:
+     * 0..32767 rather than +-32767, because an envelope has no negative half
+     * -- a positive depth opens, a negative one closes. */
+    if (src == MD_SRC_ENV)
+        return ((d.env.level >> (FM1_ENV_BITS - 15)) * depth) >> 6;
+
     /* lfo_out_ is +-32767 and depth is -64..+63, so >> 6 lands back in Q15.
      * Bipolar depth is what makes an inverted modulation possible without a
      * second control: two voices on one LFO with opposite depths breathe
