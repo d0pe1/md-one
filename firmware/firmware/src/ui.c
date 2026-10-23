@@ -1138,15 +1138,34 @@ static int32_t ui_band_db(uint8_t band, uint8_t mode, int32_t dx,
 #define ENV_CV_H  64
 #define ENV_SUS_W 40        /* sustain holds, so its width means nothing */
 
-static void ui_body_env(void)
+/* The ADSR picture, for EITHER kind of envelope.
+ *
+ * The four modulation envelopes are the same five segments as the VCA one
+ * and deserve the same drawing -- a column showing where a modulator is
+ * right now answers that question for an LFO, which has no shape to see,
+ * and the wrong one for an envelope, which is nothing but shape.
+ *
+ * `mod` is the modulation envelope index, or -1 for the voice's VCA. */
+static void ui_body_env_n(int mod)
 {
     uint8_t v = ui_voice();
-    uint8_t a = fm1_drone_get_param(v, P_ATTACK);
-    uint8_t h = fm1_drone_get_param(v, P_HOLD);
-    uint8_t dc = fm1_drone_get_param(v, P_DECAY);
-    uint8_t s = fm1_drone_get_param(v, P_SUSTAIN);
-    uint8_t r = fm1_drone_get_param(v, P_RELEASE);
-    uint8_t stage = fm1_drone_env_stage(v);
+    uint8_t a, h, dc, s, r, stage;
+
+    if (mod < 0) {
+        a  = fm1_drone_get_param(v, P_ATTACK);
+        h  = fm1_drone_get_param(v, P_HOLD);
+        dc = fm1_drone_get_param(v, P_DECAY);
+        s  = fm1_drone_get_param(v, P_SUSTAIN);
+        r  = fm1_drone_get_param(v, P_RELEASE);
+        stage = fm1_drone_env_stage(v);
+    } else {
+        a  = fm1_drone_get_global((uint8_t)FD_G_EN(mod, FD_G_EN_ATK));
+        h  = fm1_drone_get_global((uint8_t)FD_G_EN(mod, FD_G_EN_HOLD));
+        dc = fm1_drone_get_global((uint8_t)FD_G_EN(mod, FD_G_EN_DEC));
+        s  = fm1_drone_get_global((uint8_t)FD_G_EN(mod, FD_G_EN_SUS));
+        r  = fm1_drone_get_global((uint8_t)FD_G_EN(mod, FD_G_EN_REL));
+        stage = fm1_drone_env_stage_mod((uint8_t)mod);
+    }
 
     int32_t span = 224 - ENV_SUS_W;
     int32_t tot = (int32_t)a + h + dc + r;
@@ -1195,6 +1214,14 @@ static void ui_body_env(void)
                           NAME[k],
                           (k + FD_ENV_ATTACK) == stage ? C_ACC : C_TRACK, 1);
     }
+}
+
+static void ui_body_env(void) { ui_body_env_n(-1); }
+
+/* The selected modulation envelope, same picture. */
+static void ui_body_menv(void)
+{
+    ui_body_env_n((int)ui_nav.sel[SUBJ_ENV]);
 }
 
 /* --- the LFOs -------------------------------------------------------------
@@ -1704,6 +1731,7 @@ static void ui_draw_body(int clear)
     if (p->body == PB_CHAN)    { ui_body_chan(); return; }
     if (p->body == PB_SUM)     { ui_body_sum();  return; }
     if (p->body == PB_MODS)    { ui_body_mods(); return; }
+    if (p->body == PB_ENV)     { ui_body_menv(); return; }
     if (p->rows)               { ui_body_rows();  return; }
     if (ui_nav.menu == M_HOME) { ui_body_home();  return; }
     if (ui_nav.menu == M_ENV)  { ui_body_env();   return; }
@@ -1833,7 +1861,6 @@ static void ui_tick(void)
         break;
     case M_MIX:
     case M_LFO:     /* the modulator columns move without anyone touching a knob */
-    case M_ENV:
     case M_MOD:
         ui_draw_body(0);
         break;

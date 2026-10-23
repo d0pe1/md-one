@@ -223,6 +223,9 @@ class Drone {
     q15_t EnvValue(uint8_t n) const
     { return n < FM1_MOD_ENVS ? menv_out_[n] : 0; }
 
+    uint8_t ModEnvStage(uint8_t n) const
+    { return n < FM1_MOD_ENVS ? menv_[n].stage : (uint8_t)ENV_IDLE; }
+
     q15_t LfoValue(uint8_t n) const
     { return n < FM1_LFOS ? lfo_out_[n] : 0; }
 

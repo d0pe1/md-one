@@ -234,7 +234,13 @@ void fm1_drone_strike(uint8_t voice);
 /* Metering and the SUM page's trace. */
 uint8_t fm1_drone_mix_meter(uint8_t ch);    /* a mixer channel, 0..127 */
 uint8_t fm1_drone_sum_meter(void);
-int32_t fm1_drone_env_value(uint8_t n);   /* Q15, a modulation envelope */          /* the sum, after master, 0..127 */
+int32_t fm1_drone_env_value(uint8_t n);   /* Q15, a modulation envelope */
+uint8_t fm1_drone_env_stage_mod(uint8_t n);  /* FD_ENV_* */
+#define FD_G_EN_ATK   0
+#define FD_G_EN_HOLD  1
+#define FD_G_EN_DEC   2
+#define FD_G_EN_SUS   3
+#define FD_G_EN_REL   4          /* the sum, after master, 0..127 */
 uint8_t fm1_drone_scope(uint8_t i);         /* oldest first, 0..255 */
 #define FD_SCOPE_POINTS 120
 

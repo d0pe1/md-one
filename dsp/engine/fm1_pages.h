@@ -110,7 +110,7 @@ typedef struct {
 } fm1_page_t;
 
 /* Page bodies that are not inferable from the parameters on the page. */
-enum { PB_AUTO = 0, PB_CHAN, PB_SUM, PB_MODS };
+enum { PB_AUTO = 0, PB_CHAN, PB_SUM, PB_MODS, PB_ENV };
 
 /* SCOPE_VOICE is 0, which is what makes the trailing-zero default above mean
  * "inherit" rather than "force voice scope". */
@@ -206,25 +206,6 @@ static const fm1_page_t FM1_PG_ENV[] = {
     { "HOLD",   { P_HOLD, P_ENV_MODE, PG_NONE, PG_NONE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       PG_NONE, SUBJ_VOICE, 0 },
-
-    /* The four MODULATION envelopes, in the ENV menu beside the VCA one
-     * they are siblings of. They were briefly bolted onto the LFO menu,
-     * which made sense to nobody: an envelope is an envelope, and the only
-     * thing that differs is whether it is wired to the amplitude.
-     *
-     * SELECT picks which of the four. ALGORITHM carries TRIG on both pages,
-     * because it decides whether any of the rest ever runs. */
-    { "EN",     { G_EN(0, G_EN_ATK), G_EN(0, G_EN_DEC),
-                  G_EN(0, G_EN_SUS), G_EN(0, G_EN_REL) },
-      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, FM1_PAGE_GLOBAL,
-      0, 0, 0, PB_MODS },
-
-    { "EN SHP", { G_EN(0, G_EN_HOLD), G_EN(0, G_EN_ACRV),
-                  G_EN(0, G_EN_RCRV), G_EN(0, G_EN_LOOP) },
-      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, FM1_PAGE_GLOBAL,
-      0, 0, 0, PB_MODS },
 };
 
 /* --- FX: the patchbay's four effect channels -----------------------------
@@ -265,6 +246,29 @@ static const fm1_page_t FM1_PG_LFO[] = {
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
       G_LFO(0, G_LFO_MODE), SUBJ_LFO, G_LFO_STRIDE, 0, 0, 0, 0, PB_MODS },
 
+    /* The four MODULATION envelopes. Here rather than in ENV because this
+     * is the MODULATORS menu -- these and the LFOs are what move other
+     * things, where the ENV menu is the VCA contour that belongs to a voice.
+     * What decides the menu is not whether it is an envelope; it is whether
+     * it is wired to the amplitude.
+     *
+     * Laid out like the ADSR and HOLD pages, because they are the same
+     * controls and should not need learning twice -- and drawn with the same
+     * ADSR picture. A column saying where a modulator is right now answers
+     * the question for an LFO, which has no shape to look at, and the wrong
+     * one for an envelope, which is nothing but shape.
+     *
+     * SELECT picks which of the four; ALGORITHM carries TRIG on both, since
+     * it decides whether any of the rest ever runs. */
+    { "EN",     { G_EN(0, G_EN_ATK), G_EN(0, G_EN_DEC),
+                  G_EN(0, G_EN_SUS), G_EN(0, G_EN_REL) },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, 0, 0, 0, 0, PB_ENV },
+
+    { "EN SHP", { G_EN(0, G_EN_HOLD), G_EN(0, G_EN_ACRV),
+                  G_EN(0, G_EN_RCRV), G_EN(0, G_EN_LOOP) },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      G_EN(0, G_EN_TRIG), SUBJ_ENV, G_EN_STRIDE, 0, 0, 0, 0, PB_ENV },
 };
 
 

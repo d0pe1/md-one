@@ -128,6 +128,7 @@ void fm1_drone_strike(uint8_t v)             { g_drone.Strike(v); }
 uint8_t fm1_drone_mix_meter(uint8_t c)       { return g_drone.MixMeter(c); }
 uint8_t fm1_drone_sum_meter(void)            { return g_drone.SumMeter(); }
 int32_t fm1_drone_env_value(uint8_t n)       { return g_drone.EnvValue(n); }
+uint8_t fm1_drone_env_stage_mod(uint8_t n)   { return g_drone.ModEnvStage(n); }
 uint8_t fm1_drone_scope(uint8_t i)           { return g_drone.Scope(i); }
 void fm1_drone_set_gate(uint8_t v, uint8_t on) { g_drone.SetGate(v, on); }
 
