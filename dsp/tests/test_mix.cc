@@ -12,6 +12,7 @@
  * through Drone::Render. Written to FAIL if either returns.
  */
 #include <stdio.h>
+#include <math.h>
 
 #include "../shared/fm1_fixed.h"
 #include "../engine/fm1_drone.h"
@@ -1768,12 +1769,76 @@ static void test_fine_moves_something(void)
     }
 }
 
+
+/* --- the comb's feedback SIGN --------------------------------------------
+ *
+ * fm1_comb_set_feedback has always taken a signed coefficient and clamped it
+ * at +-31000, but the slot only ever sent it the positive half -- so half
+ * the comb was implemented and unreachable from the panel.
+ *
+ * The sign is not a subtler version of the same sound. Positive resonates at
+ * every multiple of 1/delay; negative inverts each pass, so even multiples
+ * cancel and the peaks land between them.
+ */
+static double comb_gain(int32_t fb, double delay, double hz)
+{
+    fm1_comb_t c;
+    double ph = 0.0, step = 2.0 * 3.14159265358979 * hz / 44100.0;
+    int32_t pk = 0;
+
+    fm1_comb_init(&c);
+    c.delay_q8 = (uint32_t)(delay * 256.0);
+    fm1_comb_set_feedback(&c, fb);
+    for (int i = 0; i < 60000; i++) {
+        int32_t x = (int32_t)(8000.0 * sin(ph));
+        ph += step;
+        int32_t y = fm1_comb_tick(&c, (q15_t)x);
+        if (i > 40000) { int32_t a = y < 0 ? -y : y; if (a > pk) pk = a; }
+    }
+    return (double)pk / 8000.0;
+}
+
+static void test_comb_polarity(void)
+{
+    const double D = 100.0, f0 = 44100.0 / D;
+    double pos_h, neg_h, pos_m, neg_m;
+
+    printf("\ncomb feedback polarity\n");
+    pos_h = comb_gain( 29491, D, f0);          /* on the fundamental */
+    neg_h = comb_gain(-29491, D, f0);
+    pos_m = comb_gain( 29491, D, f0 * 0.5);    /* halfway to it */
+    neg_m = comb_gain(-29491, D, f0 * 0.5);
+    printf("    at %4.0f Hz:  + %.2fx   - %.2fx\n", f0, pos_h, neg_h);
+    printf("    at %4.0f Hz:  + %.2fx   - %.2fx\n", f0 * 0.5, pos_m, neg_m);
+
+    ok(pos_h > neg_h * 4.0,
+       "positive feedback peaks on the harmonic", "it does not");
+    ok(neg_m > pos_m * 4.0,
+       "negative feedback peaks between them instead", "the sign does nothing");
+
+    /* The slot has to be able to ASK for it, which is the part that was
+     * missing: P2 is bipolar about 64 now. */
+    {
+        fm1_slot_t a, b;
+        fm1_slot_init(&a); fm1_slot_init(&b);
+        fm1_slot_set_type(&a, SL_COMB); fm1_slot_set_type(&b, SL_COMB);
+        fm1_slot_set_p2(&a, 127);
+        fm1_slot_set_p2(&b, 0);
+        ok(a.comb.fb > 0 && b.comb.fb < 0,
+           "and the slot can reach both signs", "P2 is still unipolar");
+        fm1_slot_set_p2(&a, 64);
+        ok(a.comb.fb == 0, "with the centre detent at no feedback",
+           "64 is not neutral");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
     test_bus();
     test_mix_buses();
     test_cables();
+    test_comb_polarity();
     test_rack();
     test_meters();
     test_eq();

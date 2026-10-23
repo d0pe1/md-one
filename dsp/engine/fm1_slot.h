@@ -60,6 +60,12 @@ static const char *const FM1_SLOT_P2[SL_NTYPES] = {
 typedef struct {
     uint8_t     type;
     uint8_t     p1, p2, mix;    /* raw 0..127, as the knobs read */
+    /* P1 again, Q8, which is what the tuning is actually computed from.
+     * `p1` is this rounded down and kept for the screen and the patch -- the
+     * same two-names-one-value arrangement the filter cutoff uses, and for
+     * the same reason: the player reads 128 steps, the resonator hears
+     * 32768. */
+    int32_t     p1_q8;
     int16_t     key;            /* the voice's pitch, 1/128 semitone */
 
     fm1_comb_t  comb;           /* SL_COMB */
@@ -70,7 +76,11 @@ static inline void fm1_slot_init(fm1_slot_t *s)
 {
     s->type = SL_OFF;
     s->p1 = 64;
-    s->p2 = 0;
+    s->p1_q8 = 64 << 8;
+    /* 64, not 0. P2 is a BIAS on DRIVE and FOLD and a feedback sign on the
+     * comb, all centred there -- a default of 0 meant a slot came up with
+     * full negative bias the moment you chose one of those types. */
+    s->p2 = 64;
     s->mix = 127;
     s->key = 0;
     fm1_comb_init(&s->comb);
@@ -121,7 +131,13 @@ static inline void fm1_slot_set_key(fm1_slot_t *s, int16_t key, uint32_t inc)
          * centre that was not centred.
          *
          * Centred on 4096 now, an octave either way. */
-        int32_t ratio_q12 = 4096 + (((int32_t)s->p1 - 64) * 2048) / 64;
+        /* From the Q8 position, so a fine click is a fraction of a step.
+         * (64 << 8) is the centre and 2048/16384 is one eighth, so the span
+         * is the same octave either way it always was -- only the grain
+         * changes. Symmetric, because a shift floors and this is bipolar
+         * about a centre detent. */
+        int32_t d8 = s->p1_q8 - (64 << 8);
+        int32_t ratio_q12 = 4096 + (d8 >= 0 ? (d8 + 4) >> 3 : -((-d8 + 4) >> 3));
         fm1_comb_set_from_inc(&s->comb, inc, ratio_q12);
     } else if (s->type == SL_RESO) {
         /* P1 is an offset in SEMITONES from the note, so the peak tracks the
@@ -133,8 +149,20 @@ static inline void fm1_slot_set_key(fm1_slot_t *s, int16_t key, uint32_t inc)
          * exactly: a note on the grid is N*128, one cent flat is N*128 - 1,
          * and that floors to N - 1 -- so it dropped a semitone on the first
          * click below centre and did not move at all for fifty cents sharp. */
-        int32_t semis = ((int32_t)s->p1 - 64) * 24 / 64;
-        fm1_svf_set_pitch(&s->svf, (int32_t)key + semis * 128);
+        /* IN 1/128 SEMITONE, not in whole semitones.
+         *
+         * This was `semis = (p1 - 64) * 24 / 64` and then `semis * 128`, an
+         * integer divide feeding a multiply -- so the offset snapped to whole
+         * semitones and 128 knob positions produced 48 distinct tunings. A
+         * resonator a semitone off its intended pitch is a different
+         * instrument, which is precisely what the comb was found doing and
+         * fixed for; the same fault was sitting one branch below.
+         *
+         * +-24 semitones over +-64 steps is 3/16 of a 1/128-semitone unit
+         * per Q8 count, exactly. */
+        int32_t d8 = s->p1_q8 - (64 << 8);
+        int32_t off = d8 >= 0 ? (d8 * 3 + 8) >> 4 : -(((-d8) * 3 + 8) >> 4);
+        fm1_svf_set_pitch(&s->svf, (int32_t)key + off);
     }
 }
 
@@ -162,13 +190,40 @@ static inline void fm1_slot_set_type(fm1_slot_t *s, uint8_t t)
     fm1_slot_set_p2(s, s->p2);
 }
 
-static inline void fm1_slot_set_p1(fm1_slot_t *s, uint8_t v) { s->p1 = v; }
+static inline void fm1_slot_set_p1_q8(fm1_slot_t *s, int32_t q8)
+{
+    if (q8 < 0) q8 = 0;
+    if (q8 > 127 << 8) q8 = 127 << 8;
+    s->p1_q8 = q8;
+    s->p1 = (uint8_t)(q8 >> 8);
+}
+static inline void fm1_slot_set_p1(fm1_slot_t *s, uint8_t v)
+{ fm1_slot_set_p1_q8(s, (int32_t)v << 8); }
 static inline void fm1_slot_set_p2(fm1_slot_t *s, uint8_t v)
 {
     s->p2 = v;
     /* Hard-limited below unity by fm1_comb_set_feedback, or the comb never
      * decays; the same scaling the filter's comb mode uses. */
-    if (s->type == SL_COMB) fm1_comb_set_feedback(&s->comb, ((int32_t)v * 31000) / 127);
+    if (s->type == SL_COMB) {
+        /* BIPOLAR, centred at 64. fm1_comb_set_feedback has always taken a
+         * signed coefficient and clamped it at +-31000; the slot only ever
+         * sent it the positive half, so half the comb was implemented and
+         * unreachable.
+         *
+         * The sign is what sets WHICH harmonics peak. Positive feedback
+         * resonates at every multiple of 1/delay. Negative inverts each
+         * pass, so even multiples cancel and only the ODD ones peak -- the
+         * spacing doubles and the tone goes hollow, which is the difference
+         * between a plucked string and a stopped pipe. It is not a subtler
+         * version of the same sound.
+         *
+         * It also lines COMB up with DRIVE and FOLD, whose P2 bias was
+         * already bipolar about 64. */
+        int32_t fb = ((int32_t)v - 64) * 31000 / 63;
+        if (fb >  31000) fb =  31000;
+        if (fb < -31000) fb = -31000;
+        fm1_comb_set_feedback(&s->comb, fb);
+    }
     else if (s->type == SL_RESO) fm1_svf_set_res(&s->svf, v);
 }
 static inline void fm1_slot_set_mix(fm1_slot_t *s, uint8_t v) { s->mix = v; }

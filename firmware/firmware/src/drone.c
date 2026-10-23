@@ -166,7 +166,11 @@ typedef struct {
  * A D8 patch has no `fine` block, so loading one would read whatever follows
  * it in the sector as sub-step offsets -- a patch that comes back very
  * slightly out of tune, which is worse than one that is ignored. */
-#define PATCH_MAGIC 0xD9
+/* D9 -> DA: the slots' P2 is bipolar about 64 for the comb (negative
+ * feedback) and its default moved from 0 to 64. A D9 patch's P2 byte means
+ * something else now -- 0 was "no feedback" and is now "full inverted" --
+ * and a stale patch that still loads is worse than one that is ignored. */
+#define PATCH_MAGIC 0xDA
 
 static void patch_store(patch_t *q)
 {

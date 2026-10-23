@@ -401,7 +401,10 @@ void Drone::ApplyParam(uint8_t voice, uint8_t param, uint8_t value)
             fm1_slot_t *sl = &d.sl[n];
             switch ((param - P_SL_BASE) % P_SL_STRIDE) {
             case P_SL_TYPE: fm1_slot_set_type(sl, value); ApplyPitch(voice); break;
-            case P_SL_P1:   fm1_slot_set_p1(sl, value);   ApplyPitch(voice); break;
+            /* From the accumulator: P1 carries a fine fraction (HasFine),
+             * and the byte would throw it away. */
+            case P_SL_P1:   fm1_slot_set_p1_q8(sl, d.acc[param]);
+                            ApplyPitch(voice); break;
             case P_SL_P2:   fm1_slot_set_p2(sl, value);   break;
             case P_SL_MIX:  fm1_slot_set_mix(sl, value);  break;
             default: break;
@@ -539,7 +542,8 @@ int Drone::HasFine(uint8_t param)
            param == P_F1_CUT || param == P_F2_CUT ||
            param == P_ATTACK || param == P_HOLD ||
            param == P_DECAY  || param == P_RELEASE ||
-           param == P_DETUNE;
+           param == P_DETUNE ||
+           param == P_SL(0, P_SL_P1) || param == P_SL(1, P_SL_P1);
 }
 
 /* The shared body of both nudges: walk a Q8 target by `delta`, either in
@@ -945,9 +949,15 @@ void Drone::Render(int16_t *out, uint32_t n)
                     int retune = 0;
                     for (uint8_t k = 0; k < FM1_SLOTS; k++) {
                         if (ModOf(d, SDEST[k]) == 0) continue;
-                        fm1_slot_set_p1(&d.sl[k],
-                                        EffParam(d, (uint8_t)P_SL(k, P_SL_P1),
-                                                 SDEST[k]));
+                        /* Q8 throughout, so a modulated slot keeps the fine
+                         * base it was tuned to instead of being rounded to
+                         * the nearest knob step every block. +-64 steps of
+                         * modulation is +-(64 << 8) here. */
+                        {
+                            int32_t x = (int32_t)d.acc[P_SL(k, P_SL_P1)]
+                                      + ((ModOf(d, SDEST[k]) * (64 << 8)) >> 15);
+                            fm1_slot_set_p1_q8(&d.sl[k], x);
+                        }
                         retune = 1;
                     }
                     /* A comb tunes from the voice's phase increment, so a

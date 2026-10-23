@@ -463,11 +463,11 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * because it is a tune or an offset on half the types. */
     [P_SL1_TYPE]   = {"SL1 TYPE",  4,   0, K_SLOT,    0},
     [P_SL1_P1]     = {"SL1 P1", 127,  64, K_NUM,     0},
-    [P_SL1_P2]     = {"SL1 P2", 127,   0, K_NUM,     0},
+    [P_SL1_P2]     = {"SL1 P2", 127,  64, K_NUM,     0},
     [P_SL1_MIX]    = {"SL1 MIX",127, 127, K_PCT,     0},
     [P_SL2_TYPE]   = {"SL2 TYPE",  4,   0, K_SLOT,    0},
     [P_SL2_P1]     = {"SL2 P1", 127,  64, K_NUM,     0},
-    [P_SL2_P2]     = {"SL2 P2", 127,   0, K_NUM,     0},
+    [P_SL2_P2]     = {"SL2 P2", 127,  64, K_NUM,     0},
     [P_SL2_MIX]    = {"SL2 MIX",127, 127, K_PCT,     0},
 
     /* Last, because P_ENV_MODE is last in the enum and C++ requires
