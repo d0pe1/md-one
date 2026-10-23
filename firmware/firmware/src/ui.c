@@ -480,7 +480,12 @@ static void ui_draw_header(void)
     ui_str(line, &i, m->name);
     ui_str(line, &i, " - ");
     ui_str(line, &i, p->name);
-    while (i < 22u) line[i++] = ' ';
+    /* Unsaved work, marked. The patch is no longer written on a timer --
+     * a flash erase drops the sound and a drone never stops to let it --
+     * so the one thing that must not happen is losing an edit silently. */
+    while (i < 20u) line[i++] = ' ';
+    line[i++] = ui_patch_dirty() ? '*' : ' ';
+    line[i++] = ' ';
     line[i++] = (char)('1' + ui_nav.page);
     line[i++] = '/';
     line[i++] = (char)('0' + m->npages);

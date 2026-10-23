@@ -91,6 +91,11 @@ static struct {
  * function rather than a shared struct. */
 static uint8_t ui_note_of(uint8_t v) { return v < NV ? st.note[v] : 0u; }
 
+/* Is there an edit the flash does not have yet? The header shows a dot for
+ * it. Declared here and defined below, because the flag lives with the
+ * saving logic and ui.c is included before any of it. */
+static int ui_patch_dirty(void);
+
 #include "ui.c"
 
 /* A voice sounds if it is unmuted and nothing else is soloed. Applied with
@@ -245,6 +250,7 @@ static void draw_keys(uint32_t lit)
  */
 static uint32_t redraw_req = 1;     /* a repaint is owed */
 static uint32_t patch_dirty;        /* the patch differs from what was saved */
+static int ui_patch_dirty(void) { return patch_dirty != 0u; }
 static uint32_t t_change;           /* when it last differed, for the save timer */
 static uint32_t midi_dirty;         /* MIDI moved something the screen shows */
 
@@ -600,18 +606,32 @@ static void app_main(void)
         }
         pump_disarm();
 
-        /* A flash erase stalls everything including the audio, so only save
-         * when the change has settled. A drone never goes quiet, so unlike
-         * Dinghy we cannot wait for silence -- 4 s of no edits instead.
+        /* SAVING, and why it is not on a timer any more.
          *
-         * Disarmed above on purpose: settings_save goes through the same
-         * lcd_sync on its way to nothing, and a pump that ran mid-erase
-         * would be servicing MIDI into an engine the flash controller has
-         * stopped. */
-        if (patch_dirty && fm1_ms - t_change > 4000u) {
-            patch_store(&saved);
-            settings_save(&saved, sizeof saved);
-            patch_dirty = 0;
+         * platform.c states the rule: settings_save erases the sector, which
+         * takes about 50 ms with the interrupts off and drops the sound --
+         * "so save when nothing plays, not on every knob step". That rule
+         * was written for Dinghy, which goes quiet between notes.
+         *
+         * A drone machine never goes quiet. The condition can never be met,
+         * so an idle timer here is a guarantee of an audible dropout a few
+         * seconds after every edit, forever. Reported exactly that way.
+         *
+         * So the write happens when the player asks for it, or at the one
+         * moment the instrument IS silent: every voice muted. That is a
+         * deliberate gesture -- it is what you do when you have finished --
+         * and the 50 ms lands where there is nothing to interrupt.
+         *
+         * Nothing is lost quietly: the header shows a dot until the patch
+         * is written. */
+        if (patch_dirty && fm1_ms - t_change > 1500u) {
+            uint8_t sounding = 0;
+            for (v = 0; v < NV; v++) if (st.on[v]) sounding = 1;
+            if (!sounding) {
+                patch_store(&saved);
+                settings_save(&saved, sizeof saved);
+                patch_dirty = 0;
+            }
         }
     }
 }
