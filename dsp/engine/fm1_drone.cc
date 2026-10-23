@@ -20,19 +20,25 @@ static_assert(F_OFF == 0,
               "F_OFF moved -- update P_F1_TYPE/P_F2_TYPE def in fm1_params.h");
 static_assert(FX_NTYPES - 1 == 5,
               "effect count changed -- update G_FX*_TYPE max in fm1_params.h");
-static_assert(DEST_NDEST - 1 == 5,
+static_assert(DEST_NDEST - 1 == 9,
               "destination count changed -- update P_DEST and G_FX*_DEST max");
-static_assert(DEST_FX1 + FM1_FX_CHANS == DEST_OUT,
-              "DEST_* is no longer DEST_FX1..FX4 then DEST_OUT -- the engine "
-              "indexes channels by (dest - DEST_FX1)");
+/* The two blocks have to stay contiguous and in this order, because the
+ * engine indexes both by subtraction (DEST_FX_IDX, DEST_MIX_IDX). OUT must
+ * stay last so it reads as the end of the list on screen. */
+static_assert(DEST_FX1  + FM1_FX_CHANS  == DEST_MIX1,
+              "the effect channels and the mix buses are no longer adjacent");
+static_assert(DEST_MIX1 + FM1_MIX_CHANS == DEST_OUT,
+              "DEST_OUT is no longer the tail of the destination list");
 /* The LFO block now sits after the patchbay, so the patchbay is no longer the
  * tail. What still has to hold is that each block is CONTIGUOUS and that
  * ApplyGlobal's arithmetic dispatch can tell them apart: it tests
  * `>= G_LFO_BASE` before `>= G_FX_BASE`, so the order matters. */
 static_assert(G_FX(3, G_FX_DEST) + 1 == G_LFO_BASE,
               "the patchbay and LFO parameter blocks are no longer adjacent");
-static_assert(G_LFO(3, G_LFO_MODE) == NGPARAM - 1,
-              "the LFO parameters are not the tail of the global table");
+static_assert(G_LFO(3, G_LFO_MODE) + 1 == G_MIX_BASE,
+              "the LFO and mix bus parameter blocks are no longer adjacent");
+static_assert(G_MIX(FM1_MIX_CHANS - 1, G_MIX_PAN) == NGPARAM - 1,
+              "the mix bus parameters are not the tail of the global table");
 static_assert(LFO_NMODES - 1 == 5,
               "LFO mode count changed -- update G_LFO*_MODE max in fm1_params.h");
 
@@ -734,6 +740,22 @@ void Drone::Render(int16_t *out, uint32_t n)
         uint8_t  fx_act[FM1_FX_CHANS];
         uint32_t fx_n = fx_rack_active(&rack_, fx_act);
 
+        /* A mix bus is live if anything points at it. Asked once per block,
+         * because clearing 2 KiB for a bus nobody feeds is exactly the kind
+         * of idle cost the patchbay already learned about. */
+        uint8_t mix_live[FM1_MIX_CHANS] = { 0, 0, 0, 0 };
+        for (uint8_t v = 0; v < FM1_VOICES; v++) {
+            uint8_t d = v_[v].p[P_DEST];
+            if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
+        }
+        for (uint32_t k = 0; k < fx_n; k++) {
+            uint8_t d = rack_.ch[fx_act[k]].dest;
+            if (DEST_IS_MIX(d)) mix_live[DEST_MIX_IDX(d)] = 1;
+        }
+        for (uint32_t m = 0; m < FM1_MIX_CHANS; m++)
+            if (mix_live[m])
+                for (uint32_t i = 0; i < chunk * 2u; i++) mixin_[m][i] = 0;
+
         /* Only the plugged channels' input buffers need clearing; the rest
          * are never read. */
         for (uint32_t k = 0; k < fx_n; k++)
@@ -987,9 +1009,9 @@ void Drone::Render(int16_t *out, uint32_t n)
              * would index fxin_[-1]. Nothing is ever written through it --
              * the add below is gated -- but forming the address at all is
              * undefined, so it points at the bus and goes unused. */
-            int32_t *sink = (dest == DEST_OUT || dest == DEST_OFF)
-                          ? bus_
-                          : fxin_[dest - DEST_FX1];
+            int32_t *sink = bus_;
+            if      (DEST_IS_FX(dest))  sink = fxin_[DEST_FX_IDX(dest)];
+            else if (DEST_IS_MIX(dest)) sink = mixin_[DEST_MIX_IDX(dest)];
 
             /* Asked once per block, not once per sample. Both of these are
              * flat on most voices most of the time, and testing inside the
@@ -1097,13 +1119,17 @@ void Drone::Render(int16_t *out, uint32_t n)
                 if (d == DEST_OUT) {
                     for (uint32_t i = 0; i < chunk * 2u; i++)
                         bus_[i] += fxin_[n][i];
+                } else if (DEST_IS_MIX(d)) {
+                    int32_t *mb = mixin_[DEST_MIX_IDX(d)];
+                    for (uint32_t i = 0; i < chunk * 2u; i++)
+                        mb[i] = fx_clamp(mb[i] + fxin_[n][i]);
                 } else {
                     /* Into a channel that has not run yet. Only if it is
                      * actually live: an unplugged target is never read, and
                      * never cleared either, so depositing into one would
                      * accumulate without bound for the sake of silence. */
-                    uint32_t t = (uint32_t)(d - DEST_FX1);
-                    if (t < FM1_FX_CHANS && live[t])
+                    uint32_t t = DEST_FX_IDX(d);
+                    if (DEST_IS_FX(d) && live[t])
                         for (uint32_t i = 0; i < chunk * 2u; i++)
                             fxin_[t][i] = fx_clamp(fxin_[t][i] + fxin_[n][i]);
                 }
@@ -1121,6 +1147,12 @@ void Drone::Render(int16_t *out, uint32_t n)
                 }
                 fx_rack_sample(&rack_, rack_.cursor, fx_act, fx_n,
                                in_l, in_r, &bus_[2 * i], &bus_[2 * i + 1]);
+                for (uint32_t m = 0; m < FM1_MIX_CHANS; m++) {
+                    if (!mix_live[m]) continue;
+                    mixin_[m][2 * i]     += rack_.mix_l[m];
+                    mixin_[m][2 * i + 1] += rack_.mix_r[m];
+                    rack_.mix_l[m] = rack_.mix_r[m] = 0;
+                }
                 rack_.cursor = (rack_.cursor + 1u) & FM1_FX_DMASK;
             }
         }
@@ -1175,6 +1207,45 @@ void Drone::Render(int16_t *out, uint32_t n)
                     haas_w_ = (haas_w_ + 1u) % 1536u;
                     bus_[i * 2u + ch] = haas_[rd];
                 }
+            }
+        }
+
+        /* --- the mix buses -------------------------------------------
+         *
+         * Last thing before master: everything that was going to arrive has
+         * arrived, and a bus has no destination of its own to feed.
+         *
+         * PAN here is a BALANCE, not the constant-power pan a voice gets.
+         * A voice is one mono signal being placed, so 0.707 either side at
+         * centre is right. A bus already carries a stereo image -- several
+         * voices, panned -- and running that through the same law would cost
+         * it 3 dB for sitting in the middle and squash the image it is
+         * carrying. Balance leaves the centre alone and attenuates the side
+         * you turn away from. */
+        for (uint32_t mb = 0; mb < FM1_MIX_CHANS; mb++) {
+            int32_t lvl, pan, gl, gr, pk = 0;
+            if (!mix_live[mb]) { if (mixmeter_[mb]) mixmeter_[mb]--; continue; }
+
+            lvl = g_[G_MIX(mb, G_MIX_LEVEL)];
+            pan = g_[G_MIX(mb, G_MIX_PAN)];
+            gl  = pan <= 64 ? Q12_ONE : ((127 - pan) * Q12_ONE) / 63;
+            gr  = pan >= 64 ? Q12_ONE : ( pan        * Q12_ONE) / 64;
+
+            for (uint32_t i = 0; i < chunk; i++) {
+                int32_t l = (mixin_[mb][2 * i]     * lvl) >> 7;
+                int32_t r = (mixin_[mb][2 * i + 1] * lvl) >> 7;
+                int32_t a;
+                l = (l * gl) >> Q12_BITS;
+                r = (r * gr) >> Q12_BITS;
+                bus_[2 * i]     += l;
+                bus_[2 * i + 1] += r;
+                a = l < 0 ? -l : l; if (a > pk) pk = a;
+                a = r < 0 ? -r : r; if (a > pk) pk = a;
+            }
+            {
+                uint8_t mm = (uint8_t)(pk >= Q15_ONE ? 127
+                                       : ((int32_t)pk * 127) / Q15_ONE);
+                mixmeter_[mb] = mm;
             }
         }
 

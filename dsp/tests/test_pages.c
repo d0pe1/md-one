@@ -64,8 +64,14 @@ static void sweep(uint8_t *voice_seen, uint8_t *global_seen)
 
                 for (i = 0; i < FM1_KNOBS * 2 + 1; i++) {
                     if (ids[i] == PG_NONE) continue;
-                    if (FM1_MENU[m].scope == SCOPE_GLOBAL) global_seen[ids[i]] = 1;
-                    else                                   voice_seen[ids[i]] = 1;
+                    /* Per PAGE, not per menu. A page may edit global
+                     * parameters inside a per-voice menu -- the mix buses
+                     * are global and live on MIX, beside the voices they
+                     * sum -- and scoring that page as voice-scope would
+                     * both mark the wrong table and report the buses as
+                     * unreachable. */
+                    if (fm1_page_scope(&n) == SCOPE_GLOBAL) global_seen[ids[i]] = 1;
+                    else                                    voice_seen[ids[i]] = 1;
                 }
             }
         }

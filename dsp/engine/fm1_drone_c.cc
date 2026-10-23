@@ -57,12 +57,16 @@ static_assert(FD_P_MONO       == P_MONO,        "param mirror drifted");
 static_assert(FD_P_DEST       == P_DEST,        "param mirror drifted");
 static_assert(FD_NPARAM       == NPARAM,        "param mirror drifted");
 static_assert(FD_NGPARAM      == NGPARAM,       "global mirror drifted");
+static_assert(FD_G_MIX_BASE   == G_MIX_BASE,    "mix bus base mirror drifted");
+static_assert(FD_G_MIX(3, FD_G_MIX_PAN) == G_MIX(3, G_MIX_PAN), "mix bus index mirror drifted");
 static_assert(FD_G_FX_BASE    == G_FX_BASE,     "patchbay base mirror drifted");
 static_assert(FD_G_FX_STRIDE  == G_FX_STRIDE,   "patchbay stride mirror drifted");
 static_assert(FD_G_FX(2, FD_G_FX_MIX) == G_FX(2, G_FX_MIX), "patchbay index mirror drifted");
 static_assert(FD_G_FX_DEST    == G_FX_DEST,     "patchbay dest mirror drifted");
 static_assert(FD_DEST_OFF     == DEST_OFF,      "dest mirror drifted");
 static_assert(FD_DEST_FX1     == DEST_FX1,      "dest mirror drifted");
+static_assert(FD_DEST_MIX1    == DEST_MIX1,     "dest mirror drifted");
+static_assert(FD_MIX_CHANS    == FM1_MIX_CHANS, "mix channel count mirror drifted");
 static_assert(FD_DEST_OUT     == DEST_OUT,      "dest mirror drifted");
 static_assert(FD_DEST_NDEST   == DEST_NDEST,    "dest mirror drifted");
 static_assert(FD_FX_CHORUS    == FX_CHORUS,     "effect type mirror drifted");
@@ -114,6 +118,7 @@ void fm1_drone_init(void)
 void fm1_drone_note_on(uint8_t v, uint8_t n) { g_drone.NoteOn(v, n); }
 void fm1_drone_note_off(uint8_t v)           { g_drone.NoteOff(v); }
 void fm1_drone_strike(uint8_t v)             { g_drone.Strike(v); }
+uint8_t fm1_drone_mix_meter(uint8_t c)       { return g_drone.MixMeter(c); }
 void fm1_drone_set_gate(uint8_t v, uint8_t on) { g_drone.SetGate(v, on); }
 
 void fm1_drone_set_param(uint8_t v, uint8_t p, uint8_t val) { g_drone.SetParam(v, p, val); }

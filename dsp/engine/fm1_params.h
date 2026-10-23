@@ -178,6 +178,13 @@ static const char *const FM1_MODSRC_NAME[MD_SRC_COUNT] = {
 };
 
 /* EQ band b (0..2), control j. Same shape as the patchbay's G_FX(). */
+/* Mix bus n (0..3), control j. Same shape as G_FX() and P_EQ(). */
+#define G_MIX_BASE   G_MIX1_LEVEL
+#define G_MIX_STRIDE 2
+#define G_MIX(n, j)  (G_MIX_BASE + (n) * G_MIX_STRIDE + (j))
+#define G_MIX_LEVEL  0
+#define G_MIX_PAN    1
+
 #define P_EQ_BASE    P_EQ1_MODE
 #define P_EQ_STRIDE  5
 #define P_EQ(b, j)   (P_EQ_BASE + (b) * P_EQ_STRIDE + (j))
@@ -207,6 +214,15 @@ enum {
     G_LFO2_RATE, G_LFO2_AMT, G_LFO2_PHASE, G_LFO2_MODE,
     G_LFO3_RATE, G_LFO3_AMT, G_LFO3_PHASE, G_LFO3_MODE,
     G_LFO4_RATE, G_LFO4_AMT, G_LFO4_PHASE, G_LFO4_MODE,
+    /* The four mix buses. Each sums whatever points at it, applies a level
+     * and a pan, and goes to the main output -- there is no DEST here on
+     * purpose (fm1_route.h). Appended rather than placed beside the
+     * patchbay, because fm1_drone_c.h mirrors the FX and LFO indices as
+     * literals and inserting would renumber all of them. */
+    G_MIX1_LEVEL, G_MIX1_PAN,
+    G_MIX2_LEVEL, G_MIX2_PAN,
+    G_MIX3_LEVEL, G_MIX3_PAN,
+    G_MIX4_LEVEL, G_MIX4_PAN,
     NGPARAM
 };
 
@@ -367,7 +383,7 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * cable before anything is heard is correct for a modular and wrong for
      * an instrument you just switched on. max is DEST_NDEST-1 as a literal,
      * checked against the enum in fm1_drone.cc. */
-    [P_DEST]       = {"DEST",     5,   5, K_DEST,    0},
+    [P_DEST]       = {"DEST",     9,   9, K_DEST,    0},
 
     /* Everything off: a new patch modulates nothing until asked. DEPTH is
      * bipolar so 64 is the centre detent, exactly as FM and MOD are on the
@@ -434,22 +450,22 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_FX1_P1]     = {"FX1 P1", 127,  64, K_NUM,     0},
     [G_FX1_P2]     = {"FX1 P2", 127,  64, K_NUM,     0},
     [G_FX1_MIX]    = {"FX1 MIX",127, 127, K_PCT,     0},
-    [G_FX1_DEST]   = {"FX1 OUT",  5,   0, K_DEST,    0},
+    [G_FX1_DEST]   = {"FX1 OUT",  9,   0, K_DEST,    0},
     [G_FX2_TYPE]   = {"FX2 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX2_P1]     = {"FX2 P1", 127,  64, K_NUM,     0},
     [G_FX2_P2]     = {"FX2 P2", 127,  64, K_NUM,     0},
     [G_FX2_MIX]    = {"FX2 MIX",127, 127, K_PCT,     0},
-    [G_FX2_DEST]   = {"FX2 OUT",  5,   0, K_DEST,    0},
+    [G_FX2_DEST]   = {"FX2 OUT",  9,   0, K_DEST,    0},
     [G_FX3_TYPE]   = {"FX3 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX3_P1]     = {"FX3 P1", 127,  64, K_NUM,     0},
     [G_FX3_P2]     = {"FX3 P2", 127,  64, K_NUM,     0},
     [G_FX3_MIX]    = {"FX3 MIX",127, 127, K_PCT,     0},
-    [G_FX3_DEST]   = {"FX3 OUT",  5,   0, K_DEST,    0},
+    [G_FX3_DEST]   = {"FX3 OUT",  9,   0, K_DEST,    0},
     [G_FX4_TYPE]   = {"FX4 TYPE",  5,   0, K_FXTYPE,  0},
     [G_FX4_P1]     = {"FX4 P1", 127,  64, K_NUM,     0},
     [G_FX4_P2]     = {"FX4 P2", 127,  64, K_NUM,     0},
     [G_FX4_MIX]    = {"FX4 MIX",127, 127, K_PCT,     0},
-    [G_FX4_DEST]   = {"FX4 OUT",  5,   0, K_DEST,    0},
+    [G_FX4_DEST]   = {"FX4 OUT",  9,   0, K_DEST,    0},
 
     /* AMOUNT defaults to 0: an LFO that is running but reaching nothing is
      * the right state to switch on in. RATE defaults slow -- 24 of 127 on an
@@ -478,6 +494,17 @@ static const fm1_pdef_t FM1_GDEF[NGPARAM] = {
     [G_LFO4_AMT]   = {"LFO4 AMOUNT",127,   0, K_NUM,     0},
     [G_LFO4_PHASE] = {"LFO4 PHASE",127,  96, K_NUM,     0},
     [G_LFO4_MODE]  = {"LFO4 MODE",  5,   0, K_LFOMODE, 0},
+
+    /* Last, because the mix buses are last in the enum and C++ wants
+     * designated initialisers in declaration order. */
+    [G_MIX1_LEVEL] = {"MIX1 LVL",127, 100, K_NUM,     0},
+    [G_MIX1_PAN]   = {"MIX1 PAN",127,  64, K_BIP,     0},
+    [G_MIX2_LEVEL] = {"MIX2 LVL",127, 100, K_NUM,     0},
+    [G_MIX2_PAN]   = {"MIX2 PAN",127,  64, K_BIP,     0},
+    [G_MIX3_LEVEL] = {"MIX3 LVL",127, 100, K_NUM,     0},
+    [G_MIX3_PAN]   = {"MIX3 PAN",127,  64, K_BIP,     0},
+    [G_MIX4_LEVEL] = {"MIX4 LVL",127, 100, K_NUM,     0},
+    [G_MIX4_PAN]   = {"MIX4 PAN",127,  64, K_BIP,     0},
 };
 
 /* --- which parameters are slewed -----------------------------------------

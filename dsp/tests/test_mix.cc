@@ -1548,10 +1548,93 @@ static void test_detune_symmetry(void)
     }
 }
 
+
+/* --- the mix buses -------------------------------------------------------
+ *
+ * Four channels that sum whatever points at them, apply a level and a
+ * BALANCE, and go to the main output. No destination of their own, so the
+ * only thing that can go wrong is silently: a bus that drops its input, or
+ * one that scales it wrongly, sounds like a routing mistake rather than a
+ * bug.
+ */
+static int32_t bus_peak(uint8_t dest, uint8_t bus_level, uint8_t bus_pan,
+                        int side)
+{
+    fm1::Drone d;
+    int16_t buf[FM1_BLOCK * 2];
+    int32_t pk = 0;
+
+    d.Init();
+    d.SetGlobal(G_SPREAD, 0);
+    for (uint8_t v = 1; v < FM1_VOICES; v++) d.SetGate(v, 0);
+    d.SetParam(0, P_SHAPE, braids::MACRO_OSC_SHAPE_CSAW);
+    d.SetParam(0, P_LEVEL, 127);
+    d.SetParam(0, P_PAN,   64);
+    d.SetParam(0, P_DEST,  dest);
+    d.SetGlobal(G_MIX(0, G_MIX_LEVEL), bus_level);
+    d.SetGlobal(G_MIX(0, G_MIX_PAN),   bus_pan);
+    d.NoteOn(0, 45);
+    d.SnapParams();
+
+    for (int b = 0; b < 40; b++) {
+        for (uint32_t i = 0; i < FM1_BLOCK * 2u; i++) buf[i] = 0;
+        d.Render(buf, FM1_BLOCK);
+        for (uint32_t i = (side < 0 ? 0u : 1u); i < FM1_BLOCK * 2u; i += 2u) {
+            int32_t a = buf[i] < 0 ? -(int32_t)buf[i] : (int32_t)buf[i];
+            if (a > pk) pk = a;
+        }
+    }
+    return pk;
+}
+
+static void test_mix_buses(void)
+{
+    int32_t direct, viabus, half, quiet;
+
+    printf("\nmix buses\n");
+
+    direct = bus_peak(DEST_OUT,  127, 64, -1);
+    viabus = bus_peak(DEST_MIX1, 127, 64, -1);
+    printf("    voice -> OUT:        %6d\n", direct);
+    printf("    voice -> MIX1 (127): %6d\n", viabus);
+
+    ok(viabus > direct * 9 / 10,
+       "a voice routed to a bus still reaches the output",
+       "the bus swallowed it");
+
+    /* BALANCE, not pan: a bus already carries a stereo image, so its centre
+     * must be unity rather than the 0.707 a mono voice gets placed at. */
+    ok(viabus > direct * 9 / 10 && viabus < direct * 11 / 10,
+       "a bus at centre is unity, not constant-power",
+       "the bus pan law is attenuating the centre");
+
+    half = bus_peak(DEST_MIX1, 64, 64, -1);
+    ok(half < viabus * 6 / 10 && half > viabus * 4 / 10,
+       "the bus level scales what passes through it", "it does not");
+
+    /* Hard right: the left channel should lose the voice. */
+    quiet = bus_peak(DEST_MIX1, 127, 127, -1);
+    ok(quiet < viabus / 8, "balance hard over empties the far channel",
+       "the far channel still has signal");
+
+    /* Independence, stated the right way round. The first draft of this
+     * asserted that a voice on MIX2 is NOT heard while bus 1 is open, which
+     * is simply false -- it goes out through bus 2. What has to hold is that
+     * bus 1's controls do not reach bus 2: with bus 1 shut completely, a
+     * voice on bus 2 is still at full level. */
+    {
+        int32_t other = bus_peak(DEST_MIX2, 0, 64, -1);
+        ok(other > direct * 7 / 10,
+           "shutting one bus does not touch another",
+           "the buses share a level");
+    }
+}
+
 int main(void)
 {
     test_soft_clip();
     test_bus();
+    test_mix_buses();
     test_rack();
     test_meters();
     test_eq();

@@ -45,11 +45,11 @@ enum { SCOPE_VOICE, SCOPE_GLOBAL };
  * because both counters survive the page change.
  */
 enum { SUBJ_NONE, SUBJ_VOICE, SUBJ_FX, SUBJ_BAND, SUBJ_LFO,
-       SUBJ_SLOT, SUBJ_NKIND };
+       SUBJ_SLOT, SUBJ_MIX, SUBJ_NKIND };
 
-static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4, 2 };
+static const uint8_t FM1_SUBJ_COUNT[SUBJ_NKIND] = { 1, 4, 4, 3, 4, 2, 4 };
 static const char *const FM1_SUBJ_NAME[SUBJ_NKIND] = {
-    "", "VOICE", "FX", "BAND", "LFO", "SLOT"
+    "", "VOICE", "FX", "BAND", "LFO", "SLOT", "BUS"
 };
 
 #define FM1_KNOBS  4
@@ -75,7 +75,17 @@ typedef struct {
      * a different parameter within one instance, which is how one EQ page
      * serves three bands and one FX page serves four channels. */
     uint8_t     stride;
+    /* 0 means "whatever the menu says". A page sets this when it edits
+     * GLOBAL parameters inside a per-voice menu -- the mix buses belong on
+     * the MIX menu next to the voice strips they sum, but they are global,
+     * and scope used to be a property of the menu alone. Trailing, so every
+     * page literal that does not care keeps its zero. */
+    uint8_t     gscope;
 } fm1_page_t;
+
+/* SCOPE_VOICE is 0, which is what makes the trailing-zero default above mean
+ * "inherit" rather than "force voice scope". */
+#define FM1_PAGE_GLOBAL 1
 
 typedef struct {
     const char       *name;
@@ -219,7 +229,19 @@ static const fm1_page_t FM1_PG_MOD[] = {
 static const fm1_page_t FM1_PG_MIX[] = {
     { "MIXER",  { P_LEVEL, P_PAN, P_MONO, P_DRIVE },
       { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
-      PG_NONE, SUBJ_VOICE, 0 },
+      PG_NONE, SUBJ_VOICE, 0, 0 },
+    /* Where a voice GOES, next to how loud it is. DEST was reachable only
+     * from the routing page before, which put "how much" and "where" in
+     * different menus. */
+    { "SEND",   { P_DEST, P_LEVEL, PG_NONE, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      PG_NONE, SUBJ_VOICE, 0, 0 },
+    /* The four mix buses. GLOBAL parameters on a per-voice menu, which is
+     * what fm1_page_t::gscope exists for: a bus sums voices, so it belongs
+     * beside them rather than exiled to GLO. */
+    { "BUS",    { G_MIX(0, G_MIX_LEVEL), G_MIX(0, G_MIX_PAN), PG_NONE, PG_NONE },
+      { PG_NONE, PG_NONE, PG_NONE, PG_NONE },
+      PG_NONE, SUBJ_MIX, G_MIX_STRIDE, FM1_PAGE_GLOBAL },
 };
 
 /* --- GLO: global ---------------------------------------------------------
@@ -354,6 +376,13 @@ static inline void fm1_nav_select(fm1_nav_t *n, int delta)
 
 /* The parameter id under a knob, or PG_NONE. Index it into FM1_PDEF when the
  * menu's scope is SCOPE_VOICE, FM1_GDEF when it is SCOPE_GLOBAL. */
+/* Which table a page's parameters live in. */
+static inline int fm1_page_scope(const fm1_nav_t *n)
+{
+    const fm1_page_t *p = fm1_nav_page(n);
+    return p->gscope ? SCOPE_GLOBAL : FM1_MENU[n->menu].scope;
+}
+
 static inline int fm1_page_knob(const fm1_nav_t *n, uint8_t knob)
 {
     const fm1_page_t *p = fm1_nav_page(n);
@@ -392,7 +421,7 @@ static inline int fm1_page_alg(const fm1_nav_t *n)
 static inline const fm1_pdef_t *fm1_page_def(const fm1_nav_t *n, int id)
 {
     if (id == PG_NONE) return 0;
-    if (FM1_MENU[n->menu].scope == SCOPE_GLOBAL) {
+    if (fm1_page_scope(n) == SCOPE_GLOBAL) {
         return (id < NGPARAM) ? &FM1_GDEF[id] : 0;
     }
     return (id < NPARAM) ? &FM1_PDEF[id] : 0;

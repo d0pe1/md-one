@@ -32,19 +32,40 @@ static const char *const FM1_FXNAME[FX_NTYPES] = {
 
 /* Where a node's output goes. One value, one cable. Shared by voices and
  * effect channels -- a voice routes exactly the way an effect does, which is
- * what makes the mental model one thing instead of two. */
+ * what makes the mental model one thing instead of two.
+ *
+ * MIX1..4 are the mix buses: four channels that sum whatever points at them,
+ * apply a level and a pan, and go to the main output. They have no
+ * destination of their own, deliberately -- a bus that could be routed into
+ * an effect would make the graph cyclic in a way nothing else here is, and
+ * the case it would serve (submix, then reverb) is already reachable by
+ * pointing those voices at the same effect channel. */
 enum {
     DEST_OFF = 0,   /* unplugged: this node is not heard, nor is anything
                      * whose only path to the output runs through it */
     DEST_FX1, DEST_FX2, DEST_FX3, DEST_FX4,
+    DEST_MIX1, DEST_MIX2, DEST_MIX3, DEST_MIX4,
     DEST_OUT,
     DEST_NDEST
 };
 
 static const char *const FM1_DESTNAME[DEST_NDEST] = {
-    "---", "FX1", "FX2", "FX3", "FX4", "OUT"
+    "---", "FX1", "FX2", "FX3", "FX4",
+    "MIX1", "MIX2", "MIX3", "MIX4", "OUT"
 };
 
 #define FM1_FX_CHANS   4
+#define FM1_MIX_CHANS  4
+
+/* Asked by predicate, never by arithmetic on the enum.
+ *
+ * The rack used to test `d >= DEST_FX1 && d < DEST_OUT` to mean "an effect
+ * channel", which was true only while the effects were the last thing before
+ * OUT. Adding the mix buses between them would have made that test quietly
+ * include a bus and index fx[] past its end. */
+#define DEST_IS_FX(d)   ((d) >= DEST_FX1  && (d) < DEST_FX1  + FM1_FX_CHANS)
+#define DEST_IS_MIX(d)  ((d) >= DEST_MIX1 && (d) < DEST_MIX1 + FM1_MIX_CHANS)
+#define DEST_FX_IDX(d)  ((uint32_t)((d) - DEST_FX1))
+#define DEST_MIX_IDX(d) ((uint32_t)((d) - DEST_MIX1))
 
 #endif /* FM1_ROUTE_H */

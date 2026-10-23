@@ -275,7 +275,7 @@ static uint8_t ui_voice(void) { return ui_nav.sel[SUBJ_VOICE]; }
 static uint8_t ui_get(int id)
 {
     if (id == PG_NONE) return 0;
-    if (FM1_MENU[ui_nav.menu].scope == SCOPE_GLOBAL)
+    if (fm1_page_scope(&ui_nav) == SCOPE_GLOBAL)
         return fm1_drone_get_global((uint8_t)id);
     return fm1_drone_get_param(ui_voice(), (uint8_t)id);
 }
@@ -283,7 +283,7 @@ static uint8_t ui_get(int id)
 static void ui_set(int id, uint8_t val)
 {
     if (id == PG_NONE) return;
-    if (FM1_MENU[ui_nav.menu].scope == SCOPE_GLOBAL)
+    if (fm1_page_scope(&ui_nav) == SCOPE_GLOBAL)
         fm1_drone_set_global((uint8_t)id, val);
     else
         fm1_drone_set_param(ui_voice(), (uint8_t)id, val);
@@ -313,7 +313,7 @@ static void ui_nudge(int id, int32_t delta)
      * truncates, so from 64 + 90/256 a click down reads 64 and lands on 63 --
      * skipping the grid point it was sitting just above. Up happens to be
      * right by accident. The engine knows the fraction; this does not. */
-    if (FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+    if (fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
         fm1_drone_has_fine((uint8_t)id)) {
         fm1_drone_nudge_param(ui_voice(), (uint8_t)id, delta, 1);
         return;
@@ -459,7 +459,7 @@ static const char *ui_label(int id)
      * and pluck position. "TIMBRE 064" tells you nothing you could not have
      * guessed; "RATIO 064" tells you what you are holding. Derived from the
      * renderers -- see FM1_SHAPE_TIMBRE and docs/BRAIDS_SHAPES.md. */
-    if (FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+    if (fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
         (id == P_TIMBRE || id == P_COLOR)) {
         uint8_t sh = fm1_drone_get_param(ui_voice(), P_SHAPE) % FM1_NSHAPES;
         return id == P_TIMBRE ? FM1_SHAPE_TIMBRE[sh] : FM1_SHAPE_COLOR[sh];
@@ -614,7 +614,7 @@ static void ui_draw_knobs(void)
          * ordinary pages are unchanged. */
         {
             int finecap = id != PG_NONE &&
-                          FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                          fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
                           fm1_drone_has_fine((uint8_t)id);
             uint8_t frac = finecap
                          ? fm1_drone_get_fine(ui_voice(), (uint8_t)id) : 0u;
@@ -636,7 +636,7 @@ static void ui_draw_knobs(void)
                       id == PG_NONE ? "----" : ui_label(id),
                       id == PG_NONE ? C_TRACK
                       : (ui_shift &&
-                         FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                         fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
                          fm1_drone_has_fine((uint8_t)id)) ? C_ACC : C_GREY, 1);
 
         /* The value in its own heat, and a bar of the same colour under it.
@@ -654,7 +654,7 @@ static void ui_draw_knobs(void)
              * so it reads as cold and loses its bar, exactly like a control
              * sitting at its own zero. */
             int inert = id == P_PAN &&
-                        FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                        fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
                         fm1_drone_get_param(ui_voice(), P_MONO);
             int graded = !inert && d &&
                         (d->kind == K_NUM  || d->kind == K_PCT ||
@@ -1421,7 +1421,7 @@ static void ui_draw_body(int clear)
      * its first knob is a band frequency. */
     if (p->subject == SUBJ_BAND) { ui_body_eq(); return; }
 
-    if (p->alg == P_SHAPE && FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE) {
+    if (p->alg == P_SHAPE && fm1_page_scope(&ui_nav) == SCOPE_VOICE) {
         ui_body_shapes();
         return;
     }
@@ -1654,7 +1654,7 @@ static int ui_encoders(void)
                  * modifier that means two things depending on the page is
                  * the invariant this surface is built on. */
                 fine = ui_shift && id != PG_NONE &&
-                       FM1_MENU[ui_nav.menu].scope == SCOPE_VOICE &&
+                       fm1_page_scope(&ui_nav) == SCOPE_VOICE &&
                        fm1_drone_has_fine((uint8_t)id);
             }
             if (fine) {

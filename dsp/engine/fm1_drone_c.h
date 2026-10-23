@@ -166,7 +166,14 @@ extern "C" {
 #define FD_G_LFO_PHASE    2
 #define FD_G_LFO_MODE     3
 #define FD_LFOS           4
-#define FD_NGPARAM       39
+/* +8 for the four mix buses (LEVEL, PAN), appended after the LFOs. */
+#define FD_G_MIX_BASE    39
+#define FD_G_MIX_STRIDE   2
+#define FD_G_MIX(n, j)   (FD_G_MIX_BASE + (n) * FD_G_MIX_STRIDE + (j))
+#define FD_G_MIX_LEVEL    0
+#define FD_G_MIX_PAN      1
+
+#define FD_NGPARAM       47
 
 /* LFO shapes, mirroring the LFO_* enum in fm1_lfo.h. */
 #define FD_LFO_TRI        0
@@ -184,8 +191,10 @@ extern "C" {
 #define FD_DEST_FX2       2
 #define FD_DEST_FX3       3
 #define FD_DEST_FX4       4
-#define FD_DEST_OUT       5
-#define FD_DEST_NDEST     6
+#define FD_DEST_MIX1      5
+#define FD_DEST_OUT       9
+#define FD_DEST_NDEST    10
+#define FD_MIX_CHANS      4
 
 /* Effect types, mirroring the FX_* enum in fm1_rack.h. */
 #define FD_FX_NONE        0

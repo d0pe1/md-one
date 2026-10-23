@@ -183,6 +183,11 @@ class Drone {
     uint8_t Meter(uint8_t voice) const
     { return voice < FM1_VOICES ? meter_[voice] : 0; }
 
+    /* The mix buses have their own meters: a bus is where several voices land,
+     * so a voice meter cannot tell you whether the SUM is too hot. */
+    uint8_t MixMeter(uint8_t ch) const
+    { return ch < FM1_MIX_CHANS ? mixmeter_[ch] : 0; }
+
     /* Did this channel reach full scale recently? The meter turns entirely
      * red when it did.
      *
@@ -289,6 +294,14 @@ class Drone {
      * bus_ because bus_ is the master output -- a voice set to DEST_OUT goes
      * straight there and never touches these. 8 KiB. */
     int32_t    fxin_[FM1_FX_CHANS][FM1_BLOCK * 2];
+
+    /* The four MIX BUSES. Whatever points at one of these -- voices or effect
+     * channels alike -- sums here; the bus then applies its own level and pan
+     * and goes to bus_. No destination of its own, so no cycle is possible
+     * through a bus and none of the rack's feedback analysis applies to them.
+     * 8 KiB. */
+    int32_t    mixin_[FM1_MIX_CHANS][FM1_BLOCK * 2];
+    uint8_t    mixmeter_[FM1_MIX_CHANS];
 };
 
 }  // namespace fm1

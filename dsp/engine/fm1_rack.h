@@ -116,6 +116,13 @@ struct fx_chan_t {
 struct fx_rack_t {
     fx_chan_t ch[FM1_FX_CHANS];
     uint32_t  cursor;       /* delay write position, continuous across blocks */
+
+    /* What this sample's channels sent to a MIX BUS. The rack cannot write
+     * the bus buffers itself -- they belong to the engine, not the patchbay
+     * -- so a channel pointing at one drops its output here and the caller
+     * drains it. Only the per-sample path needs this; the block path adds
+     * straight into the bus. */
+    int32_t   mix_l[FM1_MIX_CHANS], mix_r[FM1_MIX_CHANS];
 };
 
 static inline void fx_chan_init(fx_chan_t *c)
@@ -136,6 +143,7 @@ static inline void fx_chan_init(fx_chan_t *c)
 static inline void fx_rack_init(fx_rack_t *r)
 {
     for (uint32_t i = 0; i < FM1_FX_CHANS; i++) fx_chan_init(&r->ch[i]);
+    for (uint32_t i = 0; i < FM1_MIX_CHANS; i++) r->mix_l[i] = r->mix_r[i] = 0;
     r->cursor = 0;
 }
 
@@ -338,8 +346,15 @@ static inline void fx_deposit(fx_rack_t *r, uint8_t dest, uint32_t visiting,
     if (dest == DEST_OFF) return;
     if (dest == DEST_OUT) { *out_l += l; *out_r += rr; return; }
 
-    uint32_t t = (uint32_t)(dest - DEST_FX1);
-    if (t >= FM1_FX_CHANS) return;
+    if (DEST_IS_MIX(dest)) {
+        uint32_t m = DEST_MIX_IDX(dest);
+        r->mix_l[m] = fx_clamp(r->mix_l[m] + l);
+        r->mix_r[m] = fx_clamp(r->mix_r[m] + rr);
+        return;
+    }
+    if (!DEST_IS_FX(dest)) return;
+    {
+    uint32_t t = DEST_FX_IDX(dest);
 
     if (t > visiting) {                 /* forward: same sample */
         in_l[t] += l;
@@ -347,6 +362,7 @@ static inline void fx_deposit(fx_rack_t *r, uint8_t dest, uint32_t visiting,
     } else {                            /* backward or self: next sample */
         r->ch[t].acc[0] = fx_clamp(r->ch[t].acc[0] + l);
         r->ch[t].acc[1] = fx_clamp(r->ch[t].acc[1] + rr);
+    }
     }
 }
 
@@ -394,8 +410,7 @@ static inline int fx_rack_has_feedback(const fx_rack_t *r,
 {
     for (uint32_t k = 0; k < n_act; k++) {
         uint8_t d = r->ch[act[k]].dest;
-        if (d >= DEST_FX1 && d < DEST_OUT &&
-            (uint32_t)(d - DEST_FX1) <= act[k])
+        if (DEST_IS_FX(d) && DEST_FX_IDX(d) <= act[k])
             return 1;                   /* backward, or pointing at itself */
     }
     return 0;
