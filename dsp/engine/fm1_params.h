@@ -346,7 +346,11 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * quantised table and modulating it steps rather than glides. */
     [P_FM]         = {"FM",     127,  80, K_BIP,     0},
     [P_MOD]        = {"MOD",    127,  64, K_BIP,     0},
-    [P_DRIFT_RATE] = {"DRIFTRT",127,  20, K_NUM,     0},
+    /* A RATE, shown in hertz, on the LFO's scale -- the two are the same
+     * kind of thing and used to disagree about how to say so. The default
+     * is ~0.06 Hz: one wander every fifteen seconds or so, which is what
+     * makes a drone sound alive rather than detuned. */
+    [P_DRIFT_RATE] = {"DRIFT RATE",127,  20, K_RATE,    0},
     /* OCTAVE is an OFFSET, so it is shown as one. As a plain 0..8 the centre
      * read "OCTAVE 004", which says nothing about being centred and makes
      * "down one" look like a move to 3 rather than to -1. */
