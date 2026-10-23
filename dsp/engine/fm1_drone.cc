@@ -46,7 +46,7 @@ static_assert(G_EN(FM1_MOD_ENVS - 1, G_EN_LOOP) + 1 == G_MIX_BASE,
               "the modulation envelope and mix bus blocks are no longer adjacent");
 static_assert(G_MIX(FM1_MIX_CHANS - 1, G_MIX_PAN) == NGPARAM - 1,
               "the mix bus parameters are not the tail of the global table");
-static_assert(LFO_NMODES - 1 == 5,
+static_assert(LFO_NMODES - 1 == 6,
               "LFO mode count changed -- update G_LFO*_MODE max in fm1_params.h");
 
 /* Detune and drift are applied in 1/128-semitone units, Braids' pitch unit.

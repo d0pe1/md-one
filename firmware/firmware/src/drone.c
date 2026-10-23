@@ -170,7 +170,9 @@ typedef struct {
  * feedback) and its default moved from 0 to 64. A D9 patch's P2 byte means
  * something else now -- 0 was "no feedback" and is now "full inverted" --
  * and a stale patch that still loads is worse than one that is ignored. */
-#define PATCH_MAGIC 0xDA
+/* DA -> DB: SINE went in at the FRONT of the LFO wave list, so every stored
+ * wave byte now names the shape above the one it meant. */
+#define PATCH_MAGIC 0xDB
 
 static void patch_store(patch_t *q)
 {

@@ -20,12 +20,21 @@
 #include "../shared/fm1_fixed.h"
 #include "../shared/fm1_lfo_table.h"
 #include "fm1_params.h"   /* LFP_* */
+/* The oscillator's table, read at a 64th of its resolution -- an LFO
+ * moves a parameter, not a speaker, and 1024 points across a cycle is
+ * already finer than anything downstream can use. Exact beats a
+ * parabola here for the cost of a table we already generate. */
+#include "../shared/fm1_sine_table.h"
 
 /* Order is the order the knob steps through: the four periodic shapes first,
  * then the two random ones. S&H is a MODE rather than a separate module --
  * same cost, one less concept, and it means you can have four of them. */
 enum {
-    LFO_TRI = 0,
+    /* SINE first, and the default. It is the shape an LFO is assumed to be
+     * until told otherwise, and it was missing entirely -- the list went
+     * straight to the triangle, which is the cheap approximation of it. */
+    LFO_SINE = 0,
+    LFO_TRI,
     LFO_SAW,            /* falling */
     LFO_RAMP,           /* rising */
     LFO_SQR,
@@ -36,7 +45,7 @@ enum {
 
 /* Six characters at most, to match the knob column (fm1_pages.h). */
 static const char *const FM1_LFO_MODE_NAME[LFO_NMODES] = {
-    "TRI", "SAW", "RAMP", "SQR", "S&H", "SMOOTH"
+    "SINE", "TRI", "SAW", "RAMP", "SQR", "S&H", "SMOOTH"
 };
 
 #define FM1_LFOS 4
@@ -72,7 +81,7 @@ static inline void fm1_lfo_init(fm1_lfo_t *l, uint32_t seed)
     l->inc = fm1_lfo_inc[0];
     l->offset = 0;
     l->rng = seed ? seed : 0x9E3779B9u;
-    l->mode = LFO_TRI;
+    l->mode = LFO_SINE;
     l->base_inc = l->inc;
     l->jitter = 0;
     l->energy = 127;
@@ -192,6 +201,16 @@ static inline q15_t fm1_lfo_block(fm1_lfo_t *l)
     p = (l->phase + l->offset) >> 16;       /* 0..65535 within the cycle */
 
     switch (l->mode) {
+    case LFO_SINE: {
+        /* p is 0..65535 across the cycle and the table is 1024 points with
+         * a guard entry, so this is an index and a sixth of interpolation.
+         * The guard is what lets the last step reach for t[1024] without a
+         * wrap test. */
+        uint32_t ti = p >> 6, tf = p & 63u;
+        int32_t a = fm1_sine_table[ti], b = fm1_sine_table[ti + 1];
+        v = a + (((b - a) * (int32_t)tf) >> 6);
+        break;
+    }
     case LFO_TRI:
         v = (p < 32768u) ? (int32_t)p * 2 - 32768
                          : 98304 - (int32_t)p * 2;

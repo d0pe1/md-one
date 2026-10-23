@@ -199,8 +199,10 @@ extern "C" {
 #define FD_LFO_RAMP       2
 #define FD_LFO_SQR        3
 #define FD_LFO_SH         4
-#define FD_LFO_SMOOTH     5
-#define FD_LFO_NMODES     6
+/* SINE went in at the front, so every wave index moved up one. */
+#define FD_LFO_SINE       0
+#define FD_LFO_SMOOTH     6
+#define FD_LFO_NMODES     7
 
 /* Routing targets, mirroring the DEST_* enum in fm1_rack.h. One value, one
  * cable. Used by both FD_P_DEST and FD_G_FX(n, FD_G_FX_DEST). */
