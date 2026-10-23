@@ -57,6 +57,20 @@ static const char *const FM1_SLOT_P2[SL_NTYPES] = {
     "----", "BIAS", "RES", "FEEDBK", "BIAS"
 };
 
+/* Whether each is BIPOLAR, which the screen has to know or the control lies.
+ *
+ * A slot's P1 and P2 mean different things per type, and some of those
+ * meanings are centred on 64 while others run from zero. TUNE is an octave
+ * either way, OFFSET is +-24 semitones, BIAS pushes the waveshaper either
+ * side of centre, and FEEDBACK is now signed. Shown as a plain 0..127 all of
+ * them read as if 64 were "half", when for these it is "none" -- and a
+ * player cannot find a centre detent that the display does not admit exists.
+ *
+ * 1 here means bipolar; the UI maps it to K_BIP. Kept as a flag rather than
+ * the kind itself so this header stays free of fm1_params.h. */
+static const uint8_t FM1_SLOT_P1_BIP[SL_NTYPES] = { 0, 0, 1, 1, 0 };
+static const uint8_t FM1_SLOT_P2_BIP[SL_NTYPES] = { 0, 1, 0, 1, 1 };
+
 typedef struct {
     uint8_t     type;
     uint8_t     p1, p2, mix;    /* raw 0..127, as the knobs read */

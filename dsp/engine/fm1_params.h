@@ -344,7 +344,13 @@ static const fm1_pdef_t FM1_PDEF[NPARAM] = {
      * a little open so the instrument breathes out of the box; MOD defaults
      * closed because on the TRIPLE_*, FM and wavetable shapes TIMBRE is a
      * quantised table and modulating it steps rather than glides. */
-    [P_FM]         = {"FM",     127,  80, K_BIP,     0},
+    /* 64, the centre. It was 80, which on a BIPOLAR control means the knob
+     * comes up reading +16 and its detent is not where it starts -- the same
+     * audit that found the comb's missing half flagged this. The boot patch
+     * sets FM per voice anyway, so the musical opening position is
+     * unaffected; this is only what the parameter means with nothing
+     * loaded. */
+    [P_FM]         = {"FM",     127,  64, K_BIP,     0},
     [P_MOD]        = {"MOD",    127,  64, K_BIP,     0},
     /* A RATE, shown in hertz, on the LFO's scale -- the two are the same
      * kind of thing and used to disagree about how to say so. The default

@@ -331,6 +331,39 @@ static void ui_nudge(int id, int32_t delta)
  * byte are driven by one declaration. A parameter cannot be shown one way and
  * automated another.
  */
+/* The KIND a parameter is displayed as, which for the slots and the effect
+ * channels depends on what is loaded in them.
+ *
+ * A control centred on 64 that is drawn as a plain 0..127 reads as if 64
+ * were "half" when it means "none", and a centre detent the display does
+ * not admit exists is a detent nobody can find. The slots' TUNE, OFFSET,
+ * BIAS and FEEDBACK are all centred, and so is an effect's WIDTH. */
+static uint8_t ui_kind(int id, const fm1_pdef_t *d)
+{
+    uint8_t n;
+
+    if (fm1_page_scope(&ui_nav) == SCOPE_VOICE) {
+        for (n = 0; n < FM1_SLOTS; n++) {
+            uint8_t t = fm1_drone_get_param(ui_voice(),
+                            (uint8_t)P_SL(n, P_SL_TYPE)) % SL_NTYPES;
+            if (id == P_SL(n, P_SL_P1))
+                return FM1_SLOT_P1_BIP[t] ? (uint8_t)K_BIP : d->kind;
+            if (id == P_SL(n, P_SL_P2))
+                return FM1_SLOT_P2_BIP[t] ? (uint8_t)K_BIP : d->kind;
+        }
+    } else {
+        for (n = 0; n < FM1_FX_CHANS; n++) {
+            uint8_t t = fm1_drone_get_global(
+                            (uint8_t)FD_G_FX(n, FD_G_FX_TYPE)) % FX_NTYPES;
+            if (id == G_FX(n, G_FX_P1))
+                return FM1_FX_P1_BIP[t] ? (uint8_t)K_BIP : d->kind;
+            if (id == G_FX(n, G_FX_P2))
+                return FM1_FX_P2_BIP[t] ? (uint8_t)K_BIP : d->kind;
+        }
+    }
+    return d->kind;
+}
+
 static void ui_fmt(int id, char *out)
 {
     const fm1_pdef_t *d = fm1_page_def(&ui_nav, id);
@@ -341,7 +374,7 @@ static void ui_fmt(int id, char *out)
     if (!d) { ui_str(out, &i, "--"); out[i] = 0; return; }
     v = ui_get(id);
 
-    switch (d->kind) {
+    switch (ui_kind(id, d)) {
     case K_BIP:
         ui_i16((int32_t)v - 64, out);
         break;
@@ -450,6 +483,18 @@ static const char *ui_label(int id)
                                             (uint8_t)P_SL(sn, P_SL_TYPE));
             if (id == P_SL(sn, P_SL_P1)) return FM1_SLOT_P1[t % SL_NTYPES];
             if (id == P_SL(sn, P_SL_P2)) return FM1_SLOT_P2[t % SL_NTYPES];
+        }
+    }
+
+    /* An effect channel's P1 and P2, same argument: a rate, a drive, a
+     * width or a cutoff depending on what is loaded. */
+    if (fm1_page_scope(&ui_nav) == SCOPE_GLOBAL) {
+        uint8_t fn;
+        for (fn = 0; fn < FM1_FX_CHANS; fn++) {
+            uint8_t t = fm1_drone_get_global(
+                            (uint8_t)FD_G_FX(fn, FD_G_FX_TYPE)) % FX_NTYPES;
+            if (id == G_FX(fn, G_FX_P1)) return FM1_FX_P1[t];
+            if (id == G_FX(fn, G_FX_P2)) return FM1_FX_P2[t];
         }
     }
 

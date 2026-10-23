@@ -30,6 +30,21 @@ static const char *const FM1_FXNAME[FX_NTYPES] = {
     "OFF", "CHORUS", "FOLD", "WIDTH", "LOWPASS", "HIGHPASS"
 };
 
+/* What P1 and P2 mean per effect, and whether they are bipolar.
+ *
+ * Same argument as the slots: "FX1 P1" on a screen is a knob nobody trusts.
+ * WIDTH's P1 is centred -- 64 is the image unchanged, below it narrows
+ * toward mono and above it widens -- and FOLD's P2 pushes the fold either
+ * side of zero. Both read as "half" rather than "none" on a plain scale. */
+static const char *const FM1_FX_P1[FX_NTYPES] = {
+    "----", "RATE", "DRIVE", "WIDTH", "CUTOFF", "CUTOFF"
+};
+static const char *const FM1_FX_P2[FX_NTYPES] = {
+    "----", "DEPTH", "BIAS", "----", "RES", "RES"
+};
+static const uint8_t FM1_FX_P1_BIP[FX_NTYPES] = { 0, 0, 0, 1, 0, 0 };
+static const uint8_t FM1_FX_P2_BIP[FX_NTYPES] = { 0, 0, 1, 0, 0, 0 };
+
 /* Where a node's output goes. One value, one cable. Shared by voices and
  * effect channels -- a voice routes exactly the way an effect does, which is
  * what makes the mental model one thing instead of two.

@@ -15,6 +15,9 @@
  * comment.
  */
 #include "../engine/fm1_pages.h"
+/* For the per-type bipolar flags the UI reads. Both are plain C and
+ * carry no engine state. */
+#include "../engine/fm1_slot.h"
 #include "../engine/fm1_shapes.h"
 
 #include <stdio.h>
@@ -576,10 +579,71 @@ static void test_encoder_feel(void)
     }
 }
 
+
+/* --- bipolar controls, audited -------------------------------------------
+ *
+ * "Bipolar" is three separate claims that can disagree with each other:
+ * the KIND the screen draws, the DEFAULT the parameter comes up at, and
+ * whether the ENGINE treats the centre as neutral. A control that draws a
+ * sign but starts off-centre is lying about where its detent is; one that
+ * is centred in the engine but drawn as a plain 0..127 reads as if 64 were
+ * "half" when it means "none".
+ *
+ * Both were found by hand: P_FM was declared K_BIP with a default of 80,
+ * and the slots' TUNE, OFFSET, BIAS and FEEDBACK were all centred on 64
+ * while being drawn as plain numbers. This is that audit, kept.
+ */
+static int is_bipolar_kind(uint8_t k)
+{
+    return k == K_BIP || k == K_CENTS || k == K_OCT;
+}
+
+static void test_bipolar(void)
+{
+    char detail[256];
+    int bad = 0, n = 0, i;
+
+    detail[0] = 0;
+    for (i = 0; i < NPARAM; i++) {
+        const fm1_pdef_t *d = &FM1_PDEF[i];
+        if (!is_bipolar_kind(d->kind)) continue;
+        n++;
+        /* The centre of 0..max. For an even max (OCTAVE's 0..8) that is
+         * max/2; for an odd one (0..127) the detent is at 64, which is
+         * (max + 1) / 2. */
+        if (d->def == (d->max + 1) / 2 || d->def == d->max / 2) continue;
+        bad++;
+        if (strlen(detail) < 200) { strcat(detail, d->name); strcat(detail, " "); }
+    }
+    for (i = 0; i < NGPARAM; i++) {
+        const fm1_pdef_t *d = &FM1_GDEF[i];
+        if (!is_bipolar_kind(d->kind)) continue;
+        n++;
+        if (d->def == (d->max + 1) / 2 || d->def == d->max / 2) continue;
+        bad++;
+        if (strlen(detail) < 200) { strcat(detail, d->name); strcat(detail, " "); }
+    }
+    printf("    %d parameters declare themselves bipolar\n", n);
+    check(bad == 0, "every bipolar control starts at its centre detent", detail);
+
+    /* The other direction: a per-type control that the engine centres has to
+     * SAY so, or the detent is invisible. These are the flags the UI reads. */
+    check(FM1_SLOT_P1_BIP[SL_COMB] && FM1_SLOT_P1_BIP[SL_RESO],
+          "comb TUNE and reso OFFSET are declared bipolar", 0);
+    check(FM1_SLOT_P2_BIP[SL_COMB] && FM1_SLOT_P2_BIP[SL_DRIVE] &&
+          FM1_SLOT_P2_BIP[SL_FOLD],
+          "comb FEEDBACK and the two BIAS controls are too", 0);
+    check(!FM1_SLOT_P2_BIP[SL_RESO] && !FM1_SLOT_P1_BIP[SL_DRIVE],
+          "and the ones that run from zero are not", 0);
+    check(FM1_FX_P1_BIP[FX_WIDTH] && FM1_FX_P2_BIP[FX_FOLD],
+          "the effect rack agrees about its own two", 0);
+}
+
 int main(void)
 {
     printf("menu and page map\n");
     test_reachable();
+    test_bipolar();
     test_bipolar_centred();
     test_encoder_feel();
     test_shapes();
